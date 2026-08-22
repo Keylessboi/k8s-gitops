@@ -10,8 +10,3 @@ spec:
       max_connections: "100"
   storage:
     size: 1Gi
-  backup:
-    barmanObjectStore:
-      destinationPath: s3://navidrome
-      endpointURL: http://minio.minio.svc.cluster.local
-    retentionPolicy: 30d
