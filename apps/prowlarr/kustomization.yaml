@@ -28,8 +28,8 @@ resources:
 
 helmCharts:
   - name: prowlarr
-    repo: https://k8s-at-home.com/library
-    version: 17.x
+    repo: https://k8s-at-home.github.io/charts
+    version: 16.3.2
     releaseName: prowlarr
     namespace: prowlarr
     valuesInline:

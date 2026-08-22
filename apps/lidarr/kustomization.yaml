@@ -29,8 +29,8 @@ resources:
 
 helmCharts:
   - name: lidarr
-    repo: https://k8s-at-home.com/library
-    version: 5.1.x
+    repo: https://k8s-at-home.github.io/charts
+    version: 5.1.0
     releaseName: lidarr
     namespace: lidarr
     valuesInline:

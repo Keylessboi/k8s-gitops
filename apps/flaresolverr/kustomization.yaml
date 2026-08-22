@@ -28,8 +28,8 @@ resources:
 
 helmCharts:
   - name: flaresolverr
-    repo: https://k8s-at-home.com/library
-    version: 8.x
+    repo: https://k8s-at-home.github.io/charts
+    version: 5.4.2
     releaseName: flaresolverr
     namespace: flaresolverr
     valuesInline:
