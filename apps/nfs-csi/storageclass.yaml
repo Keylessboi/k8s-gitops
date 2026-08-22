@@ -1,0 +1,23 @@
+---
+# Every app uses this class for shared NAS storage.
+# The archive parameter moves deleted claims to a backup folder.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-csi
+  labels:
+    app.kubernetes.io/name: nfs-csi
+    app.kubernetes.io/part-of: homelab
+provisioner: nfs.csi.k8s.io
+parameters:
+  # Set to your NAS IP.
+  server: 192.168.1.10
+  # Set to the export path on the NAS.
+  share: /volume1/k8s
+  subDir: ${pvc.metadata.namespace}/${pvc.metadata.name}
+  onDelete: archive
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+mountOptions:
+  - nfsvers=4.1
+  - hard

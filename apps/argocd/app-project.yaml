@@ -1,0 +1,87 @@
+---
+# One project for every app in this repo. Keeps scope small:
+# only this repo, only the listed namespaces, no blanket cluster writes.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: homelab
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: homelab
+    app.kubernetes.io/part-of: homelab
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Homelab apps on the mixed ARM/x86 cluster.
+  sourceRepos:
+    - https://github.com/YOUR_GITHUB_USER/kubernetes-gitops.git
+    # Helm repos used by app kustomizations.
+    - https://cloudnative-pg.github.io/charts
+    - https://doppler.github.io/helm-charts
+    - https://helm.doppler.com
+    - https://grafana.github.io/helm-charts
+    - https://prometheus-community.github.io/helm-charts
+    - https://metallb.github.io/metallb
+    - https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/charts
+    - https://charts.goauthentik.io
+    - https://immich-app.github.io/immich-charts
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*"
+  # Apps need some cluster-wide objects: namespaces, StorageClasses, CRDs.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: storage.k8s.io
+      kind: StorageClass
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: admissionregistration.k8s.io
+      kind: "*"
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: metallb.io
+      kind: "*"
+    - group: nfs.csi.k8s.io
+      kind: "*"
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: "*"
+    - group: apps
+      kind: "*"
+    - group: batch
+      kind: "*"
+    - group: networking.k8s.io
+      kind: "*"
+    - group: autoscaling
+      kind: "*"
+    - group: policy
+      kind: "*"
+    - group: argoproj.io
+      kind: "*"
+    - group: monitoring.coreos.com
+      kind: "*"
+    - group: storage.k8s.io
+      kind: "*"
+    - group: postgresql.cnpg.io
+      kind: "*"
+    - group: helm.toolkit.fluxcd.io
+      kind: "*"
+    - group: source.toolkit.fluxcd.io
+      kind: "*"
+    - group: kustomize.toolkit.fluxcd.io
+      kind: "*"
+    - group: secrets.doppler.com
+      kind: "*"
+  orphanedResources:
+    warn: true
+  roles:
+    - name: ci
+      description: CI pipeline role
+      policies:
+        - p, proj:homelab:ci, applications, sync, homelab/*, allow
+        - p, proj:homelab:ci, applications, get, homelab/*, allow
+      groups:
+        - ci-robots

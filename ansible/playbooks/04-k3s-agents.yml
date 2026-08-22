@@ -1,0 +1,82 @@
+---
+# 04-k3s-agents.yml — join phones and Pi as k3s agents.
+#
+# Reads K3S_TOKEN and K3S_URL from Doppler.
+# Phones run postmarketOS (doas, not sudo). Pi runs as root.
+#
+#   doppler run --project kubernetes --config prd -- \
+#     ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/04-k3s-agents.yml
+#
+# Rollback: uninstall k3s-agent on each node.
+
+- name: Join k3s agents to the cluster
+  hosts: k3s_agents
+  become: true
+  gather_facts: true
+
+  vars:
+    k3s_token: "{{ lookup('ansible.builtin.env', 'K3S_TOKEN') }}"
+    k3s_url_value: "{{ lookup('ansible.builtin.env', 'K3S_URL') }}"
+
+  pre_tasks:
+    - name: Require K3S_TOKEN and K3S_URL
+      ansible.builtin.assert:
+        that:
+          - k3s_token | length > 0
+          - k3s_url_value | length > 0
+        fail_msg: >-
+          K3S_TOKEN and K3S_URL must come from Doppler.
+          Run under `doppler run -p kubernetes -c prd`.
+
+  tasks:
+    # --- Preflight --------------------------------------------------------
+    - name: Detect OS family
+      ansible.builtin.set_fact:
+        is_postmarketos: "{{ ansible_os_family == 'Arch' or 'postmarketos' in ansible_distribution | default('') | lower }}"
+
+    - name: Use doas on postmarketOS
+      ansible.builtin.set_fact:
+        become_method: doas
+      when: is_postmarketos
+
+    # --- Install k3s agent ------------------------------------------------
+    - name: Install k3s agent
+      block:
+        - name: Install k3s on {{ inventory_hostname }}
+          ansible.builtin.shell: |
+            curl -sfL https://get.k3s.io | \
+              K3S_TOKEN="{{ k3s_token }}" \
+              K3S_URL="{{ k3s_url_value }}" \
+              sh -s - agent
+          args:
+            creates: /usr/local/bin/k3s
+
+        - name: Wait for the agent to register
+          ansible.builtin.command: k3s kubectl get nodes
+          delegate_to: k3s-lxc
+          register: node_check
+          until: inventory_hostname in (node_check.stdout | default(''))
+          retries: 30
+          delay: 10
+
+      rescue:
+        - name: Uninstall k3s agent on failure
+          ansible.builtin.shell: /usr/local/bin/k3s-agent-uninstall.sh
+          args:
+            removes: /usr/local/bin/k3s
+          ignore_errors: true
+
+        - name: Fail after rollback
+          ansible.builtin.fail:
+            msg: "k3s agent install failed on {{ inventory_hostname }}. Agent was uninstalled."
+
+    # --- Verify -----------------------------------------------------------
+    - name: Confirm the node joined the cluster
+      ansible.builtin.command: k3s kubectl get nodes
+      delegate_to: k3s-lxc
+      register: final_nodes
+      changed_when: false
+
+    - name: Show cluster nodes
+      ansible.builtin.debug:
+        msg: "{{ final_nodes.stdout_lines }}"

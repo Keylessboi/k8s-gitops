@@ -1,0 +1,152 @@
+---
+# Monitoring stack. Prometheus scrapes. Grafana shows. Loki stores logs.
+# Alloy ships metrics and logs from every node, Pis included.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  labels:
+    app.kubernetes.io/name: monitoring
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: monitoring
+
+commonLabels:
+  app.kubernetes.io/name: monitoring
+  app.kubernetes.io/part-of: homelab
+  app.kubernetes.io/component: observability
+  app.kubernetes.io/managed-by: argocd
+  homelab/tier: platform
+
+resources:
+  - namespace.yaml
+  - monitoring-pvc.yaml
+
+helmCharts:
+  # Stack: Prometheus, Grafana, Alertmanager, node-exporter.
+  - name: kube-prometheus-stack
+    repo: https://prometheus-community.github.io/helm-charts
+    version: 75.18.1
+    releaseName: kps
+    namespace: monitoring
+    valuesInline:
+      prometheus:
+        prometheusSpec:
+          retention: 7d
+          nodeSelector:
+            homelab/node-class: compute
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          storageSpec:
+            volumeClaimTemplate:
+              metadata:
+                name: prometheus
+              spec:
+                storageClassName: nfs-csi
+                accessModes: [ReadWriteOnce]
+                resources:
+                  requests:
+                    storage: 20Gi
+      grafana:
+        nodeSelector:
+          homelab/node-class: compute
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        persistence:
+          enabled: true
+          storageClassName: nfs-csi
+          size: 2Gi
+          existingClaim: grafana
+      alertmanager:
+        alertmanagerSpec:
+          nodeSelector:
+            homelab/node-class: compute
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+  # Loki: log storage. Small single-binary mode.
+  - name: loki
+    repo: https://grafana.github.io/helm-charts
+    version: 6.30.1
+    releaseName: loki
+    namespace: monitoring
+    valuesInline:
+      deploymentMode: SingleBinary
+      loki:
+        commonConfig:
+          replication_factor: 1
+        schemaConfig:
+          configs:
+            - from: "2025-01-01"
+              store: tsdb
+              object_store: filesystem
+              schema: v13
+              index:
+                prefix: loki_index_
+                period: 24h
+      singleBinary:
+        replicas: 1
+        nodeSelector:
+          homelab/node-class: compute
+        resources:
+          requests:
+            cpu: 50m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        persistence:
+          enabled: true
+          storageClass: nfs-csi
+          size: 10Gi
+      backend:
+        replicas: 0
+      read:
+        replicas: 0
+      write:
+        replicas: 0
+      gateway:
+        replicas: 0
+      monitoring:
+        selfMonitoring:
+          enabled: false
+          grafanaAgent:
+            installOperator: false
+      lokiCanary:
+        enabled: false
+  # Alloy: collector agent on every node. Ships to Prometheus and Loki.
+  - name: alloy
+    repo: https://grafana.github.io/helm-charts
+    version: 0.12.6
+    releaseName: alloy
+    namespace: monitoring
+    valuesInline:
+      alloy:
+        # DaemonSet by default. Runs on Pis with tight limits.
+        tolerations:
+          - operator: Exists
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi

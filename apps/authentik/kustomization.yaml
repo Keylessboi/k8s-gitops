@@ -1,0 +1,79 @@
+---
+# Authentik: SSO for the homelab. Helm release wires server, worker,
+# Postgres, and Redis. Everything stays on compute nodes.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: authentik
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  labels:
+    app.kubernetes.io/name: authentik
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: authentik
+
+commonLabels:
+  app.kubernetes.io/name: authentik
+  app.kubernetes.io/part-of: homelab
+  app.kubernetes.io/component: identity
+  app.kubernetes.io/managed-by: argocd
+  homelab/tier: platform
+
+resources:
+  - namespace.yaml
+
+helmCharts:
+  - name: authentik
+    repo: https://charts.goauthentik.io
+    version: 2025.6.4
+    releaseName: authentik
+    namespace: authentik
+    valuesInline:
+      global:
+        nodeSelector:
+          homelab/node-class: compute
+      authentik:
+        secret_key: "" # TODO: move to DopplerSecret when wired
+        postgresql:
+          host: "" # uses embedded postgresql subchart by default
+      server:
+        replicas: 1
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+      worker:
+        replicas: 1
+        resources:
+          requests:
+            cpu: 50m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+      postgresql:
+        enabled: true
+        primary:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+      redis:
+        enabled: true
+        master:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi

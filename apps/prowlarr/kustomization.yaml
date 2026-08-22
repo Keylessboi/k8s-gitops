@@ -1,0 +1,61 @@
+---
+# Prowlarr: indexer manager for *arr apps. Manages public indexers.
+# Light workload. Runs on a compute node with tight limits.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: prowlarr
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  labels:
+    app.kubernetes.io/name: prowlarr
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: prowlarr
+
+commonLabels:
+  app.kubernetes.io/name: prowlarr
+  app.kubernetes.io/part-of: homelab
+  app.kubernetes.io/component: media
+  app.kubernetes.io/managed-by: argocd
+  homelab/tier: apps
+
+resources:
+  - namespace.yaml
+  - pvc-config.yaml
+
+helmCharts:
+  - name: prowlarr
+    repo: https://k8s-at-home.com/library
+    version: 17.x
+    releaseName: prowlarr
+    namespace: prowlarr
+    valuesInline:
+      image:
+        repository: lscr.io/linuxserver/prowlarr
+        tag: latest
+      env:
+        PUID: "1000"
+        PGID: "1000"
+        TZ: "UTC"
+      nodeSelector:
+        kubernetes.io/os: linux
+        homelab/node-class: compute
+      resources:
+        requests:
+          cpu: 10m
+          memory: 128Mi
+        limits:
+          cpu: 250m
+          memory: 256Mi
+      persistence:
+        config:
+          enabled: true
+          existingClaim: prowlarr-config
+      service:
+        main:
+          ports:
+            http:
+              port: 9696

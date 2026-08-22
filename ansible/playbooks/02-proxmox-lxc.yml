@@ -1,0 +1,106 @@
+---
+# 02-proxmox-lxc.yml — create the k3s server LXC on the Vostro.
+#
+# Calls the Proxmox API from the control host with community.proxmox.
+# Credentials come from Doppler (project proxmox, config prd). Run:
+#
+#   doppler run --project proxmox --config prd -- \
+#     ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/02-proxmox-lxc.yml
+#
+# Rollback: any failure after creation destroys the container it just made.
+
+- name: Create the k3s server LXC on the Vostro
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    pve_host: "{{ lookup('ansible.builtin.env', 'PVE_HOST') }}"
+    pve_token_id: "{{ lookup('ansible.builtin.env', 'PVE_TOKEN_ID') }}"
+    pve_token: "{{ lookup('ansible.builtin.env', 'PVE_TOKEN') }}"
+    pve_root_pw: "{{ lookup('ansible.builtin.env', 'PVE_ROOT_PW') }}"
+
+  pre_tasks:
+    - name: Require Proxmox API credentials from Doppler
+      ansible.builtin.assert:
+        that:
+          - pve_host | length > 0
+          - pve_token_id | length > 0
+          - pve_token | length > 0
+          - pve_root_pw | length > 0
+        fail_msg: >-
+          Run this playbook under `doppler run -p proxmox -c prd`.
+          PVE_HOST, PVE_TOKEN_ID, PVE_TOKEN and PVE_ROOT_PW must be set.
+
+  tasks:
+    - name: Create and start the LXC
+      block:
+        - name: Create the unprivileged k3s LXC
+          community.proxmox.proxmox:
+            api_host: "{{ pve_host }}"
+            api_user: "{{ pve_token_id.split('!')[0] }}"
+            api_token_id: "{{ pve_token_id }}"
+            api_token_secret: "{{ pve_token }}"
+            validate_certs: false
+            node: "{{ hostvars['vostro'].pve_node }}"
+            vmid: "{{ k3s_lxc_vmid }}"
+            hostname: "{{ k3s_lxc_hostname }}"
+            ostemplate: "{{ k3s_lxc_template }}"
+            cores: "{{ k3s_lxc_cores }}"
+            memory: "{{ k3s_lxc_memory }}"
+            disk: "{{ k3s_lxc_disk }}"
+            netif: '{"net0":"{{ k3s_lxc_netif }}"}'
+            features: "{{ k3s_lxc_features }}"
+            unprivileged: true
+            password: "{{ pve_root_pw }}"
+            state: present
+            timeout: 300
+          register: lxc_create
+          no_log: true   # carries the root password
+
+        - name: Start the k3s LXC
+          community.proxmox.proxmox:
+            api_host: "{{ pve_host }}"
+            api_user: "{{ pve_token_id.split('!')[0] }}"
+            api_token_id: "{{ pve_token_id }}"
+            api_token_secret: "{{ pve_token }}"
+            validate_certs: false
+            node: "{{ hostvars['vostro'].pve_node }}"
+            vmid: "{{ k3s_lxc_vmid }}"
+            state: started
+            timeout: 120
+          no_log: true
+
+        - name: Confirm the LXC is running
+          community.proxmox.proxmox:
+            api_host: "{{ pve_host }}"
+            api_user: "{{ pve_token_id.split('!')[0] }}"
+            api_token_id: "{{ pve_token_id }}"
+            api_token_secret: "{{ pve_token }}"
+            validate_certs: false
+            node: "{{ hostvars['vostro'].pve_node }}"
+            vmid: "{{ k3s_lxc_vmid }}"
+            state: current
+          register: lxc_status
+          no_log: true
+          until: lxc_status.msg is search('running')
+          retries: 12
+          delay: 10
+
+      rescue:
+        - name: Roll back — destroy the half-created LXC
+          community.proxmox.proxmox:
+            api_host: "{{ pve_host }}"
+            api_user: "{{ pve_token_id.split('!')[0] }}"
+            api_token_id: "{{ pve_token_id }}"
+            api_token_secret: "{{ pve_token }}"
+            validate_certs: false
+            node: "{{ hostvars['vostro'].pve_node }}"
+            vmid: "{{ k3s_lxc_vmid }}"
+            state: absent
+            force: true
+          no_log: true
+          ignore_errors: true
+
+        - name: Fail after rollback
+          ansible.builtin.fail:
+            msg: "LXC creation failed; VMID {{ k3s_lxc_vmid }} was destroyed. Nothing left behind."

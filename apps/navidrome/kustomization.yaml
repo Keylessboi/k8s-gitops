@@ -1,0 +1,70 @@
+---
+# Navidrome: lightweight music server. Streams from NFS music share.
+# CNPG Cluster holds the metadata database. WAL ships to MinIO.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: navidrome
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  labels:
+    app.kubernetes.io/name: navidrome
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: navidrome
+
+commonLabels:
+  app.kubernetes.io/name: navidrome
+  app.kubernetes.io/part-of: homelab
+  app.kubernetes.io/component: media
+  app.kubernetes.io/managed-by: argocd
+  homelab/tier: apps
+
+resources:
+  - namespace.yaml
+  - cluster.yaml
+  - secret-minio.yaml
+  - pvc-music.yaml
+  - pvc-data.yaml
+
+helmCharts:
+  - name: navidrome
+    repo: https://k8s-at-home.com/library
+    version: 8.x
+    releaseName: navidrome
+    namespace: navidrome
+    valuesInline:
+      image:
+        repository: deluan/navidrome
+        tag: latest
+      env:
+        ND_DBURL: "postgresql://navidrome:changeme@navidrome-db-rw:5432/navidrome?sslmode=disable&search_path=public"
+        ND_LOGLEVEL: "info"
+        ND_SCANSCHEDULE: "1h"
+        ND_SESSIONTIMEOUT: "720h"
+        ND_ENABLESHARING: "true"
+      nodeSelector:
+        kubernetes.io/os: linux
+        homelab/node-class: compute
+      resources:
+        requests:
+          cpu: 25m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      persistence:
+        data:
+          enabled: true
+          existingClaim: navidrome-data
+        music:
+          enabled: true
+          existingClaim: navidrome-music
+          mountPath: /music
+      service:
+        main:
+          ports:
+            http:
+              port: 4533

@@ -1,0 +1,64 @@
+---
+# Kiwix: offline Wikipedia and ZIM file reader.
+# Downloads ZIM files from MinIO on startup. Serves content via HTTP.
+# Light workload. Runs on a compute node.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: kiwix
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  labels:
+    app.kubernetes.io/name: kiwix
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: kiwix
+
+commonLabels:
+  app.kubernetes.io/name: kiwix
+  app.kubernetes.io/part-of: homelab
+  app.kubernetes.io/component: knowledge
+  app.kubernetes.io/managed-by: argocd
+  homelab/tier: apps
+
+resources:
+  - namespace.yaml
+  - pvc-zim.yaml
+
+helmCharts:
+  - name: kiwix-serve
+    repo: https://kiwix.github.io/kiwix-helm
+    version: 1.x
+    releaseName: kiwix
+    namespace: kiwix
+    valuesInline:
+      image:
+        repository: ghcr.io/kiwix/kiwix-serve
+        tag: latest
+      # ZIM files are downloaded from MinIO via an init container.
+      # The PVC holds the local copies.
+      nodeSelector:
+        kubernetes.io/os: linux
+        homelab/node-class: compute
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      persistence:
+        data:
+          enabled: true
+          existingClaim: kiwix-zim
+          mountPath: /data
+      kiwix:
+        url: ""
+        zimFiles: []
+      service:
+        main:
+          ports:
+            http:
+              port: 8080

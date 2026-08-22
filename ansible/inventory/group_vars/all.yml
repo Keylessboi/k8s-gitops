@@ -1,0 +1,61 @@
+# Shared variables for every group.
+# Values come from facts.env (proxmox-128gb-infra) and Doppler.
+# Never store a secret value in this file. Store the NAME, load the value
+# at runtime with `doppler run`.
+
+# --- Cluster identity -------------------------------------------------------
+cluster_name: sandstorm-k3s
+cluster_domain: sandstorm.chat
+
+# --- Doppler ----------------------------------------------------------------
+# Two projects, split by layer. Both use config prd.
+#   proxmox    = infra/host level  (Proxmox API token, ZFS key, borg passphrase)
+#   kubernetes = cluster/app level (K3S_TOKEN, K3S_URL, CNPG/Redis passwords)
+doppler_infra_project: proxmox
+doppler_k8s_project: kubernetes
+doppler_config: prd
+
+# --- Pinned versions --------------------------------------------------------
+k3s_version: v1.31.5+k3s1
+metallb_chart_version: 0.14.9
+nfs_csi_chart_version: v4.9.0
+cnpg_chart_version: 0.23.0
+redis_chart_version: 20.6.2
+
+# --- Network ----------------------------------------------------------------
+gateway_ip: 192.168.1.1
+nas_ip: 192.168.1.67
+vostro_ip: 192.168.1.153
+dl360p_ip: 192.168.1.220
+metallb_pool_start: 192.168.1.240
+metallb_pool_end: 192.168.1.250
+
+# --- k3s server LXC on the Vostro -------------------------------------------
+k3s_lxc_vmid: 200
+k3s_lxc_hostname: k3s-server
+k3s_lxc_template: "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
+k3s_lxc_cores: 2
+k3s_lxc_memory: 8192          # MB — 8GB as specified
+k3s_lxc_disk: "local-lvm:32"
+k3s_lxc_netif: "name=eth0,bridge=vmbr0,ip=dhcp"
+k3s_lxc_lan_ip: ""            # set after the LXC gets its address
+k3s_lxc_features: "nesting=1,keyctl=1"   # required for unprivileged k3s
+
+# Unfilled device IPs. Supply with -e or edit inventory once known.
+phone1_ip: ""
+phone2_ip: ""
+pi_ip: ""
+
+# --- Phone hardening --------------------------------------------------------
+phone_charge_limit: 80        # percent, battery charge_control_end_threshold
+
+# --- NFS CSI ----------------------------------------------------------------
+nfs_share: "/extra/nfs-csi"   # NAS export the CSI driver provisions into
+
+# --- Secrets (NAMES only — values live in Doppler) --------------------------
+# K3S_TOKEN        kubernetes/prd — written by 03, read by 04/05
+# K3S_URL          kubernetes/prd — written by 03, read by 04/05
+# PVE_HOST/PVE_TOKEN_ID/PVE_TOKEN  proxmox/prd — read by 02
+# PVE_ROOT_PW      proxmox/prd — LXC console password, read by 02
+# REDIS_PASSWORD   kubernetes/prd — bootstrapped into a k8s Secret by 06
+# WORKER_SSH_PUBKEY kubernetes/prd — authorized key for phones, used by 05

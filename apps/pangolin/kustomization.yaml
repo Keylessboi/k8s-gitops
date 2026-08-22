@@ -1,0 +1,29 @@
+---
+# Pangolin: self-hosted ingress. Wraps intranet apps behind a tunnel.
+# One deployment plus a PVC for its SQLite data and config.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: pangolin
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  labels:
+    app.kubernetes.io/name: pangolin
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: pangolin
+
+commonLabels:
+  app.kubernetes.io/name: pangolin
+  app.kubernetes.io/part-of: homelab
+  app.kubernetes.io/component: ingress
+  app.kubernetes.io/managed-by: argocd
+  homelab/tier: platform
+
+resources:
+  - namespace.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml

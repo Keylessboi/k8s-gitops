@@ -1,0 +1,59 @@
+---
+# FlareSolverr: proxy server that bypasses Cloudflare protection.
+# Used by Prowlarr and other *arr apps to resolve challenges.
+# Tiny workload. Runs on a compute node.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: flaresolverr
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  labels:
+    app.kubernetes.io/name: flaresolverr
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: flaresolverr
+
+commonLabels:
+  app.kubernetes.io/name: flaresolverr
+  app.kubernetes.io/part-of: homelab
+  app.kubernetes.io/component: utility
+  app.kubernetes.io/managed-by: argocd
+  homelab/tier: apps
+
+resources:
+  - namespace.yaml
+
+helmCharts:
+  - name: flaresolverr
+    repo: https://k8s-at-home.com/library
+    version: 8.x
+    releaseName: flaresolverr
+    namespace: flaresolverr
+    valuesInline:
+      image:
+        repository: ghcr.io/flaresolverr/flaresolverr
+        tag: latest
+      env:
+        TZ: "UTC"
+        LOG_LEVEL: "info"
+      nodeSelector:
+        kubernetes.io/os: linux
+        homelab/node-class: compute
+      resources:
+        requests:
+          cpu: 50m
+          memory: 256Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+      persistence:
+        config:
+          enabled: false
+      service:
+        main:
+          ports:
+            http:
+              port: 8191

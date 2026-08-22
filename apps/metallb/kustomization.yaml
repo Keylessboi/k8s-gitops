@@ -1,0 +1,57 @@
+---
+# MetalLB: bare-metal load balancing. Runs on every node, Pi included.
+# ARM-safe limits. Speaker and controller stay small.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: metallb
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+  labels:
+    app.kubernetes.io/name: metallb
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: metallb-system
+
+commonLabels:
+  app.kubernetes.io/name: metallb
+  app.kubernetes.io/part-of: homelab
+  app.kubernetes.io/component: networking
+  app.kubernetes.io/managed-by: argocd
+  homelab/tier: infrastructure
+
+resources:
+  - namespace.yaml
+  - address-pool.yaml
+
+# helmCharts is the Kustomize way to cut a Helm release in ArgoCD.
+# ArgoCD runs kustomize with --enable-helm. Pin after first sync.
+helmCharts:
+  - name: metallb
+    repo: https://metallb.github.io/metallb
+    version: 0.14.9
+    releaseName: metallb
+    namespace: metallb-system
+    includeCRDs: true
+    valuesInline:
+      controller:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+      speaker:
+        # Speaker is a DaemonSet. It must run on Pis too.
+        tolerations:
+          - operator: Exists
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 150m
+            memory: 128Mi

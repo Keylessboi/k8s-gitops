@@ -1,0 +1,65 @@
+---
+# Lidarr: music library manager. Watches for new releases and organizes them.
+# NFS mount at /music for the library. Keeps music data off the SD card.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: lidarr
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  labels:
+    app.kubernetes.io/name: lidarr
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: lidarr
+
+commonLabels:
+  app.kubernetes.io/name: lidarr
+  app.kubernetes.io/part-of: homelab
+  app.kubernetes.io/component: media
+  app.kubernetes.io/managed-by: argocd
+  homelab/tier: apps
+
+resources:
+  - namespace.yaml
+  - pvc-music.yaml
+  - pvc-config.yaml
+
+helmCharts:
+  - name: lidarr
+    repo: https://k8s-at-home.com/library
+    version: 5.1.x
+    releaseName: lidarr
+    namespace: lidarr
+    valuesInline:
+      image:
+        repository: lscr.io/linuxserver/lidarr
+        tag: latest
+      env:
+        PUID: "1000"
+        PGID: "1000"
+        TZ: "UTC"
+      nodeSelector:
+        kubernetes.io/os: linux
+        homelab/node-class: compute
+      resources:
+        requests:
+          cpu: 25m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      persistence:
+        config:
+          enabled: true
+          existingClaim: lidarr-config
+        music:
+          enabled: true
+          existingClaim: lidarr-music
+      service:
+        main:
+          ports:
+            http:
+              port: 8686

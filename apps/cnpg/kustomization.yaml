@@ -1,0 +1,45 @@
+---
+# CloudNativePG operator. Provides the Cluster CRD the app databases use.
+# The operator is light. It stays on a compute node.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: cnpg
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    app.kubernetes.io/name: cloudnative-pg
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: cnpg-system
+
+commonLabels:
+  app.kubernetes.io/name: cloudnative-pg
+  app.kubernetes.io/part-of: homelab
+  app.kubernetes.io/component: database
+  app.kubernetes.io/managed-by: argocd
+  homelab/tier: platform
+
+resources:
+  - namespace.yaml
+
+helmCharts:
+  - name: cloudnative-pg
+    repo: https://cloudnative-pg.github.io/charts
+    version: 0.23.2
+    releaseName: cnpg
+    namespace: cnpg-system
+    valuesInline:
+      nodeSelector:
+        homelab/node-class: compute
+      resources:
+        requests:
+          cpu: 25m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      monitoring:
+        podMonitorEnabled: true

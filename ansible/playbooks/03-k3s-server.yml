@@ -1,0 +1,112 @@
+---
+# 03-k3s-server.yml — bootstrap the k3s control plane.
+#
+# Runs on the LXC that 02-proxmox-lxc.yml created.
+# Writes K3S_TOKEN and K3S_URL to Doppler so agents can join.
+#
+#   doppler run --project kubernetes --config prd -- \
+#     ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/03-k3s-server.yml
+#
+# Rollback: uninstall k3s and remove the cluster token.
+
+- name: Bootstrap the k3s server
+  hosts: k3s_server
+  become: true
+  gather_facts: true
+
+  vars:
+    k3s_token: "{{ lookup('ansible.builtin.env', 'K3S_TOKEN') | default('', true) }}"
+    k3s_url_value: "{{ lookup('ansible.builtin.env', 'K3S_URL') | default('', true) }}"
+
+  tasks:
+    # --- Preflight --------------------------------------------------------
+    - name: Check that the host is reachable
+      ansible.builtin.ping:
+
+    - name: Verify this is the correct LXC
+      ansible.builtin.assert:
+        that:
+          - ansible_hostname == k3s_lxc_hostname
+        fail_msg: "Expected {{ k3s_lxc_hostname }}, got {{ ansible_hostname }}"
+
+    # --- Install k3s ------------------------------------------------------
+    - name: Install k3s server
+      block:
+        - name: Download and install k3s
+          ansible.builtin.shell: |
+            curl -sfL https://get.k3s.io | \
+              K3S_TOKEN="{{ k3s_token }}" \
+              INSTALL_K3S_EXEC="server" \
+              sh -s - server \
+                --disable=traefik \
+                --write-kubeconfig-mode=644 \
+                --tls-san={{ k3s_lxc_lan_ip }}
+          args:
+            creates: /usr/local/bin/k3s
+
+        - name: Wait for k3s to become ready
+          ansible.builtin.command: k3s kubectl get nodes
+          register: k3s_check
+          until: k3s_check.rc == 0
+          retries: 30
+          delay: 10
+
+        - name: Fetch the cluster token
+          ansible.builtin.shell: cat /var/lib/rancher/k3s/server/node-token
+          register: token_output
+          changed_when: false
+
+        - name: Register the token as a fact
+          ansible.builtin.set_fact:
+            cluster_token: "{{ token_output.stdout }}"
+
+      rescue:
+        - name: Uninstall k3s on failure
+          ansible.builtin.shell: /usr/local/bin/k3s-uninstall.sh
+          args:
+            removes: /usr/local/bin/k3s
+          ignore_errors: true
+
+        - name: Fail after rollback
+          ansible.builtin.fail:
+            msg: "k3s server install failed. k3s was uninstalled."
+
+    # --- Write secrets to Doppler -----------------------------------------
+    - name: Push K3S_TOKEN to Doppler
+      ansible.builtin.shell: >
+        doppler run -p {{ doppler_k8s_project }} -c {{ doppler_config }} -- doppler set
+        K3S_TOKEN="{{ cluster_token }}"
+      delegate_to: localhost
+      become: false
+      when: cluster_token | length > 0
+      no_log: true
+
+    - name: Push K3S_URL to Doppler
+      ansible.builtin.shell: >
+        doppler run -p {{ doppler_k8s_project }} -c {{ doppler_config }} -- doppler set
+        K3S_URL="https://{{ k3s_lxc_lan_ip }}:6443"
+      delegate_to: localhost
+      become: false
+      when: k3s_lxc_lan_ip | length > 0
+      no_log: true
+
+    # --- Persist the kubeconfig -------------------------------------------
+    - name: Ensure kubeconfig directory exists
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        mode: "0700"
+
+    - name: Copy kubeconfig to a stable path
+      ansible.builtin.copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: /etc/rancher/k3s/k3s-admin.yaml
+        remote_src: true
+        mode: "0600"
+        owner: root
+        group: root
+
+    - name: Print the node token for reference
+      ansible.builtin.debug:
+        msg: "Cluster token saved. K3s server is ready."
+      when: cluster_token | length > 0

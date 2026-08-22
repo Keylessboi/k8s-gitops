@@ -1,0 +1,65 @@
+---
+# Root ApplicationSet. Scans apps/* and creates one Application per directory.
+# Apply this once manually. It owns every app from then on.
+# Exclude argocd itself to avoid ArgoCD managing itself.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: cluster-apps
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: cluster-apps
+    app.kubernetes.io/part-of: homelab
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        # Change to your fork of this repo.
+        repoURL: https://github.com/YOUR_GITHUB_USER/kubernetes-gitops.git
+        revision: HEAD
+        directories:
+          - path: apps/*
+          # Do not turn the bootstrap manifests into an Application.
+          # That would make ArgoCD manage itself and fight drift.
+          - path: apps/argocd
+            exclude: true
+  template:
+    metadata:
+      name: "{{.path.basename}}"
+      namespace: argocd
+      labels:
+        app.kubernetes.io/name: "{{.path.basename}}"
+        app.kubernetes.io/part-of: homelab
+        homelab/tier: "{{.path.basename}}"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: homelab
+      source:
+        repoURL: https://github.com/YOUR_GITHUB_USER/kubernetes-gitops.git
+        targetRevision: HEAD
+        path: "{{.path.path}}"
+      destination:
+        server: https://kubernetes.default.svc
+        # The child manifests set their own namespaces.
+        # This value is only a fallback.
+        namespace: "{{.path.basename}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        syncOptions:
+          - CreateNamespace=true
+          - PrunePropagationPolicy=foreground
+          - PruneLast=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 30s
+            factor: 2
+            maxDuration: 5m
+      # Let GPU and PV claims outlive short flaps.
+      revisionHistoryLimit: 10

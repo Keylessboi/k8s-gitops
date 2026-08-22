@@ -1,0 +1,74 @@
+---
+# Immich: photo library. Helm release runs server, worker, and ML.
+# CNPG Cluster holds the catalogue. WAL ships to MinIO.
+# The photo library lives on an NFS claim.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: immich
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  labels:
+    app.kubernetes.io/name: immich
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: immich
+
+commonLabels:
+  app.kubernetes.io/name: immich
+  app.kubernetes.io/part-of: homelab
+  app.kubernetes.io/component: photos
+  app.kubernetes.io/managed-by: argocd
+  homelab/tier: apps
+
+resources:
+  - namespace.yaml
+  - cluster.yaml
+  - secret-minio.yaml
+  - pvc.yaml
+
+helmCharts:
+  - name: immich
+    repo: https://immich-app.github.io/immich-charts
+    version: 0.9.5
+    releaseName: immich
+    namespace: immich
+    valuesInline:
+      env:
+        DB_HOSTNAME: immich-db-rw
+        DB_DATABASE_NAME: immich
+        DB_USERNAME: immich
+        REDIS_HOSTNAME: "" # enable valkey subchart and set host after first sync
+      postgres:
+        enabled: false
+      redis:
+        enabled: true
+        architecture: standalone
+      machine-learning:
+        enabled: true
+        nodeSelector:
+          homelab/node-class: compute
+        resources:
+          requests:
+            cpu: 250m
+            memory: 1Gi
+          limits:
+            cpu: "2"
+            memory: 3Gi
+      server:
+        nodeSelector:
+          homelab/node-class: compute
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            cpu: "1"
+            memory: 2Gi
+      immich:
+        persistence:
+          library:
+            enabled: true
+            existingClaim: immich-library

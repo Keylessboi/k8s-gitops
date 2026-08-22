@@ -1,0 +1,167 @@
+---
+# 05-phone-prep.yml — prepare Pixel phones for k3s agent duty.
+#
+# Sets battery charge limit, installs SSH, configures doas,
+# and installs the k3s agent. Phones run postmarketOS.
+#
+#   doppler run --project kubernetes --config prd -- \
+#     ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/05-phone-prep.yml
+#
+# Rollback: removes SSH keys and uninstalls k3s agent.
+
+- name: Prepare phones for k3s
+  hosts: phones
+  become: true
+  become_method: doas
+  gather_facts: true
+
+  vars:
+    worker_ssh_pubkey: "{{ lookup('ansible.builtin.env', 'WORKER_SSH_PUBKEY') }}"
+
+  pre_tasks:
+    - name: Require WORKER_SSH_PUBKEY from Doppler
+      ansible.builtin.assert:
+        that:
+          - worker_ssh_pubkey | length > 0
+        fail_msg: "WORKER_SSH_PUBKEY must come from Doppler. Run under `doppler run -p kubernetes -c prd`."
+
+  tasks:
+    # --- Battery charge limit ---------------------------------------------
+    - name: Set battery charge limit
+      block:
+        - name: Check if charge control exists
+          ansible.builtin.stat:
+            path: /sys/class/power_supply/BAT0/charge_control_end_threshold
+          register: charge_ctl
+
+        - name: Write charge limit
+          ansible.builtin.copy:
+            content: "{{ phone_charge_limit }}"
+            dest: /sys/class/power_supply/BAT0/charge_control_end_threshold
+            mode: "0644"
+          when: charge_ctl.stat.exists
+          register: charge_write
+
+        - name: Make charge limit persistent across reboots
+          ansible.builtin.copy:
+            content: |
+              [Unit]
+              Description=Set battery charge limit to {{ phone_charge_limit }}%
+              After=multi-user.target
+
+              [Service]
+              Type=oneshot
+              ExecStart=/bin/sh -c 'echo {{ phone_charge_limit }} > /sys/class/power_supply/BAT0/charge_control_end_threshold'
+
+              [Install]
+              WantedBy=multi-user.target
+            dest: /etc/systemd/system/battery-charge-limit.service
+            mode: "0644"
+          when: charge_ctl.stat.exists
+
+        - name: Enable the charge limit service
+          ansible.builtin.systemd:
+            name: battery-charge-limit
+            enabled: true
+            daemon_reload: true
+          when: charge_ctl.stat.exists
+
+      rescue:
+        - name: Warn about battery limit failure
+          ansible.builtin.debug:
+            msg: "Battery charge limit could not be set. Check if BAT0 exists."
+
+    # --- SSH setup --------------------------------------------------------
+    - name: Configure SSH
+      block:
+        - name: Ensure sshd is running
+          ansible.builtin.systemd:
+            name: sshd
+            state: started
+            enabled: true
+
+        - name: Create .ssh directory
+          ansible.builtin.file:
+            path: "/home/{{ ansible_user }}/.ssh"
+            state: directory
+            mode: "0700"
+            owner: "{{ ansible_user }}"
+
+        - name: Deploy worker SSH public key
+          ansible.builtin.authorized_key:
+            user: "{{ ansible_user }}"
+            key: "{{ worker_ssh_pubkey }}"
+            state: present
+            exclusive: false
+
+        - name: Harden sshd config
+          ansible.builtin.lineinfile:
+            path: /etc/ssh/sshd_config
+            regexp: "{{ item.regexp }}"
+            line: "{{ item.line }}"
+            state: present
+          loop:
+            - regexp: "^#?PasswordAuthentication"
+              line: "PasswordAuthentication no"
+            - regexp: "^#?PermitRootLogin"
+              line: "PermitRootLogin prohibit-password"
+          notify: restart sshd
+
+      rescue:
+        - name: Warn about SSH setup failure
+          ansible.builtin.debug:
+            msg: "SSH setup failed. Check sshd status and config."
+
+    # --- doas config ------------------------------------------------------
+    - name: Configure doas for passwordless k3s management
+      block:
+        - name: Ensure doas.conf exists
+          ansible.builtin.copy:
+            content: |
+              permit nopass {{ ansible_user }} as root
+            dest: /etc/doas.conf
+            mode: "0600"
+            owner: root
+            group: root
+
+      rescue:
+        - name: Warn about doas setup failure
+          ansible.builtin.debug:
+            msg: "doas configuration failed."
+
+    # --- k3s agent --------------------------------------------------------
+    - name: Install k3s agent on phone
+      block:
+        - name: Install k3s agent
+          ansible.builtin.shell: |
+            curl -sfL https://get.k3s.io | \
+              K3S_TOKEN="{{ k3s_token }}" \
+              K3S_URL="{{ k3s_url_value }}" \
+              sh -s - agent
+          args:
+            creates: /usr/local/bin/k3s
+
+        - name: Wait for the agent to register
+          ansible.builtin.command: k3s kubectl get nodes
+          delegate_to: k3s-lxc
+          register: node_check
+          until: inventory_hostname in (node_check.stdout | default(''))
+          retries: 30
+          delay: 10
+
+      rescue:
+        - name: Uninstall k3s agent on failure
+          ansible.builtin.shell: /usr/local/bin/k3s-agent-uninstall.sh
+          args:
+            removes: /usr/local/bin/k3s
+          ignore_errors: true
+
+        - name: Fail after rollback
+          ansible.builtin.fail:
+            msg: "k3s agent install failed on {{ inventory_hostname }}. Agent was uninstalled."
+
+  handlers:
+    - name: restart sshd
+      ansible.builtin.systemd:
+        name: sshd
+        state: restarted

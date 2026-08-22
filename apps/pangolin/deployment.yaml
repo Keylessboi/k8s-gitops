@@ -1,0 +1,46 @@
+---
+# Sits on a compute node. Talks to Newt on the outside host.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pangolin
+  namespace: pangolin
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pangolin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pangolin
+        app.kubernetes.io/part-of: homelab
+    spec:
+      nodeSelector:
+        homelab/node-class: compute
+      containers:
+        - name: pangolin
+          image: fosrl/pangolin:latest
+          ports:
+            - name: http
+              containerPort: 3001
+          envFrom:
+            - secretRef:
+                name: homelab-shared
+                optional: true
+          volumeMounts:
+            - name: data
+              mountPath: /app/config/data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: pangolin-data

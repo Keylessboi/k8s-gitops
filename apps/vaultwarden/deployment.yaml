@@ -1,0 +1,53 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vaultwarden
+  namespace: vaultwarden
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vaultwarden
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vaultwarden
+        app.kubernetes.io/part-of: homelab
+    spec:
+      nodeSelector:
+        homelab/node-class: compute
+      containers:
+        - name: vaultwarden
+          image: vaultwarden/server:1.34.3-alpine
+          env:
+            # CNPG creates this secret with the owner password.
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vaultwarden-db-app
+                  key: password
+            # $(DB_PASSWORD) expands because env vars resolve in order.
+            - name: DATABASE_URL
+              value: postgresql://vaultwarden:$(DB_PASSWORD)@vaultwarden-db-rw:5432/vaultwarden
+            - name: WEBSOCKET_ENABLED
+              value: "true"
+          ports:
+            - name: http
+              containerPort: 80
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: vaultwarden-data

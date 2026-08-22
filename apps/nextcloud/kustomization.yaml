@@ -1,0 +1,98 @@
+---
+# Nextcloud: self-hosted cloud storage and office suite.
+# CNPG Cluster holds the database. WAL ships to MinIO.
+# User files live on an NFS claim for persistence.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: nextcloud
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  labels:
+    app.kubernetes.io/name: nextcloud
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: nextcloud
+
+commonLabels:
+  app.kubernetes.io/name: nextcloud
+  app.kubernetes.io/part-of: homelab
+  app.kubernetes.io/component: productivity
+  app.kubernetes.io/managed-by: argocd
+  homelab/tier: apps
+
+resources:
+  - namespace.yaml
+  - cluster.yaml
+  - secret-minio.yaml
+  - pvc-data.yaml
+  - pvc-config.yaml
+
+helmCharts:
+  - name: nextcloud
+    repo: https://nextcloud.github.io/helm/
+    version: 6.x
+    releaseName: nextcloud
+    namespace: nextcloud
+    valuesInline:
+      image:
+        repository: nextcloud
+        tag: stable-fpm
+      nextcloud:
+        host: nextcloud.example.com
+        existingSecret:
+          enabled: true
+          secretName: nextcloud-admin
+          usernameKey: admin-user
+          passwordKey: admin-password
+        phpConfigs:
+          uploadlimit.ini: |
+            upload_max_filesize = 16G
+            post_max_size = 16G
+            max_input_time = 3600
+            max_execution_time = 3600
+      internalDatabase:
+        enabled: false
+      externalDatabase:
+        enabled: true
+        type: postgresql
+        host: nextcloud-db-rw
+        database: nextcloud
+        existingSecret:
+          enabled: true
+          secretName: nextcloud-db
+          usernameKey: db-username
+          passwordKey: db-password
+      persistence:
+        enabled: true
+        existingClaim: nextcloud-data
+        nextcloudData:
+          enabled: true
+          existingClaim: nextcloud-data
+      nodeSelector:
+        kubernetes.io/os: linux
+        homelab/node-class: compute
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          cpu: "2"
+          memory: 2Gi
+      redis:
+        enabled: true
+        master:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+      service:
+        main:
+          ports:
+            http:
+              port: 8080

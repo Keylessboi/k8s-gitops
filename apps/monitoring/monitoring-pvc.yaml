@@ -1,0 +1,18 @@
+---
+# Grafana dashboards and the Loki datasource live here.
+# Prometheus and Loki chart PVCs come from their storageSpec.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: monitoring
+    app.kubernetes.io/part-of: homelab
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 2Gi
