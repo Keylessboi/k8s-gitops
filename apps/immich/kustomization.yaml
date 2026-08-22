@@ -43,9 +43,7 @@ helmCharts:
         REDIS_HOSTNAME: "" # enable valkey subchart and set host after first sync
       postgres:
         enabled: false
-      redis:
-        enabled: true
-        architecture: standalone
+
       machine-learning:
         enabled: true
         nodeSelector:

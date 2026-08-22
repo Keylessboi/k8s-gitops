@@ -137,7 +137,7 @@ helmCharts:
           grafanaAgent:
             installOperator: false
       lokiCanary:
-        enabled: false
+        enabled: true
   # Alloy: collector agent on every node. Ships to Prometheus and Loki.
   - name: alloy
     repo: https://grafana.github.io/helm-charts

@@ -15,14 +15,12 @@ metadata:
 
 namespace: doppler-operator-system
 
-labels:
-  - pairs:
-      app.kubernetes.io/name: doppler-operator
-      app.kubernetes.io/part-of: homelab
-      app.kubernetes.io/component: secrets
-      app.kubernetes.io/managed-by: argocd
-      homelab/tier: platform
-    includeSelectors: true
+commonLabels:
+  app.kubernetes.io/name: doppler-operator
+  app.kubernetes.io/part-of: homelab
+  app.kubernetes.io/component: secrets
+  app.kubernetes.io/managed-by: argocd
+  homelab/tier: platform
 
 resources:
   - namespace.yaml
@@ -34,13 +32,4 @@ helmCharts:
     version: 1.5.7
     releaseName: doppler-operator
     namespace: doppler-operator-system
-    valuesInline:
-      nodeSelector:
-        homelab/node-class: compute
-      resources:
-        requests:
-          cpu: 10m
-          memory: 64Mi
-        limits:
-          cpu: 250m
-          memory: 256Mi
+    values: values.yaml
