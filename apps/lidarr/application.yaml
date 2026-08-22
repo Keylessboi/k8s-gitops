@@ -1,0 +1,26 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lidarr
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: lidarr
+    app.kubernetes.io/part-of: homelab
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Keylessboi/k8s-gitops.git
+    targetRevision: main
+    path: apps/lidarr
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: lidarr
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
