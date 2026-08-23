@@ -25,6 +25,7 @@ commonLabels:
 resources:
   - namespace.yaml
   - monitoring-pvc.yaml
+  - grafana-admin-secret.yaml
 
 helmCharts:
   # Stack: Prometheus, Grafana, Alertmanager, node-exporter.

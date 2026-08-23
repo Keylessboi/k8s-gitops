@@ -32,7 +32,7 @@ spec:
     barmanObjectStore:
       # Point at your MinIO. Create the bucket once by hand.
       destinationPath: s3://cnpg-backups/vaultwarden
-      endpointURL: http://minio.default.svc:9000
+      endpointURL: http://192.168.1.67:9000
       s3Credentials:
         accessKeyId:
           name: minio-creds

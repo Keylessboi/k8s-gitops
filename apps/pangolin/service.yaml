@@ -3,13 +3,18 @@ kind: Service
 metadata:
   name: pangolin
   namespace: pangolin
-  labels:
-    app.kubernetes.io/name: pangolin
-    app.kubernetes.io/part-of: homelab
+  annotations:
+    metallb.universe.tf/address-pool: lan-pool
 spec:
+  type: LoadBalancer
   selector:
-    app.kubernetes.io/name: pangolin
+    app: pangolin
   ports:
-    - name: http
-      port: 3001
-      targetPort: http
+  - name: https
+    port: 443
+    targetPort: 3001
+    protocol: TCP
+  - name: http
+    port: 80
+    targetPort: 3001
+    protocol: TCP

@@ -11,9 +11,9 @@ metadata:
 provisioner: nfs.csi.k8s.io
 parameters:
   # Set to your NAS IP.
-  server: 192.168.1.10
+  server: 192.168.1.67
   # Set to the export path on the NAS.
-  share: /volume1/k8s
+  share: /extra/nfs-csi
   subDir: ${pvc.metadata.namespace}/${pvc.metadata.name}
   onDelete: archive
 reclaimPolicy: Retain

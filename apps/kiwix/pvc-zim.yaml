@@ -5,7 +5,7 @@ metadata:
   namespace: kiwix
 spec:
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
   storageClassName: nfs-csi
   resources:
     requests:

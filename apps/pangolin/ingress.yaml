@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pangolin
+  namespace: pangolin
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - pangolin.sandstorm.chat
+    secretName: pangolin-tls
+  rules:
+  - host: pangolin.sandstorm.chat
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: pangolin
+            port:
+              number: 3001

@@ -36,9 +36,8 @@ helmCharts:
         nodeSelector:
           homelab/node-class: compute
       authentik:
-        secret_key: "" # TODO: move to DopplerSecret when wired
-        postgresql:
-          host: "" # uses embedded postgresql subchart by default
+        # MANAGED_BY_DOPPLER: injected at deploy time via DopplerSecret
+        secret_key: "MANAGED_BY_DOPPLER"
       server:
         replicas: 1
         resources:

@@ -40,7 +40,12 @@ helmCharts:
         repository: deluan/navidrome
         tag: latest
       env:
-        ND_DBURL: "postgresql://navidrome:changeme@navidrome-db-rw:5432/navidrome?sslmode=disable&search_path=public"
+        ND_DBURL:
+          valueFrom:
+            secretKeyRef:
+              name: navidrome-db-app
+              key: password
+              optional: false
         ND_LOGLEVEL: "info"
         ND_SCANSCHEDULE: "1h"
         ND_SESSIONTIMEOUT: "720h"

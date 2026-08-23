@@ -16,7 +16,7 @@ spec:
   generators:
     - git:
         # Change to your fork of this repo.
-        repoURL: https://github.com/YOUR_GITHUB_USER/kubernetes-gitops.git
+        repoURL: https://github.com/Keylessboi/kubernetes-gitops.git
         revision: HEAD
         directories:
           - path: apps/*
@@ -37,7 +37,7 @@ spec:
     spec:
       project: homelab
       source:
-        repoURL: https://github.com/YOUR_GITHUB_USER/kubernetes-gitops.git
+        repoURL: https://github.com/Keylessboi/kubernetes-gitops.git
         targetRevision: HEAD
         path: "{{.path.path}}"
       destination:

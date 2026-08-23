@@ -14,7 +14,7 @@ metadata:
 spec:
   description: Homelab apps on the mixed ARM/x86 cluster.
   sourceRepos:
-    - https://github.com/YOUR_GITHUB_USER/kubernetes-gitops.git
+    - https://github.com/Keylessboi/kubernetes-gitops.git
     # Helm repos used by app kustomizations.
     - https://cloudnative-pg.github.io/charts
     - https://doppler.github.io/helm-charts

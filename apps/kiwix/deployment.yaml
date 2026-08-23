@@ -13,12 +13,22 @@ spec:
       labels:
         app.kubernetes.io/name: kiwix
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
       nodeSelector:
         kubernetes.io/os: linux
         homelab/node-class: compute
       containers:
         - name: kiwix
           image: ghcr.io/kiwix/kiwix-serve:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
           args: ["/data/*.zim"]
           ports:
             - containerPort: 8080

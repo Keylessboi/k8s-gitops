@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/part-of: homelab
 spec:
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
   storageClassName: nfs-csi
   resources:
     requests:
