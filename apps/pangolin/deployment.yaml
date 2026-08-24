@@ -1,5 +1,6 @@
 ---
 # Sits on a compute node. Talks to Newt on the outside host.
+# Crowdsec sidecar handles traefik log analysis and blocking.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -33,6 +34,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /app/config/data
+            - name: data
+              mountPath: /app/config
+            - name: traefik-logs
+              mountPath: /var/log/traefik
           resources:
             requests:
               cpu: 50m
@@ -42,17 +47,50 @@ spec:
               memory: 512Mi
         - name: crowdsec
           image: crowdsecurity/crowdsec:latest
-          args: ["crowdsec", "-config", "/etc/crowdsec/acquis.yaml"]
+          env:
+            - name: COLLECTIONS
+              value: "crowdsecurity/traefik crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules crowdsecurity/linux"
+            - name: DISABLE_ONLINE_API
+              value: "false"
+          ports:
+            - name: lapi
+              containerPort: 8080
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 1
+            failureThreshold: 5
+            successThreshold: 1
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 3
+            successThreshold: 1
           volumeMounts:
-          - name: crowdsec-config
-            mountPath: /etc/crowdsec
+            - name: crowdsec-data
+              mountPath: /var/lib/crowdsec/data
+            - name: crowdsec-config-writable
+              mountPath: /etc/crowdsec
+            - name: crowdsec-config
+              mountPath: /etc/crowdsec/acquis.yaml
+              subPath: acquis.yaml
+            - name: crowdsec-tmp
+              mountPath: /tmp
+            - name: traefik-logs
+              mountPath: /var/log/traefik
+              readOnly: true
           resources:
-            limits:
-              memory: 128Mi
-              cpu: 100m
             requests:
-              memory: 64Mi
               cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -60,3 +98,11 @@ spec:
         - name: crowdsec-config
           configMap:
             name: crowdsec-acquis
+        - name: crowdsec-data
+          emptyDir: {}
+        - name: traefik-logs
+          emptyDir: {}
+        - name: crowdsec-config-writable
+          emptyDir: {}
+        - name: crowdsec-tmp
+          emptyDir: {}

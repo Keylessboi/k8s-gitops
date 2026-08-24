@@ -28,5 +28,6 @@ resources:
   - deployment.yaml
   - service.yaml
   - networkpolicy.yaml
+  - crowdsec-allow-egress.yaml
   - ingress.yaml
   - crowdsec-configmap.yaml

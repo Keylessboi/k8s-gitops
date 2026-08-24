@@ -5,12 +5,8 @@ metadata:
   namespace: pangolin
 data:
   acquis.yaml: |
-    listen_addr: 0.0.0.0:8080
+    source: file
+    filenames:
+      - /var/log/traefik/*.log
     labels:
-      app: pangolin
-    parsers:
-      - crowdsecurity/traefik-logs
-    scenarios:
-      - crowdsecurity/traefik-bad-request
-      - crowdsecurity/traefik-403
-      - crowdsecurity/traefik-limit-req
+      type: traefik
