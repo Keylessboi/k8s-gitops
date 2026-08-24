@@ -59,6 +59,8 @@ helmCharts:
                   requests:
                     storage: 20Gi
       grafana:
+        initChownData:
+          enabled: false
         nodeSelector:
           homelab/node-class: compute
         resources:
