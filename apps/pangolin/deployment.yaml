@@ -22,7 +22,7 @@ spec:
         homelab/node-class: compute
       containers:
         - name: pangolin
-          image: fosrl/pangolin:latest
+          image: fosrl/pangolin:1.19.2
           ports:
             - name: http
               containerPort: 3001

@@ -30,3 +30,4 @@ resources:
   - pvc-zim.yaml
   - deployment.yaml
   - service.yaml
+  - networkpolicy.yaml

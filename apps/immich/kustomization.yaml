@@ -28,6 +28,7 @@ resources:
   - cluster.yaml
   - secret-minio.yaml
   - pvc.yaml
+  - networkpolicy.yaml
 
 helmCharts:
   - name: immich

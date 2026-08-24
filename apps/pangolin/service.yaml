@@ -8,7 +8,7 @@ metadata:
 spec:
   type: LoadBalancer
   selector:
-    app: pangolin
+    app.kubernetes.io/name: pangolin
   ports:
   - name: https
     port: 443

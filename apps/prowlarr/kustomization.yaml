@@ -25,6 +25,7 @@ commonLabels:
 resources:
   - namespace.yaml
   - pvc-config.yaml
+  - networkpolicy.yaml
 
 helmCharts:
   - name: prowlarr
@@ -35,7 +36,7 @@ helmCharts:
     valuesInline:
       image:
         repository: lscr.io/linuxserver/prowlarr
-        tag: latest
+        tag: 2.5.2.5491-ls156
       env:
         PUID: "1000"
         PGID: "1000"

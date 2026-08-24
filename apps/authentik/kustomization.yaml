@@ -24,6 +24,7 @@ commonLabels:
 
 resources:
   - namespace.yaml
+  - networkpolicy.yaml
 
 helmCharts:
   - name: authentik
@@ -57,22 +58,18 @@ helmCharts:
             cpu: 500m
             memory: 1Gi
       postgresql:
-        enabled: true
-        primary:
-          resources:
-            requests:
-              cpu: 50m
-              memory: 256Mi
-            limits:
-              cpu: 500m
-              memory: 1Gi
+        enabled: false
+      externalDatabase:
+        host: "postgresql.authentik.svc.cluster.local"
+        port: 5432
+        name: authentik
+        user: authentik
+        existingSecret: authentik-external-db
+        existingSecretKey: password
       redis:
-        enabled: true
-        master:
-          resources:
-            requests:
-              cpu: 10m
-              memory: 64Mi
-            limits:
-              cpu: 200m
-              memory: 256Mi
+        enabled: false
+      externalRedis:
+        host: "redis.authentik.svc.cluster.local"
+        port: 6379
+        existingSecret: authentik-external-redis
+        existingSecretKey: password

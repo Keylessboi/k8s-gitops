@@ -29,6 +29,7 @@ resources:
   - secret-minio.yaml
   - pvc-data.yaml
   - pvc-config.yaml
+  - networkpolicy.yaml
 
 helmCharts:
   - name: nextcloud

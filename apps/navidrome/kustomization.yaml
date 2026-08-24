@@ -28,6 +28,7 @@ resources:
   - secret-minio.yaml
   - pvc-music.yaml
   - pvc-data.yaml
+  - networkpolicy.yaml
 
 helmCharts:
   - name: navidrome
@@ -38,7 +39,7 @@ helmCharts:
     valuesInline:
       image:
         repository: deluan/navidrome
-        tag: latest
+        tag: 0.63.2
       env:
         ND_DBURL:
           valueFrom:
