@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: default-deny-with-egress
+  name: app-isolation
 spec:
   podSelector: {}
   policyTypes:
@@ -9,7 +9,9 @@ spec:
   - Egress
   ingress:
   - from:
-    - podSelector: {}
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: navidrome
   egress:
   - to:
     - namespaceSelector:
@@ -20,3 +22,10 @@ spec:
       port: 53
     - protocol: TCP
       port: 53
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: default
+    ports:
+    - protocol: TCP
+      port: 443

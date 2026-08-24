@@ -40,7 +40,23 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+        - name: crowdsec
+          image: crowdsecurity/crowdsec:latest
+          args: ["crowdsec", "-config", "/etc/crowdsec/acquis.yaml"]
+          volumeMounts:
+          - name: crowdsec-config
+            mountPath: /etc/crowdsec
+          resources:
+            limits:
+              memory: 128Mi
+              cpu: 100m
+            requests:
+              memory: 64Mi
+              cpu: 50m
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: pangolin-data
+        - name: crowdsec-config
+          configMap:
+            name: crowdsec-acquis

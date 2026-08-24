@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: app-isolation
+  name: default-deny-with-egress
 spec:
   podSelector: {}
   policyTypes:
@@ -11,7 +11,13 @@ spec:
   - from:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: pangolin
+          kubernetes.io/metadata.name: authentik
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: immich
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: nextcloud
   egress:
   - to:
     - namespaceSelector:

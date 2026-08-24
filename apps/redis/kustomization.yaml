@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: redis
+resources:
+  - namespace.yaml
+  - networkpolicy.yaml
+helmCharts:
+  - name: redis
+    repo: https://charts.bitnami.com/bitnami
+    version: 20.6.2
+    releaseName: redis
+    namespace: redis
+    valuesInline:
+      architecture: standalone
+      auth:
+        enabled: true
+        existingSecret: redis-auth
+      master:
+        persistence:
+          size: 2Gi
+        resources:
+          requests:
+            memory: 128Mi
+            cpu: 50m
+          limits:
+            memory: 256Mi
+            cpu: 250m
+      replicaCount: 1
+commonLabels:
+  app.kubernetes.io/name: redis
+  app.kubernetes.io/part-of: homelab
+  homelab/tier: platform

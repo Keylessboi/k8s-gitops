@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: crowdsec-acquis
+  namespace: pangolin
+data:
+  acquis.yaml: |
+    listen_addr: 0.0.0.0:8080
+    labels:
+      app: pangolin
+    parsers:
+      - crowdsecurity/traefik-logs
+    scenarios:
+      - crowdsecurity/traefik-bad-request
+      - crowdsecurity/traefik-403
+      - crowdsecurity/traefik-limit-req
