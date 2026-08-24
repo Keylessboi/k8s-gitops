@@ -1,41 +1,58 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  annotations:
+    argocd.argoproj.io/tracking-id: vaultwarden:networking.k8s.io/NetworkPolicy:vaultwarden/app-isolation
+  labels:
+    app.kubernetes.io/component: secrets-management
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/name: vaultwarden
+    app.kubernetes.io/part-of: homelab
+    homelab/tier: apps
   name: app-isolation
 spec:
-  podSelector: {}
-  policyTypes:
-  - Ingress
-  - Egress
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: pangolin
   egress:
-  - to:
+  - ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+    to:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: kube-system
-    ports:
-    - protocol: UDP
-      port: 53
-    - protocol: TCP
-      port: 53
-  - to:
+  - ports:
+    - port: 443
+      protocol: TCP
+    to:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: default
-    ports:
-    - protocol: TCP
-      port: 443
-  - to:
+  - ports:
+    - port: 443
+      protocol: TCP
+    to:
     - ipBlock:
         cidr: 0.0.0.0/0
         except:
         - 10.0.0.0/8
         - 192.168.0.0/16
         - 172.16.0.0/12
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: pangolin
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
     ports:
-    - protocol: TCP
-      port: 443
+    - port: 80
+      protocol: TCP
+    - port: 443
+      protocol: TCP
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress

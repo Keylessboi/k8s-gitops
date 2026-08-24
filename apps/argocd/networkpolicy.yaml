@@ -10,7 +10,7 @@ spec:
         matchLabels:
           kubernetes.io/metadata.name: kube-system
     ports:
-    - port: 2283
+    - port: 8080
       protocol: TCP
   podSelector: {}
   policyTypes:
