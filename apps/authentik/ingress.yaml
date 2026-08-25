@@ -1,0 +1,28 @@
+---
+# Authentik is the SSO provider for everything else, so this hostname has to
+# resolve and hold a valid certificate before any OIDC flow can work.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: authentik
+  namespace: authentik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - authentik.sandstorm.chat
+      secretName: authentik-tls
+  rules:
+    - host: authentik.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: authentik-server
+                port:
+                  number: 80

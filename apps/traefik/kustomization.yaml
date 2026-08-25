@@ -1,0 +1,75 @@
+---
+# The ingress controller. k3s ships Traefik but this cluster runs with
+# `--disable=traefik`, and Pangolin (which the plan expected to bring its own
+# Traefik via the chart's controller mode) is deployed here as a plain
+# Deployment, so it brings none. The result was a cluster with Ingress objects,
+# TLS annotations and an ingressClassName of "traefik" — and no ingress
+# controller at all. Nothing was reachable.
+#
+# Deployed into kube-system deliberately: every per-app NetworkPolicy in this
+# repo already allows ingress from kube-system, so putting Traefik anywhere
+# else would require editing all of them.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: traefik
+  annotations:
+    # Before cert-manager's HTTP-01 solver and before any app Ingress.
+    argocd.argoproj.io/sync-wave: "-6"
+
+namespace: kube-system
+
+helmCharts:
+  - name: traefik
+    repo: https://traefik.github.io/charts
+    version: 33.2.1
+    releaseName: traefik
+    namespace: kube-system
+    valuesInline:
+      ingressClass:
+        enabled: true
+        isDefaultClass: true
+        name: traefik
+      providers:
+        kubernetesIngress:
+          enabled: true
+          allowExternalNameServices: true
+          # Publish the LoadBalancer address onto every Ingress so
+          # `kubectl get ingress` shows a real ADDRESS.
+          publishedService:
+            enabled: true
+        kubernetesCRD:
+          enabled: true
+          allowCrossNamespace: true
+      service:
+        enabled: true
+        type: LoadBalancer
+        annotations:
+          # Pin the forwarded address. The router sends 80/443 here, so any
+          # other LoadBalancer grabbing this IP would siphon all public traffic.
+          metallb.universe.tf/loadBalancerIPs: 192.168.1.240
+      ports:
+        web:
+          port: 8000
+          exposedPort: 80
+          # Everything is HTTPS; bare HTTP only exists to redirect.
+          redirectTo:
+            port: websecure
+            priority: 10
+        websecure:
+          port: 8443
+          exposedPort: 443
+          tls:
+            enabled: true
+      logs:
+        general:
+          level: INFO
+        access:
+          enabled: true
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi

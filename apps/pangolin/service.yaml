@@ -1,20 +1,22 @@
+---
+# ClusterIP, not LoadBalancer.
+#
+# Pangolin used to hold 192.168.1.240 — the address the router forwards 80/443
+# to — while being a plain Deployment that brings no Traefik and no working
+# TLS. That made it the cluster's public entrypoint by accident while serving
+# nothing. Traefik now owns that address; Pangolin is reached through the
+# ingress like any other app until it is either configured properly or dropped.
 apiVersion: v1
 kind: Service
 metadata:
   name: pangolin
   namespace: pangolin
-  annotations:
-    metallb.universe.tf/address-pool: lan-pool
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   selector:
     app.kubernetes.io/name: pangolin
   ports:
-  - name: https
-    port: 443
-    targetPort: 3001
-    protocol: TCP
-  - name: http
-    port: 80
-    targetPort: 3001
-    protocol: TCP
+    - name: http
+      port: 80
+      targetPort: 3001
+      protocol: TCP

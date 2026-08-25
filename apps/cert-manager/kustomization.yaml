@@ -1,5 +1,55 @@
+---
+# cert-manager. This app previously contained ONLY a namespace and a
+# ClusterIssuer — cert-manager itself was installed nowhere in the repo and
+# nowhere in Ansible. So the cert-manager.io CRDs never existed, the
+# ClusterIssuer could not apply, and every Ingress in the cluster carried a
+# cert-manager.io/cluster-issuer annotation that nothing acted on. No
+# certificate was ever issued.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+metadata:
+  name: cert-manager
+  annotations:
+    # Must exist before any app Ingress asks for a certificate.
+    argocd.argoproj.io/sync-wave: "-5"
+
+namespace: cert-manager
+
 resources:
   - namespace.yaml
   - clusterissuer.yaml
+
+helmCharts:
+  - name: cert-manager
+    repo: https://charts.jetstack.io
+    version: v1.16.3
+    releaseName: cert-manager
+    namespace: cert-manager
+    valuesInline:
+      # `installCRDs` is deprecated; this is the current key.
+      crds:
+        enabled: true
+        keep: true
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+      webhook:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+      cainjector:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi

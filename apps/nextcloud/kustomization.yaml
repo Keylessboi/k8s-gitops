@@ -28,6 +28,7 @@ resources:
   - pvc-data.yaml
   - pvc-config.yaml
   - networkpolicy.yaml
+  - ingress.yaml
   - dopplersecret.yaml
 
 helmCharts:

@@ -1,0 +1,26 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: immich
+  namespace: immich
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - immich.sandstorm.chat
+      secretName: immich-tls
+  rules:
+    - host: immich.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: immich-server
+                port:
+                  number: 2283

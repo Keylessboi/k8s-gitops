@@ -27,6 +27,7 @@ resources:
   - monitoring-pvc.yaml
   - grafana-admin-secret.yaml
   - networkpolicy.yaml
+  - ingress.yaml
 
 helmCharts:
   # Stack: Prometheus, Grafana, Alertmanager, node-exporter.

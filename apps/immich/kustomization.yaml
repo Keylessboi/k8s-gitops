@@ -27,6 +27,7 @@ resources:
   - namespace.yaml
   - pvc.yaml
   - networkpolicy.yaml
+  - ingress.yaml
   - dopplersecret.yaml
 
 patches:

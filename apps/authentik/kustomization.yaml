@@ -25,6 +25,7 @@ commonLabels:
 resources:
   - namespace.yaml
   - networkpolicy.yaml
+  - ingress.yaml
   - dopplersecret.yaml
 
 helmCharts:
