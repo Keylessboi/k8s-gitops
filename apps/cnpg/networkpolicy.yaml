@@ -38,9 +38,18 @@ spec:
         matchLabels:
           kubernetes.io/metadata.name: kube-system
     ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+  # The operator polls each instance's status endpoint on 8000 and connects on
+  # 5432. Restricting this to pods labelled `cnpg.io/cluster: app-databases`
+  # left the operator reporting
+  #   "Instance Status Extraction Error: HTTP communication issue"
+  # against every cluster, which in turn stopped the Database CRs from ever
+  # being applied — so no application database was created.
   - to:
     - namespaceSelector: {}
       podSelector:
         matchLabels:
-          cnpg.io/cluster: app-databases
-    ports: [{protocol: TCP, port: 5432}]
+          cnpg.io/podRole: instance
+    ports:
+    - {protocol: TCP, port: 5432}
+    - {protocol: TCP, port: 8000}
+    - {protocol: TCP, port: 9187}
