@@ -25,8 +25,6 @@ commonLabels:
 
 resources:
   - namespace.yaml
-  - cluster.yaml
-  - secret-minio.yaml
   - pvc-data.yaml
   - pvc-config.yaml
   - networkpolicy.yaml
@@ -41,9 +39,12 @@ helmCharts:
     valuesInline:
       image:
         repository: nextcloud
-        tag: stable-fpm
+        # `stable-fpm` is FastCGI on :9000 and needs a separate nginx sidecar
+        # that was never enabled, so nothing ever served HTTP. `stable` is
+        # apache-based and serves directly.
+        tag: stable
       nextcloud:
-        host: nextcloud.example.com
+        host: nextcloud.sandstorm.chat
         existingSecret:
           enabled: true
           secretName: nextcloud-admin
@@ -60,13 +61,17 @@ helmCharts:
       externalDatabase:
         enabled: true
         type: postgresql
-        host: nextcloud-db-rw
+        # Central Postgres, not a per-app cluster.
+        host: app-databases-rw.databases.svc.cluster.local
         database: nextcloud
         existingSecret:
           enabled: true
-          secretName: nextcloud-db
-          usernameKey: db-username
-          passwordKey: db-password
+          # Doppler-managed. The old value pointed at a `nextcloud-db` secret
+          # with keys db-username/db-password that nothing ever created, while
+          # CNPG emits username/password — so auth could never have worked.
+          secretName: nextcloud-db-credentials
+          usernameKey: username
+          passwordKey: password
       persistence:
         enabled: true
         existingClaim: nextcloud-data
@@ -83,16 +88,15 @@ helmCharts:
         limits:
           cpu: "2"
           memory: 2Gi
+      # Use the ONE shared Redis instead of standing up a second one here.
       redis:
+        enabled: false
+      externalRedis:
         enabled: true
-        master:
-          resources:
-            requests:
-              cpu: 10m
-              memory: 64Mi
-            limits:
-              cpu: 200m
-              memory: 256Mi
+        host: redis-master.redis.svc.cluster.local
+        port: 6379
+        existingSecret: redis-auth
+        existingSecretPasswordKey: redis-password
       service:
         main:
           ports:

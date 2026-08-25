@@ -25,8 +25,6 @@ commonLabels:
 
 resources:
   - namespace.yaml
-  - cluster.yaml
-  - secret-minio.yaml
   - pvc.yaml
   - networkpolicy.yaml
   - dopplersecret.yaml
@@ -45,12 +43,28 @@ helmCharts:
     namespace: immich
     valuesInline:
       env:
-        DB_HOSTNAME: immich-db-rw
+        # Central Postgres, not a per-app cluster.
+        DB_HOSTNAME: app-databases-rw.databases.svc.cluster.local
         DB_DATABASE_NAME: immich
         DB_USERNAME: immich
-        REDIS_HOSTNAME: "" # enable valkey subchart and set host after first sync
+        DB_PASSWORD:
+          valueFrom:
+            secretKeyRef:
+              name: immich-db-credentials
+              key: password
+        # Shared Redis. This was an empty string, which alone stopped Immich
+        # from ever starting.
+        REDIS_HOSTNAME: redis-master.redis.svc.cluster.local
+        REDIS_PASSWORD:
+          valueFrom:
+            secretKeyRef:
+              name: redis-auth
+              key: redis-password
       postgres:
         enabled: false
+      # No `redis:` key here — the chart removed that subchart in 0.10.0 and
+      # now hard-fails if it is present at all. Redis is wired purely through
+      # the REDIS_HOSTNAME / REDIS_PASSWORD env vars above.
 
       machine-learning:
         enabled: true

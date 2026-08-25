@@ -60,17 +60,20 @@ helmCharts:
             memory: 1Gi
       postgresql:
         enabled: false
+      # Both hosts previously named Services in the authentik namespace that do
+      # not exist and never did (there is no CNPG cluster here, and Redis lives
+      # in the redis namespace), so Authentik could never reach either backend.
       externalDatabase:
-        host: "postgresql.authentik.svc.cluster.local"
+        host: "app-databases-rw.databases.svc.cluster.local"
         port: 5432
         name: authentik
         user: authentik
-        existingSecret: authentik-external-db
+        existingSecret: authentik-db-credentials
         existingSecretKey: password
       redis:
         enabled: false
       externalRedis:
-        host: "redis.authentik.svc.cluster.local"
+        host: "redis-master.redis.svc.cluster.local"
         port: 6379
-        existingSecret: authentik-external-redis
-        existingSecretKey: password
+        existingSecret: redis-auth
+        existingSecretKey: redis-password

@@ -33,15 +33,16 @@ spec:
             capabilities:
               drop: ["ALL"]
           env:
-            # CNPG creates this secret with the owner password.
+            # Password for the `vaultwarden` role on the central cluster.
+            # Synced from Doppler; the per-app CNPG cluster is gone.
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: vaultwarden-db-app
+                  name: vaultwarden-db-credentials
                   key: password
             # $(DB_PASSWORD) expands because env vars resolve in order.
             - name: DATABASE_URL
-              value: postgresql://vaultwarden:$(DB_PASSWORD)@vaultwarden-db-rw:5432/vaultwarden
+              value: postgresql://vaultwarden:$(DB_PASSWORD)@app-databases-rw.databases.svc.cluster.local:5432/vaultwarden
             - name: WEBSOCKET_ENABLED
               value: "true"
           ports:
