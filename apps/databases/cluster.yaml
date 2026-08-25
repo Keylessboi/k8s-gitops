@@ -18,9 +18,10 @@ spec:
   imageName: ghcr.io/tensorchord/cloudnative-vectorchord:16-0.4.1
   storage:
     size: 20Gi
-    # Was unset, which silently fell through to the local-path default.
-    # Made explicit so it is a decision rather than an accident.
-    storageClassName: local-path
+    # CNPG's field is `storageClass`, not the `storageClassName` used by a
+    # plain PVC. Was unset, which silently fell through to the local-path
+    # default; made explicit so it is a decision rather than an accident.
+    storageClass: local-path
   postgresql:
     parameters:
       # REQUIRED by the VectorChord image. Without it Immich's migrations
