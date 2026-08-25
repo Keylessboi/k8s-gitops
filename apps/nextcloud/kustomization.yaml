@@ -80,9 +80,14 @@ helmCharts:
           secretName: nextcloud-db-credentials
           usernameKey: username
           passwordKey: password
+      # Two DISTINCT claims. Pointing both at nextcloud-data mounted the same
+      # RWX volume twice in one pod, and the CSI node driver deadlocked on it:
+      # the pod sat in ContainerCreating for 20+ minutes with
+      # "unmounted volumes=[nextcloud-main] ... context deadline exceeded".
+      # nextcloud-config existed already but was never mounted by anything.
       persistence:
         enabled: true
-        existingClaim: nextcloud-data
+        existingClaim: nextcloud-config
         nextcloudData:
           enabled: true
           existingClaim: nextcloud-data
