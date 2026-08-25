@@ -31,3 +31,4 @@ resources:
   - deployment.yaml
   - service.yaml
   - networkpolicy.yaml
+  - dopplersecret.yaml

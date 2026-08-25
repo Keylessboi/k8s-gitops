@@ -31,3 +31,4 @@ resources:
   - crowdsec-allow-egress.yaml
   - ingress.yaml
   - crowdsec-configmap.yaml
+  - dopplersecret.yaml

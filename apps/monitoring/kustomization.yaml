@@ -38,7 +38,7 @@ helmCharts:
     valuesInline:
       prometheus:
         prometheusSpec:
-          retention: 7d
+          retention: 15d
           nodeSelector:
             homelab/node-class: compute
           resources:
@@ -59,6 +59,8 @@ helmCharts:
                   requests:
                     storage: 20Gi
       grafana:
+        admin:
+          existingSecret: grafana-admin
         initChownData:
           enabled: false
         nodeSelector:
@@ -165,6 +167,22 @@ helmCharts:
     namespace: monitoring
     valuesInline:
       alloy:
+        configMap:
+          create: true
+          content: |
+            discovery.kubernetes "pods" {
+              role = "pod"
+            }
+            loki.source.kubernetes "pods" {
+              targets    = discovery.kubernetes.pods.targets
+              forward_to = [loki.write.default.receiver]
+            }
+            loki.write "default" {
+              endpoint {
+                url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+              }
+            }
+            logging { level = "warn" }
         # DaemonSet by default. Runs on Pis with tight limits.
         tolerations:
           - operator: Exists

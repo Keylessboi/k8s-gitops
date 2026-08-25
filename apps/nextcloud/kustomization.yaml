@@ -30,6 +30,7 @@ resources:
   - pvc-data.yaml
   - pvc-config.yaml
   - networkpolicy.yaml
+  - dopplersecret.yaml
 
 helmCharts:
   - name: nextcloud

@@ -29,6 +29,7 @@ resources:
   - pvc-music.yaml
   - pvc-data.yaml
   - networkpolicy.yaml
+  - dopplersecret.yaml
 
 helmCharts:
   - name: navidrome

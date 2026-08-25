@@ -29,6 +29,7 @@ resources:
   - secret-minio.yaml
   - pvc.yaml
   - networkpolicy.yaml
+  - dopplersecret.yaml
 
 patches:
   - path: patch-service-selector.yaml
