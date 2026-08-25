@@ -1,0 +1,16 @@
+---
+# Stable name for consumers: redis-master.redis.svc.cluster.local:6379
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-master
+  namespace: redis
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: cache
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis

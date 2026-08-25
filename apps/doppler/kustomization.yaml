@@ -21,24 +21,19 @@ commonLabels:
   app.kubernetes.io/managed-by: argocd
   homelab/tier: platform
 
+# The chart creates the doppler-operator-system Namespace itself, so declaring
+# it here too makes kustomize fail with a duplicate-resource merge error.
 resources:
-  - namespace.yaml
   - dopplersecret.yaml
   - networkpolicy.yaml
 
 helmCharts:
+  # NOTE: this chart ships NO values.yaml. Supplying valuesInline makes kustomize
+  # fail with "could not parse values file into rnode: EOF", which is what kept
+  # the operator from ever rendering. It exposes no nodeSelector/resources knobs,
+  # so there is nothing to configure here.
   - name: doppler-kubernetes-operator
     repo: https://helm.doppler.com
     version: 1.5.7
     releaseName: doppler-operator
     namespace: doppler-operator-system
-    valuesInline:
-      nodeSelector:
-        homelab/node-class: compute
-      resources:
-        requests:
-          cpu: 10m
-          memory: 64Mi
-        limits:
-          cpu: 250m
-          memory: 256Mi

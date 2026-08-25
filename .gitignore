@@ -1,0 +1,4 @@
+
+# Helm charts pulled locally by `kustomize build --enable-helm` during testing.
+# ArgoCD pulls these itself at render time; they must never be committed.
+apps/*/charts/
