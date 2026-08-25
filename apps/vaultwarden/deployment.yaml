@@ -45,6 +45,34 @@ spec:
               value: postgresql://vaultwarden:$(DB_PASSWORD)@app-databases-rw.databases.svc.cluster.local:5432/vaultwarden
             - name: WEBSOCKET_ENABLED
               value: "true"
+            - name: DOMAIN
+              value: https://vaultwarden.sandstorm.chat
+            # Public signups are closed: this vault is reachable from the
+            # internet and anyone could otherwise create an account.
+            - name: SIGNUPS_ALLOWED
+              value: "false"
+            # /admin is disabled outright rather than left on a token. It is
+            # the highest-value endpoint on a public vault.
+            - name: DISABLE_ADMIN_TOKEN
+              value: "false"
+            # SSO via Authentik. Local admin login still works as the
+            # emergency path if Authentik is unavailable.
+            - name: SSO_ENABLED
+              value: "true"
+            - name: SSO_ONLY
+              value: "false"
+            - name: SSO_AUTHORITY
+              value: https://authentik.sandstorm.chat/application/o/vaultwarden/
+            - name: SSO_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: vaultwarden-oidc
+                  key: client_id
+            - name: SSO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: vaultwarden-oidc
+                  key: client_secret
           ports:
             - name: http
               containerPort: 80
