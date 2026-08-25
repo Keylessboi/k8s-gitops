@@ -37,9 +37,17 @@ helmCharts:
       global:
         nodeSelector:
           homelab/node-class: compute
-      authentik:
-        # MANAGED_BY_DOPPLER: injected at deploy time via DopplerSecret
-        secret_key: "MANAGED_BY_DOPPLER"
+        # The secret key signs every session and token. It used to be set
+        # inline to the literal string "MANAGED_BY_DOPPLER" — no DopplerSecret
+        # ever replaced it, so that string WAS the signing key. Injected from a
+        # real generated secret instead.
+        env:
+          - name: AUTHENTIK_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: authentik-secret-key
+                key: secret_key
+      authentik: {}
       server:
         replicas: 1
         resources:
