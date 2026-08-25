@@ -58,6 +58,16 @@ spec:
         - 192.168.0.0/16
         - 172.16.0.0/12
   ingress:
+  # cert-manager creates HTTP-01 solver pods in this namespace on demand and
+  # Traefik must reach them on 8089. Without this the ACME challenge 502s and
+  # no certificate is ever issued for this host.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 8089
+      protocol: TCP
   - from:
     - namespaceSelector:
         matchLabels:
