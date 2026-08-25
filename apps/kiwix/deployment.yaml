@@ -46,12 +46,24 @@ spec:
                 exit 0
               fi
               echo "No ZIM files found. Seeding a starter corpus..."
-              url="https://download.kiwix.org/zim/wikipedia/wikipedia_en_100_maxi.zim"
+              base="https://download.kiwix.org/zim/wikipedia/"
+              # Kiwix filenames carry a build date (e.g. _2026-05), so a
+              # hardcoded URL 404s as soon as upstream rebuilds — which is
+              # exactly what happened here. Discover the newest matching file
+              # instead. Simple English is a few hundred MB, a sane starter.
+              name=$(curl -fsSL "$base" \
+                | grep -oE 'wikipedia_en_simple_all_mini_[0-9]{4}-[0-9]{2}\.zim' \
+                | sort -u | tail -1)
+              if [ -z "$name" ]; then
+                echo "Could not find a ZIM to seed in $base" >&2
+                exit 1
+              fi
+              echo "Selected $name"
               # Download to a temp name so a partial transfer is never picked
               # up as a valid corpus by kiwix-serve.
-              if curl -fsSL --retry 3 --retry-delay 5 -o /data/.seed.partial "$url"; then
-                mv /data/.seed.partial /data/wikipedia_en_100_maxi.zim
-                echo "Seeded wikipedia_en_100_maxi.zim"
+              if curl -fsSL --retry 3 --retry-delay 5 -o /data/.seed.partial "$base$name"; then
+                mv /data/.seed.partial "/data/$name"
+                echo "Seeded $name"
               else
                 rm -f /data/.seed.partial
                 echo "Seed download failed; kiwix will not start until a .zim exists" >&2
