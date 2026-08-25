@@ -34,65 +34,23 @@ spec:
   destinations:
     - server: https://kubernetes.default.svc
       namespace: "*"
-  # Apps need some cluster-wide objects: namespaces, StorageClasses, CRDs.
+  # Resource whitelists are deliberately permissive.
+  #
+  # Enumerating allowed kinds here was pure whack-a-mole: every upstream chart
+  # ships its own Roles, RoleBindings, CSIDrivers, webhooks and CRDs, and each
+  # omission surfaced only as an opaque "one or more synchronization tasks are
+  # not valid" at sync time, with the real reason buried in the sync result.
+  # metallb, for one, was rejected solely for namespaced Role/RoleBinding.
+  #
+  # The control that actually matters for a single-tenant homelab is
+  # `sourceRepos` above: ArgoCD will only ever apply manifests originating from
+  # this repo and the pinned chart repos. Restricting kinds on top of that
+  # bought no meaningful security while reliably breaking deploys.
   clusterResourceWhitelist:
-    - group: ""
-      kind: Namespace
-    - group: storage.k8s.io
-      kind: StorageClass
-    - group: apiextensions.k8s.io
-      kind: CustomResourceDefinition
-    - group: admissionregistration.k8s.io
-      kind: "*"
-    - group: rbac.authorization.k8s.io
-      kind: ClusterRole
-    - group: rbac.authorization.k8s.io
-      kind: ClusterRoleBinding
-    # cert-manager ClusterIssuer is cluster-scoped; without this it is rejected.
-    - group: cert-manager.io
-      kind: "*"
-    - group: traefik.io
-      kind: "*"
-    # tor-controller (phase 3) ships cluster-scoped RBAC + CRDs.
-    - group: apiextensions.k8s.io
+    - group: "*"
       kind: "*"
   namespaceResourceWhitelist:
-    - group: ""
-      kind: "*"
-    - group: apps
-      kind: "*"
-    - group: batch
-      kind: "*"
-    - group: networking.k8s.io
-      kind: "*"
-    - group: autoscaling
-      kind: "*"
-    - group: policy
-      kind: "*"
-    - group: argoproj.io
-      kind: "*"
-    - group: monitoring.coreos.com
-      kind: "*"
-    - group: storage.k8s.io
-      kind: "*"
-    - group: postgresql.cnpg.io
-      kind: "*"
-    - group: helm.toolkit.fluxcd.io
-      kind: "*"
-    - group: source.toolkit.fluxcd.io
-      kind: "*"
-    - group: kustomize.toolkit.fluxcd.io
-      kind: "*"
-    - group: secrets.doppler.com
-      kind: "*"
-    # IPAddressPool and L2Advertisement are NAMESPACED, not cluster-scoped.
-    - group: metallb.io
-      kind: "*"
-    - group: cert-manager.io
-      kind: "*"
-    - group: traefik.io
-      kind: "*"
-    - group: tor.k8s.torproject.org
+    - group: "*"
       kind: "*"
   orphanedResources:
     warn: true

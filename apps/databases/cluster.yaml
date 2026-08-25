@@ -1,8 +1,10 @@
 ---
-# Central CNPG cluster for all application databases.
-# Replaces per-app clusters in vaultwarden, immich, nextcloud namespaces.
-# VectorChord image required for Immich vector search.
-# WAL files and base backups go to MinIO over S3.
+# THE Postgres cluster. One CNPG cluster serves every app that needs SQL —
+# there are no per-app clusters. Each app gets its own role and its own
+# database, so a compromised app cannot read another app's data (a shared
+# app_user would have let any app read the Vaultwarden database).
+#
+# The VectorChord image is required for Immich's vector search.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -16,6 +18,15 @@ spec:
   imageName: ghcr.io/tensorchord/cloudnative-vectorchord:16-0.4.1
   storage:
     size: 20Gi
+    # Was unset, which silently fell through to the local-path default.
+    # Made explicit so it is a decision rather than an accident.
+    storageClassName: local-path
+  postgresql:
+    parameters:
+      # REQUIRED by the VectorChord image. Without it Immich's migrations
+      # crash-loop on startup. This fix was applied live in an earlier session
+      # and never committed, so selfHeal kept reverting it.
+      shared_preload_libraries: vchord.so
   resources:
     requests:
       cpu: 100m
@@ -23,6 +34,30 @@ spec:
     limits:
       cpu: "1"
       memory: 2Gi
+  # One login role per app. Passwords come from Doppler-managed secrets;
+  # nothing is inlined here.
+  managed:
+    roles:
+      - name: immich
+        ensure: present
+        login: true
+        passwordSecret:
+          name: immich-db-credentials
+      - name: nextcloud
+        ensure: present
+        login: true
+        passwordSecret:
+          name: nextcloud-db-credentials
+      - name: authentik
+        ensure: present
+        login: true
+        passwordSecret:
+          name: authentik-db-credentials
+      - name: vaultwarden
+        ensure: present
+        login: true
+        passwordSecret:
+          name: vaultwarden-db-credentials
   backup:
     retentionPolicy: 7d
     barmanObjectStore:

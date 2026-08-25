@@ -1,0 +1,48 @@
+---
+# One database per app, each owned by that app's role.
+# Declarative via the CNPG Database CRD, which replaces the plan's
+# scripts/11-cnpg-databases.sh (that script was never written, which is why no
+# app database ever existed — the cluster only ever had the default `app` db).
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: immich
+  namespace: databases
+spec:
+  name: immich
+  owner: immich
+  cluster:
+    name: app-databases
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: nextcloud
+  namespace: databases
+spec:
+  name: nextcloud
+  owner: nextcloud
+  cluster:
+    name: app-databases
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: authentik
+  namespace: databases
+spec:
+  name: authentik
+  owner: authentik
+  cluster:
+    name: app-databases
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: vaultwarden
+  namespace: databases
+spec:
+  name: vaultwarden
+  owner: vaultwarden
+  cluster:
+    name: app-databases
