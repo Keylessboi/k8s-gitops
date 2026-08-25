@@ -42,24 +42,34 @@ helmCharts:
     releaseName: immich
     namespace: immich
     valuesInline:
-      env:
-        # Central Postgres, not a per-app cluster.
-        DB_HOSTNAME: app-databases-rw.databases.svc.cluster.local
-        DB_DATABASE_NAME: immich
-        DB_USERNAME: immich
-        DB_PASSWORD:
-          valueFrom:
-            secretKeyRef:
-              name: immich-db-credentials
-              key: password
-        # Shared Redis. This was an empty string, which alone stopped Immich
-        # from ever starting.
-        REDIS_HOSTNAME: redis-master.redis.svc.cluster.local
-        REDIS_PASSWORD:
-          valueFrom:
-            secretKeyRef:
-              name: redis-auth
-              key: redis-password
+      # This chart is built on the bjw-s common library, so env belongs under
+      # controllers.main.containers.main.env. A top-level `env:` block — which
+      # is what used to be here — is silently ignored, leaving the chart's
+      # defaults in place. That is why immich-server kept dying with
+      # "getaddrinfo ENOTFOUND database": it was still resolving the chart's
+      # default hostname.
+      controllers:
+        main:
+          containers:
+            main:
+              env:
+                # Central Postgres, not a per-app cluster.
+                DB_HOSTNAME: app-databases-rw.databases.svc.cluster.local
+                DB_DATABASE_NAME: immich
+                DB_USERNAME: immich
+                DB_PASSWORD:
+                  valueFrom:
+                    secretKeyRef:
+                      name: immich-db-credentials
+                      key: password
+                # Shared Redis. This was an empty string, which alone stopped
+                # Immich from ever starting.
+                REDIS_HOSTNAME: redis-master.redis.svc.cluster.local
+                REDIS_PASSWORD:
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-auth
+                      key: redis-password
       postgres:
         enabled: false
       # No `redis:` key here — the chart removed that subchart in 0.10.0 and
