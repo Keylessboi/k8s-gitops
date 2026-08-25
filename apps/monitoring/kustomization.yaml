@@ -25,7 +25,6 @@ commonLabels:
 resources:
   - namespace.yaml
   - monitoring-pvc.yaml
-  - grafana-admin-secret.yaml
   - networkpolicy.yaml
   - ingress.yaml
 
