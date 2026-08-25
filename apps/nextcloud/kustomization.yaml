@@ -53,6 +53,20 @@ helmCharts:
         tag: stable
       nextcloud:
         host: nextcloud.sandstorm.chat
+        # TLS terminates at Traefik, so Nextcloud only ever sees plain HTTP and
+        # was redirecting to http:// URLs. These make it aware it is behind a
+        # TLS proxy; without them login redirects downgrade to HTTP.
+        extraEnv:
+          - name: OVERWRITEPROTOCOL
+            value: https
+          - name: OVERWRITEHOST
+            value: nextcloud.sandstorm.chat
+          - name: OVERWRITECLIURL
+            value: https://nextcloud.sandstorm.chat
+          # Traefik's pod CIDR - required before Nextcloud will honour
+          # X-Forwarded-* headers at all.
+          - name: TRUSTED_PROXIES
+            value: 10.42.0.0/16
         existingSecret:
           enabled: true
           secretName: nextcloud-admin
