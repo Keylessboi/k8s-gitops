@@ -31,6 +31,20 @@ helmCharts:
       crds:
         enabled: true
         keep: true
+      global:
+        # cert-manager defaults its leader-election lease to kube-system and
+        # creates the matching Role there. This kustomization sets
+        # `namespace: cert-manager`, which rewrites that Role into
+        # cert-manager — so cainjector kept asking for a lease in kube-system
+        # where it had no permissions:
+        #   leases.coordination.k8s.io "cert-manager-cainjector-leader-election"
+        #   is forbidden
+        # It therefore never injected the webhook CA bundle, and every
+        # cert-manager API call failed with "x509: certificate signed by
+        # unknown authority". Point leader election at the namespace the Role
+        # actually lands in.
+        leaderElection:
+          namespace: cert-manager
       resources:
         requests:
           cpu: 10m
