@@ -21,15 +21,59 @@ spec:
       nodeSelector:
         kubernetes.io/os: linux
         homelab/node-class: compute
+      # Kiwix-serve exits immediately if it is handed a glob that matches
+      # nothing, so an empty volume means a permanent CrashLoopBackOff. The
+      # kustomization claimed ZIM files were fetched from MinIO on startup, but
+      # no init container and no download logic ever existed.
+      #
+      # This seeds one small ZIM if the volume is empty, so the app comes up on
+      # its own. Add larger corpora by dropping .zim files into the same NFS
+      # share; this init container will then leave it alone.
+      initContainers:
+        - name: seed-zim
+          image: curlimages/curl:8.11.1
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              if ls /data/*.zim >/dev/null 2>&1; then
+                echo "ZIM files already present, nothing to seed:"
+                ls -la /data/*.zim
+                exit 0
+              fi
+              echo "No ZIM files found. Seeding a starter corpus..."
+              url="https://download.kiwix.org/zim/wikipedia/wikipedia_en_100_maxi.zim"
+              # Download to a temp name so a partial transfer is never picked
+              # up as a valid corpus by kiwix-serve.
+              if curl -fsSL --retry 3 --retry-delay 5 -o /data/.seed.partial "$url"; then
+                mv /data/.seed.partial /data/wikipedia_en_100_maxi.zim
+                echo "Seeded wikipedia_en_100_maxi.zim"
+              else
+                rm -f /data/.seed.partial
+                echo "Seed download failed; kiwix will not start until a .zim exists" >&2
+                exit 1
+              fi
+          volumeMounts:
+            - name: data
+              mountPath: /data
       containers:
         - name: kiwix
-          image: ghcr.io/kiwix/kiwix-serve:latest
+          # Pinned: :latest gives no way to reason about what is running.
+          image: ghcr.io/kiwix/kiwix-serve:3.7.0
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
             capabilities:
               drop: ["ALL"]
-          args: ["/data/*.zim"]
+          # Run through a shell so the glob is actually expanded. Passing
+          # "/data/*.zim" as a bare arg made kiwix-serve treat it as a literal
+          # filename: "Unable to add the ZIM file '/data/*.zim'".
+          command: ["/bin/sh", "-c"]
+          args: ["exec kiwix-serve --port=8080 /data/*.zim"]
           ports:
             - containerPort: 8080
               name: http

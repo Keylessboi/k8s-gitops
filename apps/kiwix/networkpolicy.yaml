@@ -40,3 +40,17 @@ spec:
       port: 53
     - protocol: TCP
       port: 53
+  # The seed-zim init container fetches a starter corpus from
+  # download.kiwix.org. Internal ranges stay excluded.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 192.168.0.0/16
+        - 172.16.0.0/12
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
