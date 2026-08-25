@@ -32,6 +32,7 @@ helmCharts:
     version: 0.23.2
     releaseName: cnpg
     namespace: cnpg-system
+    includeCRDs: true
     valuesInline:
       nodeSelector:
         homelab/node-class: compute
@@ -43,4 +44,9 @@ helmCharts:
           cpu: 500m
           memory: 512Mi
       monitoring:
-        podMonitorEnabled: true
+        # Disabled: PodMonitor is a prometheus-operator CRD that lives in the
+        # monitoring Application. ArgoCD gives no ordering between Applications,
+        # so this raced the CRD and failed the whole cnpg sync with
+        # "could not find monitoring.coreos.com/PodMonitor". Re-enable once the
+        # monitoring stack is up if CNPG metrics are wanted.
+        podMonitorEnabled: false

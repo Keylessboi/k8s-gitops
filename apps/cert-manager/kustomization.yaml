@@ -25,6 +25,7 @@ helmCharts:
     version: v1.16.3
     releaseName: cert-manager
     namespace: cert-manager
+    includeCRDs: true
     valuesInline:
       # `installCRDs` is deprecated; this is the current key.
       crds:

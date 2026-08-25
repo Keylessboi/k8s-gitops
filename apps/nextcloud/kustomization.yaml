@@ -29,7 +29,6 @@ resources:
   - pvc-config.yaml
   - networkpolicy.yaml
   - ingress.yaml
-  - dopplersecret.yaml
 
 helmCharts:
   - name: nextcloud

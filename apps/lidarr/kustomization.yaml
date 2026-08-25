@@ -29,5 +29,4 @@ resources:
   - networkpolicy.yaml
   - deployment.yaml
   - ingress.yaml
-  - dopplersecret.yaml
 

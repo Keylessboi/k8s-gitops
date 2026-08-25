@@ -24,7 +24,6 @@ commonLabels:
 # The chart creates the doppler-operator-system Namespace itself, so declaring
 # it here too makes kustomize fail with a duplicate-resource merge error.
 resources:
-  - dopplersecret.yaml
   - networkpolicy.yaml
 
 helmCharts:
@@ -37,3 +36,4 @@ helmCharts:
     version: 1.5.7
     releaseName: doppler-operator
     namespace: doppler-operator-system
+    includeCRDs: true

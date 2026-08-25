@@ -28,7 +28,6 @@ resources:
   - pvc.yaml
   - networkpolicy.yaml
   - ingress.yaml
-  - dopplersecret.yaml
 
 patches:
   - path: patch-service-selector.yaml

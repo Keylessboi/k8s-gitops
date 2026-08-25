@@ -25,6 +25,7 @@ helmCharts:
     version: 33.2.1
     releaseName: traefik
     namespace: kube-system
+    includeCRDs: true
     valuesInline:
       ingressClass:
         enabled: true

@@ -26,7 +26,6 @@ resources:
   - namespace.yaml
   - networkpolicy.yaml
   - ingress.yaml
-  - dopplersecret.yaml
 
 helmCharts:
   - name: authentik

@@ -31,6 +31,5 @@ resources:
   - pvc-music.yaml
   - pvc-data.yaml
   - networkpolicy.yaml
-  - dopplersecret.yaml
   - deployment.yaml
   - ingress.yaml

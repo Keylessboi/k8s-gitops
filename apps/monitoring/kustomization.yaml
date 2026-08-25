@@ -35,6 +35,7 @@ helmCharts:
     version: 75.18.1
     releaseName: kps
     namespace: monitoring
+    includeCRDs: true
     valuesInline:
       prometheus:
         prometheusSpec:
@@ -115,6 +116,7 @@ helmCharts:
     version: 6.30.1
     releaseName: loki
     namespace: monitoring
+    includeCRDs: true
     valuesInline:
       deploymentMode: SingleBinary
       loki:
@@ -171,6 +173,7 @@ helmCharts:
     version: 0.12.6
     releaseName: alloy
     namespace: monitoring
+    includeCRDs: true
     valuesInline:
       alloy:
         configMap:

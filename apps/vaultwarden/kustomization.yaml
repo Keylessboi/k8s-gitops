@@ -30,4 +30,3 @@ resources:
   - service.yaml
   - networkpolicy.yaml
   - ingress.yaml
-  - dopplersecret.yaml
