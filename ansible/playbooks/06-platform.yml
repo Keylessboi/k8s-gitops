@@ -1,213 +1,74 @@
 ---
-# 06-platform.yml - install the platform services via Helm.
+# 06-platform.yml - verify the platform came up. Installs nothing.
 #
-# MetalLB, NFS CSI, CloudNativePG, and Redis.
-# Runs on the k3s server with kubectl access.
+#   ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/06-platform.yml
 #
-#   doppler run --project kubernetes --config prd -- \
-#     ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/06-platform.yml
+# This playbook used to `helm install` MetalLB, csi-driver-nfs, CloudNativePG
+# and Redis. All four are ArgoCD Applications (apps/metallb, apps/nfs-csi,
+# apps/cnpg, apps/redis) with automated sync and selfHeal, so the two owners
+# fought each other continuously:
 #
-# Rollback: helm uninstall each chart in reverse order.
+#   - MetalLB was installed here into namespace `metallb`, and by ArgoCD into
+#     `metallb-system`. The values here also used the pre-0.13 `config`
+#     ConfigMap style, which is a silent no-op on 0.14.9.
+#   - csi-driver-nfs went into `kube-system` here and `nfs-csi` under ArgoCD:
+#     two DaemonSets registering the same nfs.csi.k8s.io driver.
+#   - It also created its own `nfs-csi` StorageClass without subDir or
+#     onDelete. StorageClass parameters are immutable, so selfHeal could never
+#     reconcile the difference — it just failed forever.
+#   - CloudNativePG was pinned to 0.23.0 here and 0.23.2 in git.
+#   - Redis was installed with an inline auth.password while ArgoCD's manifest
+#     expects auth.existingSecret, so each owner clobbered the other.
+#
+# The ownership rule this restores: Ansible does host and cluster bootstrap
+# (LXC, k3s). ArgoCD owns every workload. Nothing is installed by both.
 
-- name: Install platform services
+- name: Verify platform services are healthy
   hosts: k3s_server
   become: true
-  gather_facts: true
+  gather_facts: false
 
-  vars:
-    redis_password: "{{ lookup('ansible.builtin.env', 'REDIS_PASSWORD') }}"
-
-  pre_tasks:
-    - name: Require REDIS_PASSWORD from Doppler
-      ansible.builtin.assert:
-        that:
-          - redis_password | length > 0
-        fail_msg: "REDIS_PASSWORD must come from Doppler. Run under doppler run -p kubernetes -c prd."
-
-    - name: Ensure helm is available
-      ansible.builtin.command: helm version --short
-      register: helm_check
-      changed_when: false
-      failed_when: helm_check.rc != 0
+  # Ansible's non-login shell drops /usr/local/bin, where both the helm binary
+  # and the k3s kubectl symlink live. Setting it once here beats patching each
+  # task, which is what the previous ad-hoc fix did (and it only ever covered
+  # a preflight check and two debug tasks, leaving every real install broken).
+  environment:
+    PATH: "/usr/local/bin:{{ ansible_env.PATH | default('/usr/bin:/bin') }}"
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
   tasks:
-    # --- MetalLB ----------------------------------------------------------
-    - name: Install MetalLB
-      block:
-        - name: Add MetalLB Helm repo
-          kubernetes.core.helm_repository:
-            name: metallb
-            repo_url: https://metallb.github.io/metallb
-
-        - name: Install MetalLB chart
-          kubernetes.core.helm:
-            name: metallb
-            chart_ref: metallb/metallb
-            chart_version: "{{ metallb_chart_version }}"
-            release_namespace: metallb
-            create_namespace: true
-            values:
-              config:
-                address-pools:
-                  - name: default
-                    protocol: layer2
-                    addresses:
-                      - "{{ metallb_pool_start }}-{{ metallb_pool_end }}"
-
-      rescue:
-        - name: Uninstall MetalLB on failure
-          kubernetes.core.helm:
-            name: metallb
-            release_namespace: metallb
-            state: absent
-          ignore_errors: true
-
-        - name: Fail after MetalLB rollback
-          ansible.builtin.fail:
-            msg: "MetalLB install failed. Chart was uninstalled."
-
-    # --- NFS CSI ----------------------------------------------------------
-    - name: Install NFS CSI driver
-      block:
-        - name: Add NFS CSI Helm repo
-          kubernetes.core.helm_repository:
-            name: csi-driver-nfs
-            repo_url: https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/charts
-
-        - name: Install NFS CSI chart
-          kubernetes.core.helm:
-            name: csi-driver-nfs
-            chart_ref: csi-driver-nfs/csi-driver-nfs
-            chart_version: "{{ nfs_csi_chart_version }}"
-            release_namespace: kube-system
-            values:
-              driver:
-                name: nfs.csi.k8s.io
-
-      rescue:
-        - name: Uninstall NFS CSI on failure
-          kubernetes.core.helm:
-            name: csi-driver-nfs
-            release_namespace: kube-system
-            state: absent
-          ignore_errors: true
-
-        - name: Fail after NFS CSI rollback
-          ansible.builtin.fail:
-            msg: "NFS CSI install failed. Chart was uninstalled."
-
-    # --- Create NFS StorageClass ------------------------------------------
-    - name: Create NFS StorageClass
-      block:
-        - name: Apply NFS StorageClass manifest
-          kubernetes.core.k8s:
-            state: present
-            definition:
-              apiVersion: storage.k8s.io/v1
-              kind: StorageClass
-              metadata:
-                name: nfs-csi
-              provisioner: nfs.csi.k8s.io
-              parameters:
-                server: "{{ nas_ip }}"
-                share: "{{ nfs_share }}"
-              reclaimPolicy: Retain
-              volumeBindingMode: Immediate
-              mountOptions:
-                - nfsvers=4.1
-
-      rescue:
-        - name: Warn about StorageClass failure
-          ansible.builtin.debug:
-            msg: "NFS StorageClass creation failed. Check NFS connectivity."
-
-    # --- CloudNativePG ----------------------------------------------------
-    - name: Install CloudNativePG
-      block:
-        - name: Add CNPG Helm repo
-          kubernetes.core.helm_repository:
-            name: cnpg
-            repo_url: https://cloudnative-pg.github.io/charts
-
-        - name: Install CNPG chart
-          kubernetes.core.helm:
-            name: cnpg
-            chart_ref: cnpg/cloudnative-pg
-            chart_version: "{{ cnpg_chart_version }}"
-            release_namespace: cnpg-system
-            create_namespace: true
-
-      rescue:
-        - name: Uninstall CNPG on failure
-          kubernetes.core.helm:
-            name: cnpg
-            release_namespace: cnpg-system
-            state: absent
-          ignore_errors: true
-
-        - name: Fail after CNPG rollback
-          ansible.builtin.fail:
-            msg: "CNPG install failed. Chart was uninstalled."
-
-    # --- Redis ------------------------------------------------------------
-    - name: Install Redis
-      block:
-        - name: Add Bitnami Helm repo
-          kubernetes.core.helm_repository:
-            name: bitnami
-            repo_url: https://charts.bitnami.com/bitnami
-
-        - name: Install Redis chart
-          kubernetes.core.helm:
-            name: redis
-            chart_ref: bitnami/redis
-            chart_version: "{{ redis_chart_version }}"
-            release_namespace: redis
-            create_namespace: true
-            values:
-              architecture: standalone
-              auth:
-                enabled: true
-                password: "{{ redis_password }}"
-              master:
-                persistence:
-                  enabled: true
-                  size: 2Gi
-              replica:
-                replicaCount: 0
-
-      rescue:
-        - name: Uninstall Redis on failure
-          kubernetes.core.helm:
-            name: redis
-            release_namespace: redis
-            state: absent
-          ignore_errors: true
-
-        - name: Fail after Redis rollback
-          ansible.builtin.fail:
-            msg: "Redis install failed. Chart was uninstalled."
-
-    # --- Final status -----------------------------------------------------
-    - name: Show installed Helm releases
-      ansible.builtin.command: helm list --all-namespaces
-      register: helm_list
+    - name: Wait for every ArgoCD Application to report Healthy
+      ansible.builtin.command:
+        cmd: >-
+          kubectl get applications -n argocd
+          -o jsonpath={range .items[*]}{.metadata.name}={.status.health.status}{"\n"}{end}
+      register: argo_apps
       changed_when: false
+      retries: 30
+      delay: 20
+      until: "'Degraded' not in argo_apps.stdout and 'Missing' not in argo_apps.stdout"
 
-    - name: Print Helm releases
+    - name: Report application health
       ansible.builtin.debug:
-        msg: "{{ helm_list.stdout_lines }}"
+        msg: "{{ argo_apps.stdout_lines }}"
 
-    - name: Verify all pods are running
-      ansible.builtin.command: kubectl get pods --all-namespaces --field-selector=status.phase!=Running,status.phase!=Succeeded
+    - name: Find pods that are neither Running nor Succeeded
+      ansible.builtin.command:
+        cmd: >-
+          kubectl get pods --all-namespaces
+          --field-selector=status.phase!=Running,status.phase!=Succeeded
       register: failed_pods
       changed_when: false
 
     - name: Report pod status
       ansible.builtin.debug:
-        msg: "{{ failed_pods.stdout_lines }}"
-      when: failed_pods.stdout | length > 0
+        msg: "{{ failed_pods.stdout_lines | default(['all pods Running or Succeeded']) }}"
 
-    - name: Confirm platform is ready
-      ansible.builtin.debug:
-        msg: "Platform services installed. MetalLB, NFS CSI, CNPG, and Redis are ready."
+    - name: Confirm the ingress controller holds its LoadBalancer address
+      ansible.builtin.command:
+        cmd: >-
+          kubectl get svc traefik -n kube-system
+          -o jsonpath={.status.loadBalancer.ingress[0].ip}
+      register: traefik_ip
+      changed_when: false
+      failed_when: traefik_ip.stdout != "192.168.1.240"
