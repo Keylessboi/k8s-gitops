@@ -36,3 +36,5 @@ resources:
   # One Database CR per app, replacing the never-written
   # scripts/11-cnpg-databases.sh.
   - databases.yaml
+  # Creates Immich's extensions as superuser; its own role cannot.
+  - extensions-job.yaml

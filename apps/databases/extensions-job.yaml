@@ -1,0 +1,64 @@
+---
+# Installs the PostgreSQL extensions Immich needs.
+#
+# Immich runs CREATE EXTENSION itself during migration, but that requires
+# superuser and its role deliberately is not one — a compromised Immich must
+# not be able to read the Vaultwarden database. So it failed with:
+#   permission denied to create extension "vector"
+#
+# The CNPG Database CRD in this version has no `extensions` field, so the
+# extensions are created here instead, as superuser, once per sync. The SQL is
+# idempotent (IF NOT EXISTS), and Immich's own CREATE EXTENSION IF NOT EXISTS
+# then finds them already present and proceeds.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: immich-extensions
+  namespace: databases
+  annotations:
+    # Runs after the Cluster and Database resources exist.
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: psql
+          image: ghcr.io/tensorchord/cloudnative-vectorchord:16-0.4.1
+          env:
+            - name: PGHOST
+              value: app-databases-rw.databases.svc.cluster.local
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: app-databases-superuser
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-databases-superuser
+                  key: password
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              until pg_isready -q; do
+                echo "waiting for postgres..."; sleep 3
+              done
+              # vchord depends on vector; both ship in this image.
+              psql -d immich -v ON_ERROR_STOP=1 <<'SQL'
+              CREATE EXTENSION IF NOT EXISTS "vector";
+              CREATE EXTENSION IF NOT EXISTS "vchord";
+              CREATE EXTENSION IF NOT EXISTS "cube";
+              CREATE EXTENSION IF NOT EXISTS "earthdistance";
+              CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+              CREATE EXTENSION IF NOT EXISTS "unaccent";
+              SQL
+              # Immich's migrations also ALTER these, so hand it ownership.
+              psql -d immich -v ON_ERROR_STOP=1 -c 'ALTER EXTENSION "vector" OWNER TO immich;' || true
+              psql -d immich -v ON_ERROR_STOP=1 -c 'ALTER EXTENSION "vchord" OWNER TO immich;' || true
+              echo "immich extensions ready"
