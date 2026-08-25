@@ -1,0 +1,27 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: navidrome
+  namespace: navidrome
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - navidrome.sandstorm.chat
+      secretName: navidrome-tls
+  rules:
+    - host: navidrome.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                # app-template names the Service after the release + service key.
+                name: navidrome
+                port:
+                  number: 4533

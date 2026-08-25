@@ -26,36 +26,5 @@ commonLabels:
 resources:
   - namespace.yaml
   - networkpolicy.yaml
-  - ingress.yaml
+  - deployment.yaml
 
-helmCharts:
-  - name: flaresolverr
-    repo: https://flaresolverr.xbjnx.dev
-    version: 8.2.1
-    releaseName: flaresolverr
-    namespace: flaresolverr
-    valuesInline:
-      image:
-        repository: ghcr.io/flaresolverr/flaresolverr
-        tag: v3.5.0
-      env:
-        TZ: "UTC"
-        LOG_LEVEL: "info"
-      nodeSelector:
-        kubernetes.io/os: linux
-        homelab/node-class: compute
-      resources:
-        requests:
-          cpu: 50m
-          memory: 256Mi
-        limits:
-          cpu: "1"
-          memory: 1Gi
-      persistence:
-        config:
-          enabled: false
-      service:
-        main:
-          ports:
-            http:
-              port: 8191

@@ -1,0 +1,59 @@
+---
+# Plain manifests: the bjw-s app-template chart ships an empty values.yaml,
+# which kustomize's helmCharts generator cannot inflate.
+#
+# FlareSolverr is INTERNAL ONLY — no Ingress. It is a Cloudflare challenge
+# solver used by Prowlarr and must never be publicly reachable.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flaresolverr
+  namespace: flaresolverr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flaresolverr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: flaresolverr
+    spec:
+      containers:
+        - name: flaresolverr
+          image: ghcr.io/flaresolverr/flaresolverr:v3.5.0
+          env:
+            - name: TZ
+              value: UTC
+            - name: LOG_LEVEL
+              value: info
+          ports:
+            - name: http
+              containerPort: 8191
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flaresolverr
+  namespace: flaresolverr
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: flaresolverr
+  ports:
+    - name: http
+      port: 8191
+      targetPort: http
