@@ -49,13 +49,38 @@ helmCharts:
         # inline to the literal string "MANAGED_BY_DOPPLER" — no DopplerSecret
         # ever replaced it, so that string WAS the signing key. Injected from a
         # real generated secret instead.
+        # Credentials are injected as env rather than inlined into values,
+        # which would persist them in Helm release metadata.
         env:
           - name: AUTHENTIK_SECRET_KEY
             valueFrom:
               secretKeyRef:
                 name: authentik-secret-key
                 key: secret_key
-      authentik: {}
+          - name: AUTHENTIK_POSTGRESQL__PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: authentik-db-credentials
+                key: password
+          - name: AUTHENTIK_REDIS__PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: redis-auth
+                key: redis-password
+      # Backends live under `authentik.postgresql` / `authentik.redis`.
+      # There is no top-level `externalDatabase`/`externalRedis` in this chart —
+      # those blocks were accepted silently and ignored, leaving the chart
+      # defaults (authentik-postgresql, authentik-redis) in the rendered secret.
+      # Those Services have never existed, so every worker died on
+      # "PostgreSQL connection failed ... Name or service not known".
+      authentik:
+        postgresql:
+          host: app-databases-rw.databases.svc.cluster.local
+          port: 5432
+          name: authentik
+          user: authentik
+        redis:
+          host: redis-master.redis.svc.cluster.local
       server:
         replicas: 1
         resources:
@@ -74,22 +99,10 @@ helmCharts:
           limits:
             cpu: 500m
             memory: 1Gi
+      # Use the one shared Postgres and the one shared Redis, not the chart's
+      # bundled subcharts.
       postgresql:
         enabled: false
-      # Both hosts previously named Services in the authentik namespace that do
-      # not exist and never did (there is no CNPG cluster here, and Redis lives
-      # in the redis namespace), so Authentik could never reach either backend.
-      externalDatabase:
-        host: "app-databases-rw.databases.svc.cluster.local"
-        port: 5432
-        name: authentik
-        user: authentik
-        existingSecret: authentik-db-credentials
-        existingSecretKey: password
       redis:
         enabled: false
-      externalRedis:
-        host: "redis-master.redis.svc.cluster.local"
-        port: 6379
-        existingSecret: redis-auth
         existingSecretKey: redis-password
