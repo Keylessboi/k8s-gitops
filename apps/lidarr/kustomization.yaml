@@ -15,12 +15,20 @@ metadata:
 
 namespace: lidarr
 
-commonLabels:
-  app.kubernetes.io/name: lidarr
-  app.kubernetes.io/part-of: homelab
-  app.kubernetes.io/component: media
-  app.kubernetes.io/managed-by: argocd
-  homelab/tier: apps
+# `labels` with includeSelectors:false, NOT `commonLabels`.
+# commonLabels rewrites every selector it finds - Deployment/Service
+# selectors and NetworkPolicy podSelectors alike. Deployment selectors
+# are immutable, so changing these labels made ArgoCD fail with
+# 'spec.selector: field is immutable', and it silently broke
+# NetworkPolicy podSelectors by adding labels the target pods lack.
+labels:
+  - pairs:
+      app.kubernetes.io/name: lidarr
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/component: media
+      app.kubernetes.io/managed-by: argocd
+      homelab/tier: apps
+    includeSelectors: false
 
 resources:
   - namespace.yaml

@@ -15,12 +15,20 @@ metadata:
 
 namespace: metallb-system
 
-commonLabels:
-  app.kubernetes.io/name: metallb
-  app.kubernetes.io/part-of: homelab
-  app.kubernetes.io/component: networking
-  app.kubernetes.io/managed-by: argocd
-  homelab/tier: infrastructure
+# `labels` with includeSelectors:false, NOT `commonLabels`.
+# commonLabels rewrites every selector it finds - Deployment/Service
+# selectors and NetworkPolicy podSelectors alike. Deployment selectors
+# are immutable, so changing these labels made ArgoCD fail with
+# 'spec.selector: field is immutable', and it silently broke
+# NetworkPolicy podSelectors by adding labels the target pods lack.
+labels:
+  - pairs:
+      app.kubernetes.io/name: metallb
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/component: networking
+      app.kubernetes.io/managed-by: argocd
+      homelab/tier: infrastructure
+    includeSelectors: false
 
 resources:
   - namespace.yaml
