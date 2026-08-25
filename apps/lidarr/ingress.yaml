@@ -1,0 +1,36 @@
+---
+# Public again, but only behind Authentik.
+#
+# The previous Ingress published Lidarr to the internet with
+# AuthenticationMethod=None, i.e. unauthenticated admin access. It was
+# withdrawn. This one routes every request through the Authentik forward-auth
+# middleware first, so an Authentik login is required before Lidarr is reached
+# at all.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: lidarr
+  namespace: lidarr
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # <namespace>-<name>@kubernetescrd is how a middleware in another
+    # namespace is referenced.
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - lidarr.sandstorm.chat
+      secretName: lidarr-tls
+  rules:
+    - host: lidarr.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: lidarr
+                port:
+                  number: 8686

@@ -19,6 +19,9 @@ metadata:
 
 namespace: kube-system
 
+resources:
+  - forward-auth-middleware.yaml
+
 helmCharts:
   - name: traefik
     repo: https://traefik.github.io/charts
