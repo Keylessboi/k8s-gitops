@@ -10,6 +10,10 @@ spec:
         matchLabels:
           kubernetes.io/metadata.name: kube-system
     ports:
+    # The chart's service is 8080, not 80. The old value silently blocked all
+    # ingress traffic to the app.
+    - port: 8080
+      protocol: TCP
     - port: 80
       protocol: TCP
   podSelector: {}

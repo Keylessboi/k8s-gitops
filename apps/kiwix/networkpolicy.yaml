@@ -20,6 +20,17 @@ spec:
     - protocol: TCP
       port: 8080
   egress:
+  # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
+  # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so
+  # the old rule was a no-op. Every NetworkPolicy in this repo was missing real
+  # API access, which hard-broke the API clients (nfs-csi provisioner, doppler
+  # operator, cnpg operator, prometheus) and cascaded to every PVC and secret.
+  - to:
+    - ipBlock:
+        cidr: 10.43.0.1/32
+    ports:
+    - port: 443
+      protocol: TCP
   - to:
     - namespaceSelector:
         matchLabels:
