@@ -1,0 +1,23 @@
+---
+# ArgoCD repo-server configuration.
+#
+# CRITICAL: `--enable-helm` is what lets kustomize inflate `helmCharts:` blocks.
+# 13 of the apps in this repo declare their entire workload via `helmCharts:`.
+# Without this flag the repo-server silently renders ONLY the `resources:` list
+# (namespace, networkpolicy, pvc) and drops the workload — the app then reports
+# sync status `Unknown` with revision `<none>` and never runs.
+#
+# This file is part of the argocd bootstrap (apps/argocd is excluded from the
+# ApplicationSet), so it is applied by hand, not by ArgoCD:
+#   kubectl apply -f apps/argocd/argocd-cm.yaml
+#   kubectl rollout restart deploy/argocd-repo-server -n argocd
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  kustomize.buildOptions: --enable-helm

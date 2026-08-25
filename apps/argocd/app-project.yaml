@@ -14,10 +14,9 @@ metadata:
 spec:
   description: Homelab apps on the mixed ARM/x86 cluster.
   sourceRepos:
-    - https://github.com/Keylessboi/kubernetes-gitops.git
+    - https://github.com/Keylessboi/k8s-gitops.git
     # Helm repos used by app kustomizations.
     - https://cloudnative-pg.github.io/charts
-    - https://doppler.github.io/helm-charts
     - https://helm.doppler.com
     - https://grafana.github.io/helm-charts
     - https://prometheus-community.github.io/helm-charts
@@ -25,6 +24,13 @@ spec:
     - https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/charts
     - https://charts.goauthentik.io
     - https://immich-app.github.io/immich-charts
+    - https://charts.bitnami.com/bitnami
+    - https://nextcloud.github.io/helm/
+    # Replaces the dead *.xbjnx.dev repos (lidarr, prowlarr, navidrome, flaresolverr).
+    - https://bjw-s-labs.github.io/helm-charts/
+    # Front door: ingress controller + TLS.
+    - https://charts.jetstack.io
+    - https://traefik.github.io/charts
   destinations:
     - server: https://kubernetes.default.svc
       namespace: "*"
@@ -42,9 +48,13 @@ spec:
       kind: ClusterRole
     - group: rbac.authorization.k8s.io
       kind: ClusterRoleBinding
-    - group: metallb.io
+    # cert-manager ClusterIssuer is cluster-scoped; without this it is rejected.
+    - group: cert-manager.io
       kind: "*"
-    - group: nfs.csi.k8s.io
+    - group: traefik.io
+      kind: "*"
+    # tor-controller (phase 3) ships cluster-scoped RBAC + CRDs.
+    - group: apiextensions.k8s.io
       kind: "*"
   namespaceResourceWhitelist:
     - group: ""
@@ -74,6 +84,15 @@ spec:
     - group: kustomize.toolkit.fluxcd.io
       kind: "*"
     - group: secrets.doppler.com
+      kind: "*"
+    # IPAddressPool and L2Advertisement are NAMESPACED, not cluster-scoped.
+    - group: metallb.io
+      kind: "*"
+    - group: cert-manager.io
+      kind: "*"
+    - group: traefik.io
+      kind: "*"
+    - group: tor.k8s.torproject.org
       kind: "*"
   orphanedResources:
     warn: true
