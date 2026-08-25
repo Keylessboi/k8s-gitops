@@ -20,6 +20,6 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: lidarr-main
+            name: lidarr
             port:
               number: 8686
