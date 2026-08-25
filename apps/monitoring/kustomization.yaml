@@ -137,8 +137,19 @@ helmCharts:
               index:
                 prefix: loki_index_
                 period: 24h
+      # Memcached sidecars: pure overhead on a single-node homelab, and both
+      # were stuck Pending anyway.
+      chunksCache:
+        enabled: false
+      resultsCache:
+        enabled: false
       singleBinary:
         replicas: 1
+        # The chart's default is a hard anti-affinity rule spreading replicas
+        # across nodes. With one node and one replica that can never be
+        # satisfied, so loki-0 sat Pending on "didn't match pod anti-affinity
+        # rules" forever.
+        affinity: {}
         nodeSelector:
           homelab/node-class: compute
         resources:
