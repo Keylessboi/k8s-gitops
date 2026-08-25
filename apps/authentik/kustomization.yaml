@@ -67,6 +67,25 @@ helmCharts:
               secretKeyRef:
                 name: redis-auth
                 key: redis-password
+          # Creates the akadmin account and an API token on first start, so
+          # the initial-setup flow never has to be completed by hand and the
+          # OIDC providers below can be created through the API. These are
+          # only honoured while no admin exists; they are inert afterwards.
+          - name: AUTHENTIK_BOOTSTRAP_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: authentik-bootstrap
+                key: password
+          - name: AUTHENTIK_BOOTSTRAP_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: authentik-bootstrap
+                key: token
+          - name: AUTHENTIK_BOOTSTRAP_EMAIL
+            valueFrom:
+              secretKeyRef:
+                name: authentik-bootstrap
+                key: email
       # Backends live under `authentik.postgresql` / `authentik.redis`.
       # There is no top-level `externalDatabase`/`externalRedis` in this chart —
       # those blocks were accepted silently and ignored, leaving the chart
