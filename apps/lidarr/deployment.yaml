@@ -20,12 +20,21 @@ spec:
     spec:
       containers:
         - name: lidarr
-          image: lscr.io/linuxserver/lidarr:3.1.0
+          # Lidarr's `plugins` branch, not master.
+          #
+          # Tubifarry is installed through Lidarr's System -> Plugins page,
+          # which exists only on the plugins branch. The linuxserver image
+          # tracks master, where /api/v1/plugin returns 404 and there is no way
+          # to install a plugin at all. linuxserver publishes no plugins tag,
+          # so this uses hotio's plugins-branch build.
+          image: ghcr.io/hotio/lidarr:pr-plugins
           env:
             - name: PUID
               value: "1000"
             - name: PGID
               value: "1000"
+            - name: UMASK
+              value: "002"
             - name: TZ
               value: UTC
           ports:
