@@ -2,30 +2,23 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: app-isolation
+  namespace: doppler-operator-system
 spec:
   podSelector: {}
-  policyTypes:
-  - Ingress
-  - Egress
+  policyTypes: [Ingress, Egress]
   ingress:
   - from:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: pangolin
-  - from:
-    - namespaceSelector:
-        matchLabels:
           kubernetes.io/metadata.name: kube-system
-    ports:
-    - protocol: TCP
-      port: 8080
   egress:
   - to:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: kube-system
-    ports:
-    - protocol: UDP
-      port: 53
-    - protocol: TCP
-      port: 53
+    ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except: [10.0.0.0/8, 192.168.0.0/16, 172.16.0.0/12]
+    ports: [{protocol: TCP, port: 443}]

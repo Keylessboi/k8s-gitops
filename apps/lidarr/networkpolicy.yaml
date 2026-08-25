@@ -12,6 +12,13 @@ spec:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: lidarr
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: TCP
+      port: 8686
   egress:
   - to:
     - namespaceSelector:

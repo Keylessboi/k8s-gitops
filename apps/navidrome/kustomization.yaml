@@ -33,7 +33,7 @@ resources:
 helmCharts:
   - name: navidrome
     repo: https://navidrome.xbjnx.dev
-    version: 8.x
+    version: 8.2.1
     releaseName: navidrome
     namespace: navidrome
     valuesInline:

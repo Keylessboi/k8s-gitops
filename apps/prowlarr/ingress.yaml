@@ -1,24 +1,25 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: pangolin
-  namespace: pangolin
+  name: prowlarr
+  namespace: prowlarr
   annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
     cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: traefik
   tls:
   - hosts:
-    - pangolin.sandstorm.chat
-    secretName: pangolin-tls
+    - prowlarr.sandstorm.chat
+    secretName: prowlarr-tls
   rules:
-  - host: pangolin.sandstorm.chat
+  - host: prowlarr.sandstorm.chat
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: pangolin
+            name: prowlarr-main
             port:
-              number: 80
+              number: 9696

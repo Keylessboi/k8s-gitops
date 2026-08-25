@@ -1,4 +1,5 @@
 ---
+# DEPRECATED: Will be replaced by central app-databases cluster in databases namespace
 # Database for Vaultwarden. One instance is enough for a homelab.
 # WAL files and base backups go to a MinIO bucket over S3.
 apiVersion: postgresql.cnpg.io/v1

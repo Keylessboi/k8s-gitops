@@ -34,7 +34,7 @@ resources:
 helmCharts:
   - name: nextcloud
     repo: https://nextcloud.github.io/helm/
-    version: 6.x
+    version: 6.6.10
     releaseName: nextcloud
     namespace: nextcloud
     valuesInline:

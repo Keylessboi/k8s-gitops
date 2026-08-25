@@ -12,6 +12,13 @@ spec:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: flaresolverr
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: TCP
+      port: 8191
   egress:
   - to:
     - namespaceSelector:

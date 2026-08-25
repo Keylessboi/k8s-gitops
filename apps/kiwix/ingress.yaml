@@ -1,24 +1,25 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: pangolin
-  namespace: pangolin
+  name: kiwix
+  namespace: kiwix
   annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
     cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: traefik
   tls:
   - hosts:
-    - pangolin.sandstorm.chat
-    secretName: pangolin-tls
+    - kiwix.sandstorm.chat
+    secretName: kiwix-tls
   rules:
-  - host: pangolin.sandstorm.chat
+  - host: kiwix.sandstorm.chat
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: pangolin
+            name: kiwix
             port:
-              number: 80
+              number: 8080

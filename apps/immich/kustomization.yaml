@@ -30,6 +30,12 @@ resources:
   - pvc.yaml
   - networkpolicy.yaml
 
+patches:
+  - path: patch-service-selector.yaml
+    target:
+      kind: Service
+      name: immich-server
+
 helmCharts:
   - name: immich
     repo: https://immich-app.github.io/immich-charts

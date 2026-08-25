@@ -24,6 +24,7 @@ commonLabels:
 resources:
   - namespace.yaml
   - dopplersecret.yaml
+  - networkpolicy.yaml
 
 helmCharts:
   - name: doppler-kubernetes-operator

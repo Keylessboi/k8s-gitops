@@ -27,11 +27,12 @@ resources:
   - pvc-music.yaml
   - pvc-config.yaml
   - networkpolicy.yaml
+  - ingress.yaml
 
 helmCharts:
   - name: lidarr
     repo: https://lidarr.xbjnx.dev
-    version: 5.1.x
+    version: 5.1.1
     releaseName: lidarr
     namespace: lidarr
     valuesInline:

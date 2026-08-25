@@ -26,11 +26,12 @@ commonLabels:
 resources:
   - namespace.yaml
   - networkpolicy.yaml
+  - ingress.yaml
 
 helmCharts:
   - name: flaresolverr
     repo: https://flaresolverr.xbjnx.dev
-    version: 8.x
+    version: 8.2.1
     releaseName: flaresolverr
     namespace: flaresolverr
     valuesInline:

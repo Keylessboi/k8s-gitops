@@ -24,6 +24,7 @@ commonLabels:
 resources:
   - namespace.yaml
   - storageclass.yaml
+  - networkpolicy.yaml
 
 helmCharts:
   - name: csi-driver-nfs

@@ -26,11 +26,12 @@ resources:
   - namespace.yaml
   - pvc-config.yaml
   - networkpolicy.yaml
+  - ingress.yaml
 
 helmCharts:
   - name: prowlarr
     repo: https://prowlarr.xbjnx.dev
-    version: 17.x
+    version: 17.2.1
     releaseName: prowlarr
     namespace: prowlarr
     valuesInline:

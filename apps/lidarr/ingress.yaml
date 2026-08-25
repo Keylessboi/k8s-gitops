@@ -1,24 +1,25 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: pangolin
-  namespace: pangolin
+  name: lidarr
+  namespace: lidarr
   annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
     cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: traefik
   tls:
   - hosts:
-    - pangolin.sandstorm.chat
-    secretName: pangolin-tls
+    - lidarr.sandstorm.chat
+    secretName: lidarr-tls
   rules:
-  - host: pangolin.sandstorm.chat
+  - host: lidarr.sandstorm.chat
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: pangolin
+            name: lidarr-main
             port:
-              number: 80
+              number: 8686
