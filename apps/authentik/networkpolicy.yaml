@@ -18,6 +18,18 @@ spec:
     ports:
     - port: 8089
       protocol: TCP
+  # Traefik itself, serving authentik.sandstorm.chat. Only the ACME solver port
+  # was allowed from kube-system, so the app answered 502 through the ingress
+  # even with a valid certificate and healthy pods.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 9000
+      protocol: TCP
+    - port: 9443
+      protocol: TCP
   - from:
     - namespaceSelector:
         matchLabels:
