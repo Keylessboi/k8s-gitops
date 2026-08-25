@@ -1,3 +1,15 @@
+---
+# This claim backs /var/www/html - Nextcloud's application code, not user data.
+#
+# It was on the NFS class, and the NFS export uses root_squash/all_squash, so
+# the image's startup rsync could not chown the files it copies:
+#   rsync: [receiver] chown "..." failed: Operation not permitted (1)
+# which crash-looped the container. Same root cause as Grafana's
+# initChownData failure.
+#
+# Application code needs neither RWX nor shared storage, so it lives on
+# local-path where ownership works. User data stays on NFS via
+# nextcloud-data.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -5,8 +17,8 @@ metadata:
   namespace: nextcloud
 spec:
   accessModes:
-    - ReadWriteMany
-  storageClassName: nfs-csi
+    - ReadWriteOnce
+  storageClassName: local-path
   resources:
     requests:
       storage: 5Gi
