@@ -23,11 +23,15 @@ spec:
     # default; made explicit so it is a decision rather than an accident.
     storageClass: local-path
   postgresql:
-    parameters:
-      # REQUIRED by the VectorChord image. Without it Immich's migrations
-      # crash-loop on startup. This fix was applied live in an earlier session
-      # and never committed, so selfHeal kept reverting it.
-      shared_preload_libraries: vchord.so
+    # REQUIRED by the VectorChord image; without it Immich's migrations
+    # crash-loop on startup. This fix was applied live in an earlier session
+    # and never committed, so selfHeal kept reverting it.
+    #
+    # It belongs here, NOT under postgresql.parameters — CNPG treats
+    # shared_preload_libraries as a fixed parameter and its webhook rejects the
+    # whole Cluster with "Can't set fixed configuration parameter".
+    shared_preload_libraries:
+      - vchord.so
   resources:
     requests:
       cpu: 100m
