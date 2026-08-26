@@ -56,15 +56,20 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /config
-            - name: music
-              mountPath: /music
+            # One mount, per TRaSH: /data/torrents/music for downloads and
+            # /data/media/music for the library, both inside it so imports
+            # hardlink instead of copying. Lidarr previously mounted only
+            # /music - from a PVC nothing else used - and had no view of the
+            # download directory at all, so it could never import anything.
+            - name: data
+              mountPath: /data
       volumes:
         - name: config
           persistentVolumeClaim:
             claimName: lidarr-config
-        - name: music
+        - name: data
           persistentVolumeClaim:
-            claimName: lidarr-music
+            claimName: media-data
 ---
 apiVersion: v1
 kind: Service

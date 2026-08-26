@@ -1,0 +1,48 @@
+---
+# The single shared /data volume, per TRaSH's folder-structure guidance.
+#
+# Downloads and the media library MUST sit inside one mount. Hardlinks cannot
+# cross filesystems, so with separate volumes an import becomes copy-then-delete:
+# double the disk used, slow imports, and the torrent can no longer be seeded
+# because the file it was seeding is gone.
+#
+# The layout deliberately matches the paths already inside the restored Lidarr
+# database - root folder /data/media/music, downloads /data/torrents/music - so
+# the restore needs no path remapping.
+#
+# A static PV per namespace, all pointing at the same NFS directory: PVCs cannot
+# be shared across namespaces, and a dynamically provisioned claim would get its
+# own private subdirectory, which is exactly the split this is meant to avoid.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: media-data-navidrome
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.1
+    - hard
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: media-data-navidrome
+    volumeAttributes:
+      server: 192.168.1.67
+      share: /extra/nfs-csi
+      subDir: data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media-data
+  namespace: navidrome
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: media-data-navidrome
+  resources:
+    requests:
+      storage: 500Gi

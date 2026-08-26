@@ -60,8 +60,12 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            # The shared media volume, narrowed to the library directory.
+            # Navidrome only reads, so it does not need the whole /data tree -
+            # and ND_DATAFOLDER already occupies /data for its own database.
             - name: music
               mountPath: /music
+              subPath: media/music
               readOnly: true
       volumes:
         - name: data
@@ -69,7 +73,7 @@ spec:
             claimName: navidrome-data
         - name: music
           persistentVolumeClaim:
-            claimName: navidrome-music
+            claimName: media-data
 ---
 apiVersion: v1
 kind: Service

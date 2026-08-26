@@ -111,15 +111,18 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /config
-            - name: downloads
-              mountPath: /downloads
+            # /data, not /downloads - TRaSH is explicit that a bare
+            # /downloads mount makes the download and media directories look
+            # like separate filesystems to the arr apps and loses hardlinks.
+            - name: data
+              mountPath: /data
       volumes:
         - name: config
           persistentVolumeClaim:
             claimName: qbittorrent-config
-        - name: downloads
+        - name: data
           persistentVolumeClaim:
-            claimName: qbittorrent-downloads
+            claimName: media-data
 ---
 apiVersion: v1
 kind: Service

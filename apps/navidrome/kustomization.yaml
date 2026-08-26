@@ -28,6 +28,7 @@ labels:
 
 resources:
   - namespace.yaml
+  - media-data-pv.yaml
   - pvc-music.yaml
   - pvc-data.yaml
   - networkpolicy.yaml

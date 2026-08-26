@@ -48,20 +48,15 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /config
-            - name: inbox
-              mountPath: /downloads
-            - name: music
-              mountPath: /music
+            - name: data
+              mountPath: /data
       volumes:
         - name: config
           persistentVolumeClaim:
             claimName: beets-config
-        - name: inbox
+        - name: data
           persistentVolumeClaim:
-            claimName: beets-inbox
-        - name: music
-          persistentVolumeClaim:
-            claimName: music-library
+            claimName: media-data
 ---
 apiVersion: v1
 kind: Service
