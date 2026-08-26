@@ -41,6 +41,15 @@ spec:
     ports:
     - port: 443
       protocol: TCP
+  # Tubifarry routes Cloudflare-protected indexer requests through
+  # FlareSolverr; without this egress rule the connection silently times out.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: flaresolverr
+    ports:
+    - port: 8191
+      protocol: TCP
   - to:
     - namespaceSelector:
         matchLabels:

@@ -66,14 +66,31 @@ spec:
         login: true
         passwordSecret:
           name: vaultwarden-db-credentials
-  # BACKUPS ARE NOT CONFIGURED YET — deliberately, rather than pretending.
+  # Backups to MinIO on the NAS.
   #
-  # The barmanObjectStore block that used to live here pointed at
-  # s3://cnpg-backups on MinIO, authenticating with a `minio-creds` secret whose
+  # This block previously authenticated with a `minio-creds` secret whose
   # ACCESS_KEY_ID and SECRET_ACCESS_KEY were both the literal string
-  # "MANAGED_BY_DOPPLER". No DopplerSecret ever targeted that secret, so every
-  # backup and every WAL archive failed while the config looked complete.
+  # "MANAGED_BY_DOPPLER" - so every base backup and every WAL archive failed
+  # while the configuration looked complete. It is now a real MinIO service
+  # account (`cnpg-backup`), scoped to this bucket rather than root
+  # credentials, verified able to write and delete before being wired up.
   #
-  # No MinIO credentials exist in either Doppler project, so this cannot be
-  # wired up yet. Restore it once real credentials are available; until then
-  # this cluster has NO backups.
+  # The bucket lives on the `tank` pool, which is aes-256-gcm encrypted, so
+  # backups are encrypted at rest without MinIO-side SSE.
+  backup:
+    retentionPolicy: 7d
+    barmanObjectStore:
+      destinationPath: s3://cnpg-backups/app-databases
+      endpointURL: http://192.168.1.67:9000
+      s3Credentials:
+        accessKeyId:
+          name: minio-creds
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: minio-creds
+          key: SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+        maxParallel: 2
+      data:
+        compression: gzip
