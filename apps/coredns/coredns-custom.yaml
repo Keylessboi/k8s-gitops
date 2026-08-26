@@ -14,25 +14,35 @@
 # right certificate and the OIDC issuer still matches. That address is pinned by
 # the MetalLB annotation on the Traefik service, so it is stable by construction.
 #
-# k3s's CoreDNS already does `import /etc/coredns/custom/*.override` and mounts
-# this ConfigMap optionally - no change to the k3s-managed Corefile needed.
+# This MUST be a `.server` file, not `.override`. k3s's Corefile already uses
+# the hosts plugin for NodeHosts, and `.override` is imported INSIDE that same
+# server block - a second hosts block there makes CoreDNS refuse to start with
+# "plugin/hosts: this plugin can only be used once per Server Block", taking
+# cluster DNS down with it. `*.server` is imported at top level, so this
+# declares its own server block for the zone and sits beside NodeHosts rather
+# than colliding with it.
+#
+# `fallthrough` means only the names listed here are answered locally; every
+# other sandstorm.chat name still goes to the upstream resolver below.
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: coredns-custom
-  namespace: kube-system
-data:
-  sandstorm.override: |
-    hosts {
-      192.168.1.240 authentik.sandstorm.chat
-      192.168.1.240 vaultwarden.sandstorm.chat
-      192.168.1.240 immich.sandstorm.chat
-      192.168.1.240 nextcloud.sandstorm.chat
-      192.168.1.240 navidrome.sandstorm.chat
-      192.168.1.240 kiwix.sandstorm.chat
-      192.168.1.240 lidarr.sandstorm.chat
-      192.168.1.240 books.sandstorm.chat
-      192.168.1.240 qui.sandstorm.chat
-      192.168.1.240 grafana.sandstorm.chat
-      fallthrough
+  sandstorm.server: |
+    sandstorm.chat:53 {
+      errors
+      hosts {
+        192.168.1.240 authentik.sandstorm.chat
+        192.168.1.240 vaultwarden.sandstorm.chat
+        192.168.1.240 immich.sandstorm.chat
+        192.168.1.240 nextcloud.sandstorm.chat
+        192.168.1.240 navidrome.sandstorm.chat
+        192.168.1.240 kiwix.sandstorm.chat
+        192.168.1.240 lidarr.sandstorm.chat
+        192.168.1.240 books.sandstorm.chat
+        192.168.1.240 qui.sandstorm.chat
+        192.168.1.240 grafana.sandstorm.chat
+        fallthrough
+      }
+      forward . /etc/resolv.conf
+      cache 30
     }
