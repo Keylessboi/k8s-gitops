@@ -33,6 +33,7 @@ labels:
 # it here too makes kustomize fail with a duplicate-resource merge error.
 resources:
   - networkpolicy.yaml
+  - dopplersecrets.yaml
 
 helmCharts:
   # NOTE: this chart ships NO values.yaml. Supplying valuesInline makes kustomize

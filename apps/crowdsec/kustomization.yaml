@@ -24,7 +24,6 @@ namespace: crowdsec
 resources:
   - namespace.yaml
   - networkpolicy.yaml
-  - doppler-secret.yaml
 
 helmCharts:
   - name: crowdsec

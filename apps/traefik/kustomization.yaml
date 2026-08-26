@@ -23,7 +23,6 @@ resources:
   - forward-auth-middleware.yaml
   - rate-limit-middleware.yaml
   - crowdsec-middleware.yaml
-  - doppler-secret.yaml
 
 helmCharts:
   - name: traefik
