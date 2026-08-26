@@ -7,17 +7,16 @@
 # the LAN. That containment is the entire point of putting them in one pod
 # rather than running qBittorrent standalone.
 #
-# NOTE: this stays at 0 replicas until AirVPN credentials are in Doppler. With
-# empty credentials gluetun cannot establish a tunnel, and starting anyway
-# would risk exactly the leak this design prevents.
+# Credentials are now present, so this runs. If they are ever cleared, gluetun
+# fails to build a tunnel and the whole pod stays down - which is the correct
+# failure mode: no tunnel means no traffic, rather than traffic in the clear.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: qbittorrent
   namespace: downloads
 spec:
-  # Set to 1 once AIRVPN_* secrets are populated.
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -54,11 +53,12 @@ spec:
                 secretKeyRef:
                   name: airvpn
                   key: addresses
-            - name: SERVER_COUNTRIES
-              valueFrom:
-                secretKeyRef:
-                  name: airvpn
-                  key: server-countries
+            # SERVER_COUNTRIES deliberately unset. gluetun filters its AirVPN
+            # server list by literal country name, so a placeholder like
+            # "Earth" matches nothing and startup fails with no server found.
+            # Omitting it entirely is how you say "anywhere", which is what is
+            # wanted here. The value is still kept in Doppler for the day a
+            # real country is wanted.
             # Let the pod's own subnet through so the qui UI and Prowlarr can
             # still reach qBittorrent's WebUI while everything else is tunnelled.
             - name: FIREWALL_OUTBOUND_SUBNETS
