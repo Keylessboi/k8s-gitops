@@ -9,6 +9,12 @@
 #
 # Declarative and in git, unlike a proxy that keeps its rules in its own
 # database.
+#
+# No sourceCriterion: Traefik's Service runs with externalTrafficPolicy: Local,
+# so the connection's source address is already the real client and Traefik
+# limits on it by default. An X-Forwarded-For strategy would be wrong here -
+# a direct request carries no such header, so the key would be empty and every
+# client would share one bucket.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -22,12 +28,6 @@ spec:
     # many requests at once and should not be throttled for it.
     burst: 100
     period: 1s
-    sourceCriterion:
-      # Take the client IP from X-Forwarded-For, counting one hop back: the
-      # router in front of Traefik. Without depth the limit would apply to the
-      # router's address and rate-limit the whole internet as a single client.
-      ipStrategy:
-        depth: 1
 ---
 # A stricter limit for login endpoints, where brute force actually matters.
 apiVersion: traefik.io/v1alpha1
@@ -40,6 +40,3 @@ spec:
     average: 5
     burst: 10
     period: 1s
-    sourceCriterion:
-      ipStrategy:
-        depth: 1

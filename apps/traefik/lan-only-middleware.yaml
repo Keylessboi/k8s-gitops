@@ -5,9 +5,11 @@
 # silently ignored on this version, which would leave the route wide open
 # rather than erroring - so it is worth being explicit about which is in use.
 #
-# depth: 1 reads the client address from the last hop in X-Forwarded-For, which
-# is the address Traefik itself observed. Without it the check runs against the
-# router's address and either admits everyone or no one.
+# Deliberately NO ipStrategy: Traefik's Service runs with
+# externalTrafficPolicy: Local, so the connection's source address IS the real
+# client and Traefik matches on it directly. An ipStrategy of depth 1 reads
+# X-Forwarded-For instead, which a direct browser request never sends - that
+# denied LAN traffic with 403 while looking correct.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -20,5 +22,3 @@ spec:
       - 100.64.0.0/10       # Tailscale (CGNAT range)
       - 10.42.0.0/16        # cluster pods
       - 10.43.0.0/16        # cluster services
-    ipStrategy:
-      depth: 1
