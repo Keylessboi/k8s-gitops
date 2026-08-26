@@ -1,0 +1,71 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: downloads
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Traefik, for the qui UI.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 7476
+          protocol: TCP
+        - port: 8089
+          protocol: TCP
+    # qui and Prowlarr reach qBittorrent's WebUI.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: downloads
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: prowlarr
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    # k3s apiserver, reachable only by ipBlock.
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
+        - port: 443
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # In-namespace: qui -> qBittorrent.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: downloads
+    # gluetun needs to reach the VPN endpoint and, once up, the internet.
+    # Peer traffic is confined to the tunnel by gluetun's own firewall; this
+    # rule only has to let the tunnel itself be established.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+    # MinIO on the NAS, for JuiceFS-backed volumes.
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.67/32
+      ports:
+        - port: 9000
+          protocol: TCP

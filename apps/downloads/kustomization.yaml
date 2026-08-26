@@ -1,0 +1,30 @@
+---
+# Download stack: qBittorrent tunnelled through gluetun, managed by qui.
+#
+# qBittorrent shares a pod (and therefore a network namespace) with gluetun,
+# so it has no route to the internet except the VPN tunnel. If the tunnel
+# drops, gluetun's firewall drops the traffic rather than falling back to the
+# LAN. qui sits outside that pod because it is a management UI, not a peer.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: downloads
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+
+namespace: downloads
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/component: downloads
+      homelab/tier: apps
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - pvc.yaml
+  - networkpolicy.yaml
+  - qbittorrent.yaml
+  - qui.yaml
+  - ingress.yaml

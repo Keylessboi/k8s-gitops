@@ -1,0 +1,136 @@
+---
+# qBittorrent, with ALL of its traffic forced through gluetun.
+#
+# gluetun and qBittorrent share one pod, so they share a network namespace.
+# qBittorrent has no network interface of its own beyond gluetun's tunnel: if
+# the VPN drops, gluetun's firewall drops the traffic rather than leaking to
+# the LAN. That containment is the entire point of putting them in one pod
+# rather than running qBittorrent standalone.
+#
+# NOTE: this stays at 0 replicas until AirVPN credentials are in Doppler. With
+# empty credentials gluetun cannot establish a tunnel, and starting anyway
+# would risk exactly the leak this design prevents.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qbittorrent
+  namespace: downloads
+spec:
+  # Set to 1 once AIRVPN_* secrets are populated.
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qbittorrent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: qbittorrent
+    spec:
+      containers:
+        - name: gluetun
+          image: qmcgaw/gluetun:v3.40.0
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+          env:
+            - name: VPN_SERVICE_PROVIDER
+              value: airvpn
+            - name: VPN_TYPE
+              value: wireguard
+            - name: WIREGUARD_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: airvpn
+                  key: private-key
+            - name: WIREGUARD_PRESHARED_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: airvpn
+                  key: preshared-key
+            - name: WIREGUARD_ADDRESSES
+              valueFrom:
+                secretKeyRef:
+                  name: airvpn
+                  key: addresses
+            - name: SERVER_COUNTRIES
+              valueFrom:
+                secretKeyRef:
+                  name: airvpn
+                  key: server-countries
+            # Let the pod's own subnet through so the qui UI and Prowlarr can
+            # still reach qBittorrent's WebUI while everything else is tunnelled.
+            - name: FIREWALL_OUTBOUND_SUBNETS
+              value: "10.42.0.0/16,10.43.0.0/16"
+            - name: FIREWALL_VPN_INPUT_PORTS
+              value: "6881"
+            - name: DOT
+              value: "off"
+            - name: TZ
+              value: UTC
+          ports:
+            - name: qbit-http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            exec:
+              command: ["/gluetun-entrypoint", "healthcheck"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            failureThreshold: 3
+
+        - name: qbittorrent
+          image: lscr.io/linuxserver/qbittorrent:5.1.2
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: UMASK
+              value: "002"
+            - name: TZ
+              value: UTC
+            - name: WEBUI_PORT
+              value: "8080"
+            - name: TORRENTING_PORT
+              value: "6881"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: downloads
+              mountPath: /downloads
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: qbittorrent-config
+        - name: downloads
+          persistentVolumeClaim:
+            claimName: qbittorrent-downloads
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: qbittorrent
+  namespace: downloads
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: qbittorrent
+  ports:
+    - name: http
+      port: 8080
+      targetPort: qbit-http

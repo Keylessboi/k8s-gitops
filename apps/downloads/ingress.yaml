@@ -1,0 +1,33 @@
+---
+# qui behind Authentik forward-auth.
+#
+# A torrent client's management UI is exactly the kind of thing that must not
+# be published bare - Lidarr was already exposed unauthenticated once in this
+# cluster. qBittorrent's own WebUI is NOT published at all; qui is the only
+# way in, and it requires an Authentik login first.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: qui
+  namespace: downloads
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - qui.sandstorm.chat
+      secretName: qui-tls
+  rules:
+    - host: qui.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: qui
+                port:
+                  number: 7476
