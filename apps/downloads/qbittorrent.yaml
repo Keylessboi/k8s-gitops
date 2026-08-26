@@ -27,6 +27,44 @@ spec:
       labels:
         app.kubernetes.io/name: qbittorrent
     spec:
+      initContainers:
+        # slskd's API key cannot be set by environment variable. Its documented
+        # mapping (SLSKD_WEB_AUTHENTICATION_API_KEYS_<NAME>_KEY) is silently
+        # ignored for this nested path, so every Lidarr request came back 401.
+        # Rendering the key into slskd.yml at startup is the only reliable way -
+        # and doing it here keeps the secret in a Kubernetes Secret rather than
+        # committed to git.
+        - name: slskd-config-render
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              cat > /app/slskd.yml <<EOF
+              web:
+                port: 5030
+                authentication:
+                  api_keys:
+                    lidarr:
+                      key: "$SLSKD_API_KEY"
+                      role: readwrite
+                      cidr: 10.42.0.0/16,10.43.0.0/16,127.0.0.1/32
+              shares:
+                directories:
+                  - /data/media/music
+              EOF
+              chown 1000:1000 /app/slskd.yml
+              chmod 600 /app/slskd.yml
+              echo "slskd.yml rendered"
+          env:
+            - name: SLSKD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: slskd
+                  key: api-key
+          volumeMounts:
+            - name: slskd-config
+              mountPath: /app
       containers:
         - name: gluetun
           image: qmcgaw/gluetun:v3.40.0
@@ -114,21 +152,6 @@ spec:
                 secretKeyRef:
                   name: slskd
                   key: password
-            # Lidarr authenticates to slskd with this rather than a login.
-            # The nesting matters: slskd maps config paths to env by prefixing
-            # SLSKD_ and flattening with underscores, so the key lives under
-            # web.authentication.api_keys.<name>. A shorter name is silently
-            # ignored and every request comes back 401.
-            - name: SLSKD_WEB_AUTHENTICATION_API_KEYS_LIDARR_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: slskd
-                  key: api-key
-            - name: SLSKD_WEB_AUTHENTICATION_API_KEYS_LIDARR_ROLE
-              value: readwrite
-            # Any in-cluster caller; the pod is not reachable from outside it.
-            - name: SLSKD_WEB_AUTHENTICATION_API_KEYS_LIDARR_CIDR
-              value: 10.42.0.0/16,10.43.0.0/16,127.0.0.1/32
             - name: SLSKD_HTTP_PORT
               value: "5030"
             # The AirVPN-forwarded port for incoming Soulseek connections.
