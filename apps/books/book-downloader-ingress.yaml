@@ -1,0 +1,64 @@
+---
+# The Anna's Archive downloader, published behind Authentik.
+#
+# This is the non-P2P half of the book stack and the only interface to it, but
+# it had no Ingress at all - so the search UI was unreachable except by
+# port-forward, which makes the feature effectively absent.
+#
+# It stays behind forward-auth: it is an unauthenticated download tool, and
+# publishing it bare would repeat the mistake that left Lidarr open.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: book-downloader
+  namespace: books
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - bookdl.sandstorm.chat
+      secretName: book-downloader-tls
+  rules:
+    - host: bookdl.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: book-downloader
+                port:
+                  number: 8084
+---
+# The outpost callback for this host. Without it the Authentik redirect comes
+# back to a path this app does not serve and the login never completes - see
+# apps/books/authentik-outpost.yaml for the full reasoning.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: book-downloader-outpost
+  namespace: books
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - bookdl.sandstorm.chat
+      secretName: book-downloader-tls
+  rules:
+    - host: bookdl.sandstorm.chat
+      http:
+        paths:
+          - path: /outpost.goauthentik.io
+            pathType: Prefix
+            backend:
+              service:
+                name: authentik-outpost
+                port:
+                  number: 9000
