@@ -46,3 +46,23 @@ spec:
   owner: vaultwarden
   cluster:
     name: app-databases
+---
+# JuiceFS metadata engine. JuiceFS stores file *data* as chunks in S3 (MinIO)
+# and the POSIX metadata - inodes, directory tree, permissions - here.
+#
+# This is what lets apps that cannot speak S3 natively (Immich, Vaultwarden,
+# Kiwix, Navidrome) still be backed by object storage, per the plan's
+# "S3 primary storage" with NFS reserved for media streaming.
+#
+# Losing this database loses the filesystem even though the chunks survive in
+# S3, so it is covered by the same CNPG backups as everything else.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: juicefs
+  namespace: databases
+spec:
+  name: juicefs
+  owner: juicefs
+  cluster:
+    name: app-databases

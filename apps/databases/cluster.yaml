@@ -66,6 +66,11 @@ spec:
         login: true
         passwordSecret:
           name: vaultwarden-db-credentials
+      - name: juicefs
+        ensure: present
+        login: true
+        passwordSecret:
+          name: juicefs-db-credentials
   # Backups to MinIO on the NAS.
   #
   # This block previously authenticated with a `minio-creds` secret whose

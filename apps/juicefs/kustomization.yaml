@@ -1,0 +1,59 @@
+---
+# JuiceFS CSI driver: the S3 gateway for apps that need a POSIX filesystem.
+#
+# The plan calls for "S3 primary storage (MinIO)" with "NFS fallback for media
+# streaming only". Apps like Nextcloud and Loki speak S3 natively; Immich,
+# Vaultwarden, Kiwix and Navidrome do not. JuiceFS bridges that: file *data*
+# becomes chunks in the MinIO `juicefs` bucket, while POSIX metadata (inodes,
+# directory tree, permissions) lives in the shared PostgreSQL.
+#
+# Unlike plain s3fs/goofys mounts it gives real POSIX semantics - hardlinks,
+# atomic rename, proper locking - which is what those apps actually require.
+#
+# Trade-off worth knowing: the metadata database is authoritative. Losing it
+# loses the filesystem even though every chunk still sits in S3, so it is
+# covered by the same CNPG backups as the app databases.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: juicefs
+  annotations:
+    # Storage must exist before any app that claims a volume from it.
+    argocd.argoproj.io/sync-wave: "-7"
+
+namespace: juicefs
+
+resources:
+  - namespace.yaml
+  - storageclass.yaml
+
+helmCharts:
+  - name: juicefs-csi-driver
+    repo: https://juicedata.github.io/charts/
+    version: 0.32.5
+    releaseName: juicefs
+    namespace: juicefs
+    includeCRDs: true
+    valuesInline:
+      # The CSI node plugin has to see the kubelet's directory to publish
+      # volumes; k3s keeps it in the default location.
+      kubeletDir: /var/lib/kubelet
+      node:
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+      controller:
+        replicas: 1
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      dashboard:
+        enabled: false

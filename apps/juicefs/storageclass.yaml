@@ -1,0 +1,25 @@
+---
+# S3-backed POSIX storage. This is the default class for app data, replacing
+# nfs-csi for everything except media streaming.
+#
+# The referenced secret (juicefs-sc-secret) is bootstrapped out of band: it
+# carries the MinIO service-account keys and the PostgreSQL metadata URL, and
+# committing either to git is exactly the placeholder-secret trap that broke
+# this repo before.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: juicefs
+provisioner: csi.juicefs.com
+parameters:
+  csi.storage.k8s.io/provisioner-secret-name: juicefs-sc-secret
+  csi.storage.k8s.io/provisioner-secret-namespace: juicefs
+  csi.storage.k8s.io/node-publish-secret-name: juicefs-sc-secret
+  csi.storage.k8s.io/node-publish-secret-namespace: juicefs
+  # Each PVC gets its own subdirectory inside the shared filesystem.
+  pathPattern: "${.PVC.namespace}-${.PVC.name}"
+# Retain, so deleting a PVC never silently destroys app data. Matches the
+# posture already used for nfs-csi.
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: Immediate
