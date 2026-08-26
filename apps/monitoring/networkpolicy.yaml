@@ -53,6 +53,17 @@ spec:
     ports:
     - protocol: TCP
       port: 443
+  # Reach our own services through the load balancer.
+  # CoreDNS resolves *.sandstorm.chat to 192.168.1.240 in-cluster (see
+  # apps/coredns), and the 0.0.0.0/0 rule below deliberately excludes
+  # 192.168.0.0/16 - so without this rule that lookup succeeds and the connection
+  # is then dropped. Needed by anything doing OIDC discovery against Authentik.
+  - to:
+    - ipBlock:
+        cidr: 192.168.1.240/32
+    ports:
+    - port: 443
+      protocol: TCP
   - to:
     - ipBlock:
         cidr: 0.0.0.0/0

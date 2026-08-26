@@ -1,0 +1,38 @@
+---
+# Split-horizon DNS: resolve our own hostnames to the load balancer, in-cluster.
+#
+# Without this, a pod resolving authentik.sandstorm.chat gets the PUBLIC address
+# and its traffic leaves the network and hairpins back through the router. That
+# path is not equivalent: from inside a pod it returns "TRAEFIK DEFAULT CERT"
+# rather than the Let's Encrypt certificate, so every TLS verification against
+# it fails. That is what broke Vaultwarden's SSO with
+# "Failed to discover OpenID provider: Request failed" - its OIDC discovery
+# client uses native-tls and refuses the untrusted certificate. The same trap
+# waits for any service that has to call another over its public name.
+#
+# Pointing at 192.168.1.240 keeps the hostname intact, so SNI still selects the
+# right certificate and the OIDC issuer still matches. That address is pinned by
+# the MetalLB annotation on the Traefik service, so it is stable by construction.
+#
+# k3s's CoreDNS already does `import /etc/coredns/custom/*.override` and mounts
+# this ConfigMap optionally - no change to the k3s-managed Corefile needed.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  sandstorm.override: |
+    hosts {
+      192.168.1.240 authentik.sandstorm.chat
+      192.168.1.240 vaultwarden.sandstorm.chat
+      192.168.1.240 immich.sandstorm.chat
+      192.168.1.240 nextcloud.sandstorm.chat
+      192.168.1.240 navidrome.sandstorm.chat
+      192.168.1.240 kiwix.sandstorm.chat
+      192.168.1.240 lidarr.sandstorm.chat
+      192.168.1.240 books.sandstorm.chat
+      192.168.1.240 qui.sandstorm.chat
+      192.168.1.240 grafana.sandstorm.chat
+      fallthrough
+    }
