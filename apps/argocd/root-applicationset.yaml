@@ -34,17 +34,18 @@ spec:
         homelab/tier: "{{.path.basename}}"
       annotations:
         # Server-side diff is on cluster-wide (argocd-cmd-params-cm) because it
-        # is what stops API-server-defaulted fields reading as permanent drift.
-        # It breaks on this one Deployment though: ArgoCD fails to reconstruct
-        # the predicted live object and reports
-        #   "associative list with keys has an element that omits key field
-        #    name"
-        # even though every container in the manifest is named - verified by
-        # rendering it. The app then sits at sync status Unknown and cannot
-        # deploy at all. Falling back to client-side diff for this app only.
-        {{- if eq .path.basename "downloads" }}
-        argocd.argoproj.io/compare-options: ServerSideDiff=false
-        {{- end }}
+        # stops API-server-defaulted fields reading as permanent drift. It
+        # breaks on the downloads Deployment though: ArgoCD cannot rebuild the
+        # predicted live object and reports "associative list with keys has an
+        # element that omits key field name" even though every container in the
+        # rendered manifest is named. That app then sits at sync status Unknown
+        # and deploys nothing at all, so it falls back to client-side diff.
+        #
+        # Written as a quoted scalar, not a {{- if }} block: this file is a
+        # CustomResource that kubectl must parse as YAML before ArgoCD ever
+        # templates it, and a bare conditional makes it invalid. Every other app
+        # renders an empty string here, which ArgoCD reads as no options.
+        argocd.argoproj.io/compare-options: '{{ if eq .path.basename "downloads" }}ServerSideDiff=false{{ end }}'
       finalizers:
         - resources-finalizer.argocd.argoproj.io
     spec:
