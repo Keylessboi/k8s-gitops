@@ -26,7 +26,23 @@ spec:
         homelab/node-class: compute
       containers:
         - name: vaultwarden
-          image: vaultwarden/server:1.34.3-alpine
+          # The SSO-capable fork, NOT dani-garcia/vaultwarden.
+          #
+          # Upstream Vaultwarden has never supported SSO and silently ignores
+          # every SSO_* variable: with the official image these settings were
+          # present, looked configured, and did nothing. /api/config advertised
+          # no SSO fields and the logs never parsed them.
+          #
+          # Forward-auth is not an alternative here the way it is for Lidarr -
+          # the Bitwarden browser extension and mobile apps talk to the API
+          # directly and cannot complete an Authentik login flow, so fronting
+          # this with the outpost would break every client except the web vault.
+          #
+          # Trade-off accepted knowingly: a community fork of a password
+          # manager, currently one patch behind upstream (1.34.1 vs 1.34.3).
+          # It tracks upstream closely and is actively maintained. The database
+          # schema is identical, so the Postgres data carries over untouched.
+          image: ghcr.io/timshel/vaultwarden:1.34.1-1-alpine
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
@@ -55,12 +71,23 @@ spec:
             # the highest-value endpoint on a public vault.
             - name: DISABLE_ADMIN_TOKEN
               value: "false"
-            # SSO via Authentik. Local admin login still works as the
-            # emergency path if Authentik is unavailable.
+            # SSO via Authentik. These are only honoured by the fork above;
+            # on the official image they are inert.
+            #
+            # SSO_ONLY stays false deliberately: local login remains available
+            # so an Authentik outage cannot lock you out of your own vault.
+            # That is the no-lockout rule the plan calls out, and it matters
+            # more here than anywhere else in the cluster.
             - name: SSO_ENABLED
               value: "true"
             - name: SSO_ONLY
               value: "false"
+            # Matches users by verified email so an existing local account and
+            # its Authentik identity resolve to one user rather than two.
+            - name: SSO_SIGNUPS_MATCH_EMAIL
+              value: "true"
+            - name: SSO_SCOPES
+              value: "email profile openid offline_access"
             - name: SSO_AUTHORITY
               value: https://authentik.sandstorm.chat/application/o/vaultwarden/
             - name: SSO_CLIENT_ID
