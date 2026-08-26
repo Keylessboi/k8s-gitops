@@ -36,6 +36,11 @@ kind: ImageUpdater
 metadata:
   name: homelab
   namespace: argocd
+  # The controller adds this to its own CR on first reconcile. Declaring it here
+  # too keeps ArgoCD from reading it as drift and parking the app permanently at
+  # OutOfSync/Progressing.
+  finalizers:
+    - resources-finalizer.argocd-image-updater.argoproj.io
 spec:
   writeBackConfig:
     # `git:secret:<ns>/<name>` rather than plain `git`: plain git makes the
