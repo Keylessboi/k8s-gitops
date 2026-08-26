@@ -19,6 +19,7 @@ of them is rate limited (50 req/s sustained, 100 burst, per source address).
 | `books.sandstorm.chat` | Calibre-Web Automated — read and manage the library | Authentik first, then CWA |
 | `lidarr.sandstorm.chat` | Music acquisition | Authentik first, then Lidarr |
 | `qui.sandstorm.chat` | Torrent management UI | Authentik first |
+| `kiwix.sandstorm.chat` | Offline Wikipedia and other archives | none |
 | `grafana.sandstorm.chat` | Dashboards and metrics | Grafana account |
 
 Four of those — books, lidarr, qui, and anything else marked "Authentik first" —
@@ -29,12 +30,14 @@ are admin interfaces with weak or no built-in auth of their own.
 ### Not published, deliberately
 
 Prowlarr, FlareSolverr, Readarr, the book downloader, Beets, Octo-Fiesta and
-qBittorrent's own WebUI have no Ingress. They're reachable over Tailscale or by
-port-forward:
+qBittorrent's own WebUI have no Ingress. Neither does ArgoCD - it is the
+control plane for everything else, so it stays off the public internet. All of
+them are reachable over Tailscale or by port-forward:
 
 ```bash
 kubectl port-forward -n prowlarr svc/prowlarr 9696:9696
 kubectl port-forward -n music     svc/beets    8337:8337
+kubectl port-forward -n argocd   svc/argocd-server 8080:443
 ```
 
 Nothing is lost by this — Prowlarr feeds Lidarr and Readarr over cluster DNS,

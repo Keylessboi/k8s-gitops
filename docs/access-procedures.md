@@ -1,21 +1,21 @@
 # Cluster Access Procedures
 
+> Day-to-day usage lives in [RUNDOWN.md](RUNDOWN.md). This file covers access paths only.
+
 ## Service URLs
 
 | Service | URL | Notes |
 |---------|-----|-------|
-| ArgoCD Dashboard | https://argocd.sandstorm.chat | Primary GitOps UI |
 | Authentik | https://authentik.sandstorm.chat | SSO/Identity Provider |
 | Vaultwarden | https://vaultwarden.sandstorm.chat | Password Manager |
 | Nextcloud | https://nextcloud.sandstorm.chat | File Storage |
 | Immich | https://immich.sandstorm.chat | Photo Management |
 | Navidrome | https://navidrome.sandstorm.chat | Music Streaming |
-| Lidarr | https://lidarr.sandstorm.chat | Music Downloads |
-| Prowlarr | https://prowlarr.sandstorm.chat | Indexer Management |
+| Lidarr | https://lidarr.sandstorm.chat | Music acquisition (Authentik forward-auth) |
 | Kiwix | https://kiwix.sandstorm.chat | Offline Content |
-| Pangolin | https://pangolin.sandstorm.chat | Reverse Proxy |
+| Calibre-Web Automated | https://books.sandstorm.chat | Ebooks (Authentik forward-auth) |
+| qui | https://qui.sandstorm.chat | Torrent management (Authentik forward-auth) |
 | Grafana | https://grafana.sandstorm.chat | Monitoring Dashboards |
-| Prometheus | https://prometheus.sandstorm.chat | Metrics |
 
 **Alternative Access**: If DNS is not configured, use kubectl port-forward:
 ```bash
@@ -150,3 +150,24 @@ kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manif
 | Infrastructure | - | Proxmox/NAS issues |
 | Kubernetes | - | Cluster/pod issues |
 | Networking | - | DNS/Ingress issues |
+
+## Not published
+
+Prowlarr, FlareSolverr, Readarr, the book downloader, Beets, Octo-Fiesta and
+qBittorrent's WebUI have no Ingress by design. Reach them over Tailscale or
+port-forward, e.g.:
+
+```bash
+kubectl port-forward -n prowlarr svc/prowlarr 9696:9696
+```
+
+Pangolin was removed - its routing lived in its own database rather than in
+this repo, and Traefik middlewares cover the same ground declaratively.
+Prometheus is reached through Grafana rather than published directly.
+
+ArgoCD has no Ingress either - it is the control plane for everything else,
+so it stays off the public internet:
+
+```bash
+kubectl port-forward -n argocd svc/argocd-server 8080:443
+```
