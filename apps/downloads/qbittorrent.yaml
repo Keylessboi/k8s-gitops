@@ -85,7 +85,13 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 60
             failureThreshold: 3
-
+          volumeMounts:
+            # WireGuard needs a TUN device, and Kubernetes does not expose one
+            # by default: gluetun fails with "opening TUN device file:
+            # operation not permitted". NET_ADMIN alone is not enough - the
+            # device node itself has to be passed in.
+            - name: tun
+              mountPath: /dev/net/tun
         # slskd (Soulseek), in the SAME pod for the same reason qBittorrent is:
         # sharing gluetun's network namespace means its only route out is the
         # tunnel. Soulseek is peer-to-peer, so running it outside the tunnel
@@ -180,6 +186,10 @@ spec:
         - name: slskd-config
           persistentVolumeClaim:
             claimName: slskd-config
+        - name: tun
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice
         - name: data
           persistentVolumeClaim:
             claimName: media-data
