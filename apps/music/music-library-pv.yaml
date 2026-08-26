@@ -28,7 +28,15 @@ spec:
     volumeAttributes:
       server: 192.168.1.67
       share: /extra/nfs-csi
-      subDir: navidrome/navidrome-music
+      # The provisioner named this directory after the PV, not after
+      # namespace/claim - the subDir pattern in our StorageClass was not in
+      # effect when navidrome-music was created. Verified against the live PV's
+      # volumeAttributes rather than assumed.
+      #
+      # FRAGILE: if navidrome-music is ever deleted and recreated it gets a new
+      # UUID and this must be updated. Long term the media library belongs on a
+      # dedicated NFS export with a stable path.
+      subDir: pvc-9ea2b827-163b-4545-9224-cc13c2594ad9
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
