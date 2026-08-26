@@ -36,6 +36,8 @@ resources:
   - networkpolicy.yaml
   - ingress.yaml
   - dashboard-homelab.yaml
+  - smartctl-alerts.yaml
+  - dashboard-disk-health.yaml
 
 helmCharts:
   # Stack: Prometheus, Grafana, Alertmanager, node-exporter.
@@ -49,6 +51,26 @@ helmCharts:
       prometheus:
         prometheusSpec:
           retention: 15d
+          # SMART metrics from the two bare-metal hosts. These cannot be a
+          # DaemonSet: LXC 200 has no block devices in /dev at all, so a pod has
+          # nothing to read, and the disks that matter (the NAS pool disks)
+          # are not the Proxmox host's anyway. The exporters run as systemd
+          # units there - see scripts/install-smartctl-exporter.sh - and are
+          # scraped over the LAN.
+          #
+          # additionalScrapeConfigs rather than a ScrapeConfig CR: the chart
+          # renders this straight into the operator's secret, with no CRD
+          # selector to get wrong.
+          additionalScrapeConfigs:
+            - job_name: smartctl
+              scrape_interval: 60s
+              static_configs:
+                - targets: [192.168.1.153:9633]
+                  labels:
+                    host: proxmox
+                - targets: [192.168.1.67:9633]
+                  labels:
+                    host: nas
           nodeSelector:
             homelab/node-class: compute
           resources:

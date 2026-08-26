@@ -15,6 +15,18 @@ spec:
   - from:
     - namespaceSelector: {}
   egress:
+  # smartctl_exporter on the Proxmox host and the NAS. The catch-all egress
+  # rule below deliberately excludes 192.168.0.0/16, so without naming these
+  # two the scrape is dropped and the disks look permanently healthy because
+  # nothing is ever collected.
+  - to:
+    - ipBlock:
+        cidr: 192.168.1.153/32
+    - ipBlock:
+        cidr: 192.168.1.67/32
+    ports:
+    - port: 9633
+      protocol: TCP
   # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
   # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so
   # the old rule was a no-op. Every NetworkPolicy in this repo was missing real
