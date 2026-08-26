@@ -51,7 +51,13 @@ spec:
           selfHeal: true
           allowEmpty: false
         syncOptions:
-          - CreateNamespace=true
+          # CreateNamespace deliberately OFF. The template's fallback
+          # destination namespace is {{.path.basename}}, and with
+          # CreateNamespace on, ArgoCD created an empty namespace per app even
+          # when the manifests target somewhere else entirely - leaving stray
+          # `cnpg`, `doppler`, `metallb` and `traefik` namespaces with no
+          # workloads, no NetworkPolicy and no Pod Security labels. Every app
+          # ships its own namespace.yaml instead.
           - PrunePropagationPolicy=foreground
           - PruneLast=true
           - ServerSideApply=true

@@ -32,6 +32,7 @@ labels:
 
 resources:
   - namespace.yaml
+  - networkpolicy.yaml
   - cluster.yaml
   # One Database CR per app, replacing the never-written
   # scripts/11-cnpg-databases.sh.

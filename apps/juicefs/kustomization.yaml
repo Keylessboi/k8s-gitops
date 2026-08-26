@@ -25,6 +25,7 @@ namespace: juicefs
 
 resources:
   - namespace.yaml
+  - networkpolicy.yaml
   - storageclass.yaml
 
 helmCharts:
