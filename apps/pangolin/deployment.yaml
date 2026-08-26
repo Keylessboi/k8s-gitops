@@ -7,18 +7,7 @@ metadata:
   name: pangolin
   namespace: pangolin
 spec:
-  # PARKED AT ZERO, deliberately.
-  #
-  # Pangolin needs a config.yml it has never had in git. The only one that
-  # ever existed was a `pangolin-config` ConfigMap created by hand in a past
-  # session — invisible to this repo, so every rebuild lost it and the
-  # container died on "No configuration file found".
-  #
-  # Traefik is the front door now (apps/traefik), so nothing depends on
-  # Pangolin. Rather than leave it crash-looping and burning restarts, it is
-  # scaled to zero until its config is written properly and committed. Set
-  # replicas back to 1 at that point.
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -38,16 +27,26 @@ spec:
           ports:
             - name: http
               containerPort: 3001
-          envFrom:
-            - secretRef:
-                name: homelab-shared
-                optional: true
+          env:
+            # Signs sessions. Kept out of the ConfigMap and out of git; the
+            # hand-made config had this hardcoded to a guessable literal.
+            - name: SERVER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: pangolin-secret
+                  key: server-secret
           volumeMounts:
             # Mounting the same PVC at /app/config and /app/config/data means
             # the second mount shadows the first. Only /app/config is needed;
             # the data subdirectory lives inside it.
             - name: data
               mountPath: /app/config
+            # subPath so the ConfigMap lands as a single file INSIDE the PVC
+            # mount rather than replacing the whole directory - Pangolin keeps
+            # its SQLite database in the same folder.
+            - name: config
+              mountPath: /app/config/config.yml
+              subPath: config.yml
             - name: traefik-logs
               mountPath: /var/log/traefik
           resources:
@@ -104,6 +103,9 @@ spec:
               cpu: 100m
               memory: 128Mi
       volumes:
+        - name: config
+          configMap:
+            name: pangolin-config
         - name: data
           persistentVolumeClaim:
             claimName: pangolin-data
