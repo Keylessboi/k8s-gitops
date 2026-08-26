@@ -23,6 +23,20 @@ kubectl apply -f apps/argocd/ingress.yaml
 
 # argocd-cm is read at startup by the components that consume it:
 # kustomize.buildOptions by the repo-server, diff settings by the controller.
+# A registry outage must not be able to take down the control plane.
+#
+# ArgoCD ships with imagePullPolicy: Always, so kubelet contacts the registry on
+# every pod start even when the image is already in containerd's store. During a
+# quay.io outage (HTTP 504 on the manifest) that meant restarting ArgoCD left
+# the application controller, server and repo-server all stuck in
+# ImagePullBackOff - GitOps halted - despite the exact image being local.
+# IfNotPresent uses the cached copy. The tag is pinned, so this does not risk
+# running a stale image.
+for r in statefulset/argocd-application-controller deployment/argocd-server deployment/argocd-repo-server; do
+  kubectl patch "$r" -n argocd --type json \
+    -p '[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]' >/dev/null
+done
+
 # argocd-server reads server.insecure at startup, so it needs restarting too.
 kubectl rollout restart deploy/argocd-server -n argocd
 kubectl rollout restart deploy/argocd-repo-server -n argocd
