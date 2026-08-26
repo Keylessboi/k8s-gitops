@@ -1,0 +1,58 @@
+---
+# ArgoCD Image Updater. Watches the registries behind our images and commits
+# tag bumps back to this repo, so an update is a reviewable commit rather than
+# a manual edit someone remembers to make.
+#
+# Deployed into the argocd namespace (not its own) because the controller
+# defaults to watching Applications in whatever namespace it runs in. apps/argocd
+# is excluded from the root ApplicationSet, so this lives in its own app
+# directory and simply targets that namespace.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: image-updater
+  annotations:
+    # After argocd itself is up, before the apps it will be updating.
+    argocd.argoproj.io/sync-wave: "5"
+  labels:
+    app.kubernetes.io/name: image-updater
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+
+namespace: argocd
+
+# `labels` with includeSelectors:false, NOT `commonLabels` - commonLabels
+# rewrites Deployment selectors, which are immutable.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/component: gitops
+      homelab/tier: platform
+    includeSelectors: false
+
+resources:
+  - imageupdaters.yaml
+
+helmCharts:
+  - name: argocd-image-updater
+    repo: https://argoproj.github.io/argo-helm
+    version: 1.2.4
+    releaseName: image-updater
+    namespace: argocd
+    includeCRDs: true
+    valuesInline:
+      config:
+        # Attribution for the commits it makes, so `git log` shows who bumped a
+        # tag without anyone having to guess.
+        git.user: argocd-image-updater
+        git.email: argocd-image-updater@sandstorm.chat
+        log.level: info
+      nodeSelector:
+        homelab/node-class: compute
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
