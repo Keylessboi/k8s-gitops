@@ -40,13 +40,18 @@ spec:
           ports:
             - name: http
               containerPort: 8686
+          # Raised from 500m/512Mi after repeated OOMKills. 512Mi was set when
+          # this was an empty Lidarr; the restored library is 498 artists and it
+          # now loads five Tubifarry providers on top. A release search across
+          # every indexer reliably killed the container mid-request, which reads
+          # as a search that mysteriously returns nothing.
           resources:
             requests:
-              cpu: 25m
-              memory: 256Mi
-            limits:
-              cpu: 500m
+              cpu: 50m
               memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
           readinessProbe:
             httpGet:
               path: /ping
