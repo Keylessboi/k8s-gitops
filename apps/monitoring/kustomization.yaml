@@ -272,8 +272,36 @@ helmCharts:
             discovery.kubernetes "pods" {
               role = "pod"
             }
+            // Kubernetes service discovery hands over __meta_* labels, which are
+            // discarded unless they are relabelled onto the stream. Without this
+            // block Loki held only instance/job/service_name - no namespace, no
+            // pod, no container - so logs were being collected and stored but
+            // could not be narrowed to an application by any query.
+            discovery.relabel "pods" {
+              targets = discovery.kubernetes.pods.targets
+              rule {
+                source_labels = ["__meta_kubernetes_namespace"]
+                target_label  = "namespace"
+              }
+              rule {
+                source_labels = ["__meta_kubernetes_pod_name"]
+                target_label  = "pod"
+              }
+              rule {
+                source_labels = ["__meta_kubernetes_pod_container_name"]
+                target_label  = "container"
+              }
+              rule {
+                source_labels = ["__meta_kubernetes_node_name"]
+                target_label  = "node"
+              }
+              rule {
+                source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+                target_label  = "app"
+              }
+            }
             loki.source.kubernetes "pods" {
-              targets    = discovery.kubernetes.pods.targets
+              targets    = discovery.relabel.pods.output
               forward_to = [loki.write.default.receiver]
             }
             loki.write "default" {
