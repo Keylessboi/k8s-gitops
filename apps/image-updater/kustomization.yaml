@@ -10,8 +10,15 @@
 # and ClusterRoleBinding permanently SyncFailed on `namespaces "image-updater"
 # not found`, and without them the controller could not even list its own CRs.
 #
-# `argocd.namespace` below is what points it back at the Applications; its
-# ImageUpdater CRs are read from its own namespace.
+# The ImageUpdater CR itself stays in the argocd namespace, because the
+# controller derives the namespace it searches for Applications from the CR's
+# own namespace - not from `argocd.namespace`, which it ignored entirely
+# ("Listing all applications in target namespace: image-updater ... found 0").
+# `watch.namespaces` is what tells the controller to look there for CRs.
+#
+# That split is also why there is no `namespace:` transformer below: it would
+# rewrite the CR's namespace along with everything else. Each resource states
+# its own instead.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 metadata:
@@ -24,7 +31,6 @@ metadata:
     app.kubernetes.io/part-of: homelab
     app.kubernetes.io/managed-by: argocd
 
-namespace: image-updater
 
 # `labels` with includeSelectors:false, NOT `commonLabels` - commonLabels
 # rewrites Deployment selectors, which are immutable.
@@ -49,9 +55,12 @@ helmCharts:
     includeCRDs: true
     valuesInline:
       config:
-        # Where the Argo CD Applications live. Without this the controller looks
-        # for them in its own namespace and finds none.
+        # Where the Argo CD Applications live.
         argocd.namespace: argocd
+        # ...and where to look for ImageUpdater CRs. Without this the controller
+        # watches only its own namespace, where there are no Applications to
+        # match, and every cycle ends "considering 0 application(s)".
+        watch.namespaces: argocd
         # Attribution for the commits it makes, so `git log` shows who bumped a
         # tag without anyone having to guess.
         git.user: argocd-image-updater

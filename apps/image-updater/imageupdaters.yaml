@@ -31,7 +31,7 @@ apiVersion: argocd-image-updater.argoproj.io/v1alpha1
 kind: ImageUpdater
 metadata:
   name: homelab
-  namespace: image-updater
+  namespace: argocd
 spec:
   writeBackConfig:
     # `git:secret:<ns>/<name>` rather than plain `git`: plain git makes the
