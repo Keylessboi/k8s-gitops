@@ -277,3 +277,50 @@ both rules.
 **A Traefik middleware that fails to build takes its entire router down.** Not
 just the middleware — the whole route. Attach a new one to a single low-stakes
 route first, confirm, then roll out.
+
+## Vaultwarden SSO from the apps and browser extension
+
+The server side is complete and verified live. What follows is the part that is
+not obvious from the Vaultwarden side at all.
+
+**The clients ask for an "SSO organization identifier". Type `Vaultwarden`.**
+Bitwarden's clients were built for Bitwarden's hosted SSO, where that string
+selects your organisation. Vaultwarden's SSO fork has no organisations to
+select, so it accepts any identifier and answers `/identity/account/prevalidate`
+for all of them - the constant in its source is literally
+`FAKE_IDENTIFIER = "Vaultwarden"`. Verified: that endpoint returns a JWT.
+
+Login flow per client:
+
+| Client | Works | Note |
+|---|---|---|
+| Web vault | yes | "Log in with SSO" is on the login page |
+| Browser extension | yes | opens a tab for Authentik, then returns |
+| Mobile apps | yes | same tab hand-off |
+| Desktop app (Chrome-based) | **no** | upstream bug bitwarden/clients#2606, not ours - the browser cannot hand the redirect back to the app on Linux or Windows |
+| Desktop app via Firefox on Linux | fiddly | needs `network.protocol-handler.expose.bitwarden=false` and `network.protocol-handler.external.bitwarden=true` in `about:config`, and the handler only registers on a real click |
+
+**The one Authentik setting to check.** Its default access token lifetime is 5
+minutes, and Bitwarden's front-end also treats 5 minutes as its refresh
+threshold - the two collide and sessions drop immediately. Set it longer in
+Authentik under *Applications -> Providers -> vaultwarden -> Advanced protocol
+settings -> Access token validity* (an hour is fine). This is the single most
+likely cause if SSO logs in and then logs straight back out.
+
+If sessions still will not hold, `SSO_AUTH_ONLY_NOT_SESSION=true` makes Hermes
+use SSO for authentication only and falls back to Vaultwarden's own session
+handling (2h access token, 7-day idle refresh). It is the documented escape
+hatch, not a workaround.
+
+Verified already correct, so do not go changing these:
+
+- `SSO_SCOPES` includes `offline_access` - required from Authentik 2024.2 for a
+  refresh token, and Authentik advertises it (`scopes_supported` includes
+  `offline_access`, `grant_types_supported` includes `refresh_token`).
+- `SSO_AUTHORITY` keeps its trailing `/`. The generic docs say to omit it; the
+  Authentik-specific section says it is required, and Authentik's discovery
+  document confirms the issuer carries it.
+- The callback `https://vaultwarden.sandstorm.chat/identity/connect/oidc-signin`
+  is registered - an authorize probe returns 302 into the login flow rather than
+  an invalid-redirect error.
+- `SSO_ONLY=false` stays false, so an Authentik outage cannot lock you out.
