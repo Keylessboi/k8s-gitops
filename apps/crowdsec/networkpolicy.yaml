@@ -1,0 +1,66 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: crowdsec
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Traefik's bouncer plugin queries the LAPI on every request.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: crowdsec
+      ports:
+        - {port: 8080, protocol: TCP}
+        - {port: 6060, protocol: TCP}
+  egress:
+    # The apiserver, by BOTH the Service address and the node address.
+    # k3s DNATs 10.43.0.1:443 to the node endpoint before NetworkPolicy egress
+    # is evaluated, so the Service rule alone silently fails for any new
+    # connection - the same defect that broke CNPG's base backups.
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
+        - {port: 443, protocol: TCP}
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.0/24
+      ports:
+        - {port: 6443, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: crowdsec
+    # NFS for its own volumes.
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.67/32
+      ports:
+        - {port: 2049, protocol: TCP}
+    # The CrowdSec central API, for the community blocklist and signal
+    # sharing. Without this it only ever knows about local attacks.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 192.168.0.0/16
+              - 172.16.0.0/12
+      ports:
+        - {protocol: TCP, port: 443}

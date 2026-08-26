@@ -1,0 +1,37 @@
+---
+# The CrowdSec bouncer: enforces CrowdSec's decisions on every request.
+#
+# CrowdSec's agent watches Traefik's access logs and decides who is attacking;
+# this middleware is what actually turns those decisions into blocks. Without
+# it CrowdSec would observe and log, and nothing would ever be denied.
+#
+# It also enforces the community blocklist, so addresses already caught
+# attacking other CrowdSec users are blocked here before they try anything.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: crowdsec
+  namespace: kube-system
+spec:
+  plugin:
+    crowdsec:
+      enabled: "true"
+      # `stream` keeps a local cache of decisions refreshed in the background,
+      # rather than calling the LAPI on every single request. `live` would put
+      # CrowdSec in the hot path of every request and make it a availability
+      # dependency for the whole cluster.
+      crowdsecMode: stream
+      crowdsecLapiHost: crowdsec-service.crowdsec.svc.cluster.local:8080
+      crowdsecLapiScheme: http
+      crowdsecLapiKey: ""
+      # Requests from inside the cluster and the LAN are never bounced, so a
+      # bad decision cannot lock out internal traffic or the ACME solver.
+      clientTrustedIPs:
+        - 10.42.0.0/16
+        - 10.43.0.0/16
+        - 192.168.1.0/24
+      # Traefik sits behind the router, so the real client address comes from
+      # the forwarded header rather than the connection.
+      forwardedHeadersTrustedIPs:
+        - 10.42.0.0/16
+        - 192.168.1.0/24

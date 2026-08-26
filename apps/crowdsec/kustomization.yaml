@@ -1,0 +1,75 @@
+---
+# CrowdSec: behavioural detection and blocking at the edge.
+#
+# It reads Traefik's access logs, recognises attack patterns (credential
+# stuffing, path scanning, exploit probing), and publishes decisions that the
+# Traefik bouncer plugin enforces on the next request. It also pulls the
+# community blocklist, so addresses already caught attacking other people are
+# blocked here before they try anything.
+#
+# This replaces what Pangolin would have provided, but declaratively and in
+# git, rather than as rules living in another application's database.
+#
+# NOTE: geo-blocking is deliberately NOT enabled - explicitly not wanted.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: crowdsec
+  annotations:
+    # Before the apps it protects, after Traefik exists.
+    argocd.argoproj.io/sync-wave: "-4"
+
+namespace: crowdsec
+
+resources:
+  - namespace.yaml
+  - networkpolicy.yaml
+
+helmCharts:
+  - name: crowdsec
+    repo: https://crowdsecurity.github.io/helm-charts
+    version: 0.24.0
+    releaseName: crowdsec
+    namespace: crowdsec
+    includeCRDs: true
+    valuesInline:
+      # The Local API: holds decisions and answers the bouncer.
+      lapi:
+        persistentVolume:
+          data:
+            enabled: true
+            storageClassName: nfs-csi
+            size: 2Gi
+          config:
+            enabled: true
+            storageClassName: nfs-csi
+            size: 1Gi
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        # Pull the community blocklist: addresses seen attacking other
+        # CrowdSec users get blocked here pre-emptively.
+        env:
+          - name: DISABLE_ONLINE_API
+            value: "false"
+      # The agent parses Traefik's logs from the node.
+      agent:
+        acquisition:
+          - namespace: kube-system
+            podName: traefik-*
+            program: traefik
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        # Collections define what patterns to look for.
+        env:
+          - name: COLLECTIONS
+            value: "crowdsecurity/traefik crowdsecurity/http-cve crowdsecurity/base-http-scenarios crowdsecurity/whitelist-good-actors"

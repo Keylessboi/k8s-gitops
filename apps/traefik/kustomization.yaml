@@ -21,6 +21,8 @@ namespace: kube-system
 
 resources:
   - forward-auth-middleware.yaml
+  - rate-limit-middleware.yaml
+  - crowdsec-middleware.yaml
 
 helmCharts:
   - name: traefik
@@ -30,6 +32,14 @@ helmCharts:
     namespace: kube-system
     includeCRDs: true
     valuesInline:
+      # The CrowdSec bouncer runs as a Traefik plugin, so Traefik itself has
+      # to load it. Plugins are fetched at startup, which is why this lives in
+      # the chart values rather than only in a Middleware.
+      experimental:
+        plugins:
+          crowdsec:
+            moduleName: github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin
+            version: v1.7.1
       ingressClass:
         enabled: true
         isDefaultClass: true
