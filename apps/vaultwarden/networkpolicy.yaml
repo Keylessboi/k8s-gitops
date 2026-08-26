@@ -12,6 +12,22 @@ metadata:
   name: app-isolation
 spec:
   egress:
+  # SMTP submission. Without this Vaultwarden cannot send the "new device"
+  # verification email that Bitwarden's apps and browser extension require on
+  # first login - the SSO handshake itself succeeds and then the client is left
+  # waiting for a code that was never sent. The log line is
+  # "Error sending new device email: Connection error: Network unreachable".
+  # The catch-all egress rule only opens 443, so 587 has to be named.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 192.168.0.0/16
+        - 172.16.0.0/12
+    ports:
+    - protocol: TCP
+      port: 587
   # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
   # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so
   # the old rule was a no-op. Every NetworkPolicy in this repo was missing real

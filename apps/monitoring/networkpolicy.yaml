@@ -15,6 +15,20 @@ spec:
   - from:
     - namespaceSelector: {}
   egress:
+  # SMTP submission, so Grafana alerts can actually leave the cluster. Backups
+  # and certificate renewals run unattended; without this a failure is only
+  # visible to whoever happens to open Grafana. Silently broken until now - the
+  # catch-all egress rule only opens 443.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 192.168.0.0/16
+        - 172.16.0.0/12
+    ports:
+    - protocol: TCP
+      port: 587
   # smartctl_exporter on the Proxmox host and the NAS. The catch-all egress
   # rule below deliberately excludes 192.168.0.0/16, so without naming these
   # two the scrape is dropped and the disks look permanently healthy because
