@@ -66,3 +66,7 @@ spec:
   owner: juicefs
   cluster:
     name: app-databases
+  # Step one of removing this. The default is `retain`, which would leave the
+  # database behind when the CR is deleted - the removal has to be staged, or
+  # the leftover simply becomes invisible instead of gone.
+  databaseReclaimPolicy: delete
