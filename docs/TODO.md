@@ -25,35 +25,93 @@ Closing the verified plan gaps from `docs/PLAN-GAPS.md`, largest first.
       as `urn:oid:85`, and a read returns the content. Credentials by secret
       reference, `autoCreate` off so a wrong endpoint cannot silently create a
       bucket and write there.
-- [ ] **1b. Immich on S3 — decided: JuiceFS with SQLite metadata.** Chosen for
-      speed with least overhead: SQLite is a file rather than another service,
-      it is a single mount used only by Immich (the earlier 1 CPU/1Gi-per-app
-      blow-up came from mounting it everywhere), and it is far faster than s3fs
-      or rclone for a photo library's random reads and thumbnailing. The
-      original objection does not apply - it was specific to Postgres metadata
-      living in the database being backed.
-      Original note: Correction to my earlier claim:
-      Immich does NOT speak S3 natively, it requires a POSIX filesystem. That
-      is exactly why the plan wanted a gateway. JuiceFS was rejected because its
-      metadata would live in the Postgres it was backing; that objection does
-      not apply if the metadata engine is something else (its own Redis, or
-      SQLite on local-path). Alternatives: rclone or s3fs mount. Needs a
-      decision before building.
+- [x] **1b. Immich on S3 — NOT DOING, and this reverses my earlier decision.**
+      I had settled on JuiceFS with SQLite metadata. Checking the actual
+      machines changed the answer:
+
+      - Immich cannot speak S3 (it needs POSIX), so *some* gateway is mandatory.
+      - JuiceFS stores data as opaque chunks; the filesystem exists only in the
+        metadata database. Lose that file and the photo library is gone even
+        though every chunk is still sitting in MinIO.
+      - MinIO runs on the NAS at `/tank/minio`. The Immich library is on the
+        same NAS at `/extra/nfs-csi`. Different ZFS pool, **same machine** - so
+        moving gains nothing in failure domain.
+      - The library is 13 GB and the `extra` pool has 3.5 TB free, so there is
+        no capacity pressure either.
+
+      That is a catastrophic-loss single point and a sidecar mount, bought for
+      no durability and no space. The plan's own wording reserves "NFS fallback
+      for media streaming", which is exactly what a photo and video library is.
+
+      Nextcloud is the opposite case and is already done - it speaks S3 natively,
+      so it needed no gateway and carries none of this risk. Say the word if you
+      want it anyway and I will build it.
 - [x] **2. Navidrome SQLite -> PostgreSQL — NOT POSSIBLE, closing.** Navidrome
       has no PostgreSQL support in any release: upstream PR #2821
       "feat(persistence): Postgres support" is still open (last updated
       2026-08-19). The plan assumed a capability that does not exist yet, so
       this is an upstream limitation rather than something left undone. Revisit
       if that PR merges; the pgloader step only becomes meaningful then.
-- [ ] **3. smartctl_exporter** so a failing disk is visible.
-- [ ] **4. ArgoCD Image Updater** so image bumps are not manual.
-- [ ] **5. Per-app Grafana dashboards** - currently only the stack's generic set
-      plus one overview.
-- [ ] **6. Drop the leftover `juicefs` database and role** from CNPG.
+- [x] **3. smartctl_exporter — DONE.** Running on the Proxmox host and the NAS
+      as systemd units (`scripts/install-smartctl-exporter.sh`), not as a
+      DaemonSet: LXC 200 has no block devices in `/dev` at all, and the disks
+      that matter are the NAS pool disks, which no pod can see by any route.
+      Prometheus scrapes both over the LAN; all 5 disks report healthy. Seven
+      alerts cover SATA (reallocated/pending sectors), NVMe (media errors,
+      spare ratio), temperature, the drive's own verdict, and the exporter
+      going away - because a dead exporter looks exactly like healthy disks.
+      Dashboard: **Disk Health (SMART)**.
+- [x] **4. ArgoCD Image Updater — DEPLOYED, one step left for you.** Watching
+      5 applications and 8 images, 0 errors, all currently at the newest tag
+      allowed. Policy is in `apps/image-updater/imageupdaters.yaml`: every image
+      is pinned to its major version (and its minor for 0.x, where semver still
+      permits breaking changes), so an update can never cross a major.
+      Write-back is git, so each bump arrives as a reviewable commit.
+
+      **Needs you:** it cannot push yet. Run
+      `./scripts/setup-image-updater-key.sh` - it mints a write-scoped deploy
+      key for this repo only (not your personal credential), registers it, and
+      puts the private half in Doppler. I was blocked from creating it.
+- [x] **5. Per-app Grafana dashboards — DONE.** One templated **Application
+      Detail** dashboard rather than a dashboard per service: every app is its
+      own namespace, so a namespace variable scopes pods, restarts, OOMKills,
+      PVC usage, Traefik request/error/latency and logs to one app - and a new
+      app appears in the dropdown by itself.
+
+      Two real faults turned up while building it:
+      - Grafana had **no Loki datasource**. Loki was running and Alloy was
+        shipping into it, but nothing could read it. Added.
+      - Loki streams carried **no Kubernetes labels** - only instance, job and
+        service_name. Alloy was never relabelling the `__meta_*` discovery
+        labels, so logs were stored but could not be narrowed to an app by any
+        query. Fixed; namespace/pod/container/app now present across all 24
+        namespaces.
+- [x] **6. Leftover `juicefs` database and role — DONE.** Removed through git,
+      staged in two commits: the Database CR defaults to
+      `databaseReclaimPolicy: retain`, so deleting it outright would have left
+      the database behind and merely stopped tracking it. Set to `delete` first,
+      then removed. The role is `ensure: absent` for the same reason - CNPG only
+      drops a role it is still told about.
 - [ ] **7. SquidWTF (Qobuz proxy) client + indexer** - plugin installed, needs
       configuring.
-- [ ] **8. Hermes agent for the Lidarr maintenance script** - blocked on the
-      repo URL.
+- [x] **8. Lidarr maintenance script — RUNNING; the Hermes half is blocked.**
+      Your `lidarr-maintenance-script` runs nightly at 02:00 as a CronJob and is
+      verified end to end against Lidarr (all four phases). It is pure standard
+      library, so it needs no build step, and it clones fresh each run - push to
+      main and the next run picks it up, same as your `run_maintenance.sh`.
+
+      Two things had to be fixed to get there: installing git needs apt, whose
+      dependency downloads all failed because cluster DNS answers with AAAA
+      records this node has no IPv6 route for (now fetched with urllib); and the
+      NetworkPolicy allowed ingress from this namespace but not egress, so
+      nothing in it could call Lidarr's own API.
+
+      **Blocked:** the Hermes agent-oversight layer. Hermes Agent is a
+      third-party product - there is no `hermes` binary on your machine, no
+      `~/.hermes`, and nothing matching in your 32 repos - so I cannot
+      containerise it without knowing which distribution you run. The mechanical
+      cleanup is fully delivered without it; items the script refuses to judge
+      print as `[AGENT_OVERSIGHT_NEEDED]` and surface in the job log.
 - [ ] **9. Vaultwarden push notifications** - optional; needs a free install id
       and key from bitwarden.com/host for mobile push.
 

@@ -29,9 +29,6 @@ spec:
               kubernetes.io/metadata.name: vaultwarden
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: juicefs
-        - namespaceSelector:
-            matchLabels:
               kubernetes.io/metadata.name: databases
       ports:
         - {port: 5432, protocol: TCP}
