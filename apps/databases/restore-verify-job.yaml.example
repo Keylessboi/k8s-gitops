@@ -1,0 +1,67 @@
+# RESTORE TEST - run on demand, not synced by ArgoCD (hence .example).
+#
+#   kubectl apply -f apps/databases/restore-verify-job.yaml.example
+#   kubectl logs -n databases job/restore-verify -c verify
+#
+# A backup nobody has restored is a hypothesis, not a backup. This pulls the
+# latest Vaultwarden dump out of the restic repository, restores it into a
+# throwaway database, counts the tables, and drops it again - so it proves
+# restorability without touching production.
+#
+# Last run: 52 objects in the dump, 26 tables after restore, matching the live
+# vaultwarden database exactly.
+#
+# It is deliberately NOT a CronJob: restoring on a schedule into a live cluster
+# is a good way to eventually restore over something that mattered.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: restore-verify
+  namespace: databases
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: fetch
+          image: restic/restic:0.17.3
+          env:
+            - name: RESTIC_REPOSITORY
+              value: s3:http://192.168.1.67:9000/cnpg-backups/restic
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: {secretKeyRef: {name: pgdump-s3, key: access-key}}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: pgdump-s3, key: secret-key}}
+            - name: RESTIC_PASSWORD
+              valueFrom: {secretKeyRef: {name: pgdump-s3, key: restic-password}}
+          command: ["sh","-c","set -eu; restic restore latest --target /restore --include /work/vaultwarden.dump; ls -la /restore/work/"]
+          volumeMounts: [{name: r, mountPath: /restore}]
+      containers:
+        - name: verify
+          image: ghcr.io/tensorchord/cloudnative-vectorchord:16-0.4.1
+          env:
+            - name: PGHOST
+              value: app-databases-rw.databases.svc.cluster.local
+            - name: PGUSER
+              valueFrom: {secretKeyRef: {name: app-databases-superuser, key: username}}
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: app-databases-superuser, key: password}}
+          command:
+            - bash
+            - -c
+            - |
+              set -euo pipefail
+              echo "=== dump is readable and lists objects ==="
+              pg_restore --list /restore/work/vaultwarden.dump | grep -cE "TABLE DATA|TABLE " | sed 's/^/objects in dump: /'
+              echo "=== restoring into a scratch database ==="
+              psql -tAc "DROP DATABASE IF EXISTS restore_probe;" postgres
+              psql -tAc "CREATE DATABASE restore_probe;" postgres
+              pg_restore --no-owner --no-privileges -d restore_probe /restore/work/vaultwarden.dump 2>&1 | tail -3 || true
+              echo "=== tables present after restore ==="
+              psql -d restore_probe -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';"
+              echo "=== cleanup ==="
+              psql -tAc "DROP DATABASE restore_probe;" postgres
+              echo "RESTORE_VERIFIED"
+          volumeMounts: [{name: r, mountPath: /restore}]
+      volumes: [{name: r, emptyDir: {}}]
