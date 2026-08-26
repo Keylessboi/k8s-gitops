@@ -37,14 +37,24 @@ spec:
           containers:
             - name: maintenance
               image: python:3.12-slim
-              command: ["/bin/sh", "-c"]
+              # Fetched with urllib rather than `git clone` on purpose: installing
+              # git needs apt, and apt drags in a large dependency chain that
+              # fails outright here because cluster DNS answers with AAAA
+              # records this node has no IPv6 route for. urllib walks every
+              # getaddrinfo result and falls back to IPv4, so it just works.
+              command: ["python3", "-c"]
               args:
                 - |
-                  set -eu
-                  apt-get update -qq && apt-get install -y -qq --no-install-recommends git >/dev/null
-                  git clone --depth 1 https://github.com/Keylessboi/lidarr-maintenance-script /tmp/lms
-                  cd /tmp/lms
-                  exec python3 lidarr_queue_maintenance.py
+                  import io, os, sys, tarfile, urllib.request
+                  url = "https://codeload.github.com/Keylessboi/lidarr-maintenance-script/tar.gz/refs/heads/main"
+                  with urllib.request.urlopen(url, timeout=60) as r:
+                      blob = r.read()
+                  with tarfile.open(fileobj=io.BytesIO(blob)) as tf:
+                      tf.extractall("/tmp")
+                      root = os.path.join("/tmp", tf.getnames()[0].split("/")[0])
+                  os.chdir(root)
+                  sys.argv = ["lidarr_queue_maintenance.py"]
+                  exec(open("lidarr_queue_maintenance.py").read(), {"__name__": "__main__", "__file__": "lidarr_queue_maintenance.py"})
               env:
                 - name: LIDARR_URL
                   value: http://lidarr.lidarr.svc.cluster.local:8686
