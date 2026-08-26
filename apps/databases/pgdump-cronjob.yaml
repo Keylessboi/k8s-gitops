@@ -15,11 +15,15 @@
 #
 # pg_dump depends on nothing but PostgreSQL and the S3 endpoint.
 #
-# Two stages, because no single image carries both pg_dump and mc:
-#   initContainer  postgres image  -> dumps into a shared emptyDir
-#   container      mc image        -> uploads that directory to MinIO
+# Two stages, because no single image carries both pg_dump and restic:
+#   initContainer  postgres image -> dumps into a shared emptyDir
+#   container      restic image   -> snapshots that directory into MinIO
 # An init container also guarantees ordering; two ordinary containers would
 # race.
+#
+# restic provides deduplication across snapshots, encryption independent of
+# the storage layer, and real retention - so keeping 28 runs costs far less
+# than 28 full copies.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -85,41 +89,64 @@ spec:
                   cpu: "1"
                   memory: 1Gi
           containers:
-            - name: upload
-              image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+            - name: restic
+              # restic gives what plain `mc cp` cannot: deduplication across
+              # snapshots, encryption independent of the storage layer, and
+              # real retention. Consecutive dumps of the same database differ
+              # only slightly, so dedup means 28 retained runs cost far less
+              # than 28 full copies.
+              #
+              # It also removes a bug in the previous mc-based upload: the mc
+              # image has no awk, so the pruning step failed silently with
+              # "awk: command not found" while the upload itself succeeded -
+              # backups would have accumulated forever.
+              image: restic/restic:0.17.3
               env:
-                - name: MC_HOST_backup
+                - name: RESTIC_REPOSITORY
+                  value: s3:http://192.168.1.67:9000/cnpg-backups/restic
+                - name: AWS_ACCESS_KEY_ID
                   valueFrom:
                     secretKeyRef:
                       name: pgdump-s3
-                      key: mc-host
+                      key: access-key
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: pgdump-s3
+                      key: secret-key
+                # Encrypts the repository. Losing this password makes every
+                # snapshot unreadable, so it lives in Doppler.
+                - name: RESTIC_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: pgdump-s3
+                      key: restic-password
               command:
                 - sh
                 - -c
                 - |
                   set -eu
-                  STAMP="$(cat /work/STAMP)"
                   rm -f /work/STAMP
-                  mc cp --recursive /work/ "backup/cnpg-backups/pgdump/${STAMP}/"
-                  echo "uploaded:"
-                  mc ls "backup/cnpg-backups/pgdump/${STAMP}/"
-                  # Keep 28 runs (7 days at 6-hourly). Retention lives here,
-                  # next to the thing it governs, rather than in an invisible
-                  # bucket lifecycle rule.
-                  mc ls "backup/cnpg-backups/pgdump/" | awk '{print $NF}' | tr -d '/' | sort | head -n -28 | while read -r old; do
-                    [ -n "$old" ] && echo "pruning $old" && mc rm --recursive --force "backup/cnpg-backups/pgdump/$old/"
-                  done
-                  echo "pg_dump backup complete"
+                  # init is a no-op once the repo exists.
+                  restic snapshots >/dev/null 2>&1 || restic init
+                  restic backup /work --tag pgdump --host app-databases
+                  # Retention: dense recently, thinning with age.
+                  restic forget --tag pgdump \
+                    --keep-last 8 --keep-daily 7 --keep-weekly 4 --keep-monthly 6 \
+                    --prune
+                  echo "--- repository ---"
+                  restic snapshots --tag pgdump --compact | tail -12
+                  restic stats --mode raw-data | tail -5
               volumeMounts:
                 - name: work
                   mountPath: /work
               resources:
                 requests:
                   cpu: 25m
-                  memory: 64Mi
+                  memory: 128Mi
                 limits:
-                  cpu: 500m
-                  memory: 512Mi
+                  cpu: "1"
+                  memory: 1Gi
           volumes:
             - name: work
               emptyDir: {}
