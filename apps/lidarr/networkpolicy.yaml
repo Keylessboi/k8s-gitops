@@ -39,6 +39,14 @@ spec:
     - port: 8686
       protocol: TCP
   egress:
+  # slskd's API, which shares gluetun's pod in the downloads namespace.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: downloads
+    ports:
+    - port: 5030
+      protocol: TCP
   # Prowlarr, both to register with it and to pull indexer results through
   # it. Registration fails with "Prowlarr URL is invalid, Lidarr cannot
   # connect to Prowlarr" without this - Prowlarr tests the reverse direction

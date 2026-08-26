@@ -28,5 +28,6 @@ resources:
   - networkpolicy.yaml
   - qbittorrent.yaml
   - qui.yaml
+  - slskd-service.yaml
   - ingress.yaml
   - authentik-outpost.yaml

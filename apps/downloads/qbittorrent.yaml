@@ -86,6 +86,63 @@ spec:
             periodSeconds: 60
             failureThreshold: 3
 
+        # slskd (Soulseek), in the SAME pod for the same reason qBittorrent is:
+        # sharing gluetun's network namespace means its only route out is the
+        # tunnel. Soulseek is peer-to-peer, so running it outside the tunnel
+        # would expose the connection just as a bare torrent client would.
+        - name: slskd
+          image: slskd/slskd:0.23.2
+          env:
+            - name: SLSKD_SLSK_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: slskd
+                  key: username
+            - name: SLSKD_SLSK_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: slskd
+                  key: password
+            # Lidarr authenticates to slskd with this rather than a login.
+            - name: SLSKD_API_KEYS_LIDARR_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: slskd
+                  key: api-key
+            - name: SLSKD_API_KEYS_LIDARR_ROLE
+              value: readwrite
+            # Any in-cluster caller; the pod is not reachable from outside it.
+            - name: SLSKD_API_KEYS_LIDARR_CIDR
+              value: 10.42.0.0/16,10.43.0.0/16,127.0.0.1/32
+            - name: SLSKD_HTTP_PORT
+              value: "5030"
+            # Downloads land inside the shared volume so Lidarr can import
+            # them without copying across filesystems.
+            - name: SLSKD_DOWNLOADS_DIR
+              value: /data/torrents/soulseek
+            - name: SLSKD_INCOMPLETE_DIR
+              value: /data/torrents/soulseek/incomplete
+            - name: SLSKD_SHARED_DIR
+              value: /data/media/music
+            - name: SLSKD_NO_AUTH
+              value: "false"
+            - name: TZ
+              value: UTC
+          ports:
+            - name: slskd
+              containerPort: 5030
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: slskd-config
+              mountPath: /app
+            - name: data
+              mountPath: /data
         - name: qbittorrent
           image: lscr.io/linuxserver/qbittorrent:5.1.2
           env:
@@ -120,6 +177,9 @@ spec:
         - name: config
           persistentVolumeClaim:
             claimName: qbittorrent-config
+        - name: slskd-config
+          persistentVolumeClaim:
+            claimName: slskd-config
         - name: data
           persistentVolumeClaim:
             claimName: media-data

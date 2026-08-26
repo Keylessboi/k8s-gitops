@@ -1,0 +1,15 @@
+---
+# Reachable in-cluster only - no Ingress. Lidarr's Tubifarry Slskd client
+# connects here; the pod itself has no route out except gluetun's tunnel.
+apiVersion: v1
+kind: Service
+metadata:
+  name: slskd
+  namespace: downloads
+spec:
+  selector:
+    app.kubernetes.io/name: qbittorrent
+  ports:
+    - name: http
+      port: 5030
+      targetPort: 5030

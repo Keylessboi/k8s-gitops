@@ -43,3 +43,17 @@ spec:
   resources:
     requests:
       storage: 1Gi
+---
+# slskd's own state (its database, config and share cache).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: slskd-config
+  namespace: downloads
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 5Gi

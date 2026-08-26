@@ -31,6 +31,14 @@ spec:
       ports:
         - port: 8080
           protocol: TCP
+    # Lidarr drives slskd through its API.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: lidarr
+      ports:
+        - port: 5030
+          protocol: TCP
   egress:
     # k3s apiserver, reachable only by ipBlock.
     - to:

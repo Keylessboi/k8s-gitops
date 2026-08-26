@@ -1,0 +1,72 @@
+---
+# Prowlarr, published behind Authentik.
+#
+# Kept internal until now. Published so trackers can be added through the UI
+# rather than by port-forward - but never bare: Prowlarr holds every indexer
+# credential and, until earlier today, ran with AuthenticationMethod=None.
+# It now also requires its own Forms login behind the Authentik gate.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prowlarr
+  namespace: prowlarr
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - prowlarr.sandstorm.chat
+      secretName: prowlarr-tls
+  rules:
+    - host: prowlarr.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prowlarr
+                port:
+                  number: 9696
+---
+# Outpost callback for this host, without forward-auth on the callback itself.
+apiVersion: v1
+kind: Service
+metadata:
+  name: authentik-outpost
+  namespace: prowlarr
+spec:
+  type: ExternalName
+  externalName: ak-outpost-authentik-embedded-outpost.authentik.svc.cluster.local
+  ports:
+    - name: http
+      port: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prowlarr-outpost
+  namespace: prowlarr
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - prowlarr.sandstorm.chat
+      secretName: prowlarr-tls
+  rules:
+    - host: prowlarr.sandstorm.chat
+      http:
+        paths:
+          - path: /outpost.goauthentik.io
+            pathType: Prefix
+            backend:
+              service:
+                name: authentik-outpost
+                port:
+                  number: 9000
