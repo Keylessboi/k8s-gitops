@@ -9,7 +9,11 @@ metadata:
   name: octo-fiesta
   namespace: music
 spec:
-  replicas: 1
+  # PARKED. Each JuiceFS volume runs its own mount pod, and on a 12Gi node the
+  # music stack's volumes pushed memory requests past 100%, leaving Prometheus,
+  # Nextcloud and others Pending. Music is being resumed separately; set back
+  # to 1 then.
+  replicas: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: octo-fiesta
