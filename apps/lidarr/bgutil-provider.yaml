@@ -1,0 +1,64 @@
+---
+# bgutil POT provider, for Tubifarry's YouTube client.
+#
+# YouTube actively detects and blocks automated downloaders. Tubifarry's
+# "Trusted Session Generator" mints proof-of-origin tokens that look like a
+# real browser session; without it YouTube either refuses or serves only
+# low-quality streams. The alternative is generating tokens in-process, which
+# needs Node.js on Lidarr's PATH - this container is the supported way.
+#
+# Deployed into the lidarr namespace deliberately: Lidarr's NetworkPolicy
+# already permits same-namespace traffic, so this needs no new cross-namespace
+# rule. The Service name matches the hostname the owner's previous setup used
+# (bgutil-provider:4416), so the restored client config keeps working.
+#
+# Cookies are the other half - see /data/cookies/youtube.txt. Those must come
+# from a logged-in browser session and cannot be generated here.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bgutil-provider
+  namespace: lidarr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bgutil-provider
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bgutil-provider
+    spec:
+      containers:
+        - name: bgutil
+          # Pinned: `latest` on this image has moved between the node and deno
+          # builds, which changes runtime behaviour under the same tag.
+          image: brainicism/bgutil-ytdlp-pot-provider:1.3.2-node
+          ports:
+            - name: http
+              containerPort: 4416
+          resources:
+            requests:
+              cpu: 25m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            tcpSocket:
+              port: 4416
+            initialDelaySeconds: 20
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bgutil-provider
+  namespace: lidarr
+spec:
+  selector:
+    app.kubernetes.io/name: bgutil-provider
+  ports:
+    - name: http
+      port: 4416
+      targetPort: 4416

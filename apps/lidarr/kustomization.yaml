@@ -37,6 +37,7 @@ resources:
   - pvc-config.yaml
   - networkpolicy.yaml
   - deployment.yaml
+  - bgutil-provider.yaml
   - ingress.yaml
   - authentik-outpost.yaml
 
