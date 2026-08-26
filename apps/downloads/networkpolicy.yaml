@@ -78,6 +78,20 @@ spec:
       ports:
       - port: 443
         protocol: TCP
+    # ...and the same rule again in post-DNAT terms. k3s translates
+    # 192.168.1.240:443 to the Traefik pod at :8443 BEFORE NetworkPolicy egress is
+    # evaluated, so the ipBlock rule above matches nothing on a new connection -
+    # the identical trap that broke CNPG's base backups and the Doppler operator.
+    # Traefik listens on 8443/8000 internally, not 443/80.
+    - to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+      ports:
+      - port: 8443
+        protocol: TCP
+      - port: 8000
+        protocol: TCP
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
