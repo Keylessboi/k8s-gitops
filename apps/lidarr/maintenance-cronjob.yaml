@@ -1,0 +1,62 @@
+---
+# Nightly Lidarr queue maintenance.
+#
+# Runs the owner's script (Keylessboi/lidarr-maintenance-script): force-imports
+# albums that failed auto-import but are still good, removes genuinely broken
+# downloads and re-searches them, clears downloads stalled for days, and scans
+# for albums repeatedly searched but never grabbed.
+#
+# The script is pure standard library, so a plain python image needs no build
+# step and no requirements install - which is why this is a CronJob rather than
+# a bespoke image to maintain.
+#
+# It is cloned fresh each run rather than baked in, which gives the same
+# auto-deploy behaviour as the upstream run_maintenance.sh wrapper: push to
+# main and the next run picks it up.
+#
+# Items the script cannot judge are printed as [AGENT_OVERSIGHT_NEEDED] and
+# left alone. Upstream feeds those to a Hermes agent; here they surface in the
+# job log until that agent exists in-cluster.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: lidarr-maintenance
+  namespace: lidarr
+spec:
+  # 02:00 daily, matching the schedule the script was written for.
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: maintenance
+              image: python:3.12-slim
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  apt-get update -qq && apt-get install -y -qq --no-install-recommends git >/dev/null
+                  git clone --depth 1 https://github.com/Keylessboi/lidarr-maintenance-script /tmp/lms
+                  cd /tmp/lms
+                  exec python3 lidarr_queue_maintenance.py
+              env:
+                - name: LIDARR_URL
+                  value: http://lidarr.lidarr.svc.cluster.local:8686
+                - name: LIDARR_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: lidarr-api
+                      key: api-key
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: "1"
+                  memory: 512Mi

@@ -38,6 +38,7 @@ resources:
   - networkpolicy.yaml
   - deployment.yaml
   - bgutil-provider.yaml
+  - maintenance-cronjob.yaml
   - ingress.yaml
   - authentik-outpost.yaml
 
