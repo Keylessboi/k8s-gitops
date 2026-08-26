@@ -62,7 +62,9 @@ helmCharts:
               metadata:
                 name: prometheus
               spec:
-                storageClassName: nfs-csi
+                # TSDB does heavy random IO and mmap; block storage, not a
+                # network/object-backed filesystem.
+                storageClassName: local-path
                 accessModes: [ReadWriteOnce]
                 resources:
                   requests:
@@ -83,8 +85,9 @@ helmCharts:
             memory: 512Mi
         persistence:
           enabled: true
-          storageClassName: nfs-csi
           size: 2Gi
+          # Claim is defined in monitoring-pvc.yaml (juicefs); the class here
+          # would be ignored anyway when existingClaim is set.
           existingClaim: grafana
         # OIDC lives in grafana.ini, NOT env. The chart renders env values
         # unquoted into the Deployment, and role_attribute_path contains both
@@ -131,16 +134,25 @@ helmCharts:
         auth_enabled: false
         commonConfig:
           replication_factor: 1
+        # Chunks live in MinIO, not on a volume. Loki speaks S3 natively, so
+        # it needs no gateway - the object_store below was `filesystem`, which
+        # is what kept log storage off S3 entirely.
         storage:
+          type: s3
           bucketNames:
-            chunks: loki-chunks
-            ruler: loki-ruler
-            admin: loki-admin
+            chunks: loki
+            ruler: loki
+            admin: loki
+          s3:
+            endpoint: http://192.168.1.67:9000
+            region: us-east-1
+            s3ForcePathStyle: true
+            insecure: true
         schemaConfig:
           configs:
             - from: "2025-01-01"
               store: tsdb
-              object_store: filesystem
+              object_store: s3
               schema: v13
               index:
                 prefix: loki_index_
@@ -153,6 +165,11 @@ helmCharts:
         enabled: false
       singleBinary:
         replicas: 1
+        # S3 credentials for the chunk store. Kept in a secret rather than
+        # inlined into values, which would persist them in Helm metadata.
+        extraEnvFrom:
+          - secretRef:
+              name: loki-s3
         # The chart's default is a hard anti-affinity rule spreading replicas
         # across nodes. With one node and one replica that can never be
         # satisfied, so loki-0 sat Pending on "didn't match pod anti-affinity
@@ -168,9 +185,11 @@ helmCharts:
             cpu: 500m
             memory: 1Gi
         persistence:
+          # Chunks are in S3 now; this volume only holds the local WAL, so it
+          # is small and lives on local disk for write latency.
           enabled: true
-          storageClass: nfs-csi
-          size: 10Gi
+          storageClass: local-path
+          size: 5Gi
       backend:
         replicas: 0
       read:

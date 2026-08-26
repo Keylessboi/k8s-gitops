@@ -99,12 +99,28 @@ helmCharts:
       # the pod sat in ContainerCreating for 20+ minutes with
       # "unmounted volumes=[nextcloud-main] ... context deadline exceeded".
       # nextcloud-config existed already but was never mounted by anything.
+      # User files go to S3 directly, not to a volume. Nextcloud supports
+      # object storage as its primary store, so it needs no gateway - this is
+      # the "S3 primary storage" the plan calls for, in its purest form.
+      # Credentials come from a Doppler-managed secret.
+      objectStore:
+        s3:
+          enabled: true
+          host: 192.168.1.67
+          port: 9000
+          ssl: false
+          usePathStyle: true
+          bucket: nextcloud-data
+          autoCreate: false
+          existingSecret: nextcloud-s3
+          secretKeys:
+            accessKey: access-key
+            secretKey: secret-key
       persistence:
+        # Application code only. User data is in S3 above, so nextcloud-data
+        # is no longer mounted.
         enabled: true
         existingClaim: nextcloud-config
-        nextcloudData:
-          enabled: true
-          existingClaim: nextcloud-data
       nodeSelector:
         kubernetes.io/os: linux
         homelab/node-class: compute
