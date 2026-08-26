@@ -11,6 +11,7 @@
 # ApplicationSet), so it is applied by hand, not by ArgoCD:
 #   kubectl apply -f apps/argocd/argocd-cm.yaml
 #   kubectl rollout restart deploy/argocd-repo-server -n argocd
+#   kubectl rollout restart sts/argocd-application-controller -n argocd
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -21,3 +22,16 @@ metadata:
     app.kubernetes.io/part-of: argocd
 data:
   kustomize.buildOptions: --enable-helm
+
+  # Diff against what the API server would actually do, instead of comparing
+  # rendered YAML to the live object client-side.
+  #
+  # Without this, any field the API server defaults reads as drift that no sync
+  # can ever resolve: a StatefulSet's volumeClaimTemplates, a Job's generated
+  # selector, a CNPG Cluster's defaulted spec. `databases` and `redis` sat
+  # OutOfSync permanently for exactly this reason while a server-side dry-run
+  # of the same manifests showed no difference at all.
+  #
+  # ServerSideApply=true was already set in the ApplicationSet - that governs
+  # how manifests are written, not how they are compared. Both are needed.
+  controller.diff.server.side: "true"
