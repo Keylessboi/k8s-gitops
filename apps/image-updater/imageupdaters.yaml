@@ -6,10 +6,14 @@
 # them individually would mean a conditional per app inside a template that is
 # already dense - this keeps the policy readable and in one file.
 #
-# Every image is constrained by an allowTags regex that pins the major version
+# Every image is constrained by an allowTags pattern that pins the major version
 # (and the minor, for 0.x images, where semver permits breaking changes in a
 # minor bump). The updater picks the highest tag matching the pattern, so an
 # update can never silently cross a major version.
+#
+# The `regexp:` prefix is required. A bare regex is not rejected - it is accepted,
+# logged once as "Invalid match option syntax, ignoring", and then silently
+# dropped, which leaves the image effectively unconstrained.
 #
 # Write-back is git, not the default `argocd` method. The `argocd` method patches
 # the live Application, which this cluster's ApplicationSet would overwrite on its
@@ -56,14 +60,14 @@ spec:
         - alias: qbittorrent
           imageName: lscr.io/linuxserver/qbittorrent:5.1.2
           commonUpdateSettings:
-            allowTags: '^5\.\d+\.\d+$'
+            allowTags: 'regexp:^5\.\d+\.\d+$'
           manifestTargets:
             kustomize:
               name: lscr.io/linuxserver/qbittorrent
         - alias: gluetun
           imageName: qmcgaw/gluetun:v3.41.3
           commonUpdateSettings:
-            allowTags: '^v3\.\d+\.\d+$'
+            allowTags: 'regexp:^v3\.\d+\.\d+$'
           manifestTargets:
             kustomize:
               name: qmcgaw/gluetun
@@ -71,14 +75,14 @@ spec:
           # 0.x: minor bumps may break, so this is pinned to the patch stream.
           imageName: slskd/slskd:0.23.2
           commonUpdateSettings:
-            allowTags: '^0\.23\.\d+$'
+            allowTags: 'regexp:^0\.23\.\d+$'
           manifestTargets:
             kustomize:
               name: slskd/slskd
         - alias: qui
           imageName: ghcr.io/autobrr/qui:v1.26.0
           commonUpdateSettings:
-            allowTags: '^v1\.\d+\.\d+$'
+            allowTags: 'regexp:^v1\.\d+\.\d+$'
           manifestTargets:
             kustomize:
               name: ghcr.io/autobrr/qui
@@ -91,7 +95,7 @@ spec:
         - alias: navidrome
           imageName: deluan/navidrome:0.58.0
           commonUpdateSettings:
-            allowTags: '^0\.\d+\.\d+$'
+            allowTags: 'regexp:^0\.\d+\.\d+$'
           manifestTargets:
             kustomize:
               name: deluan/navidrome
@@ -104,7 +108,7 @@ spec:
         - alias: flaresolverr
           imageName: ghcr.io/flaresolverr/flaresolverr:v3.5.0
           commonUpdateSettings:
-            allowTags: '^v3\.\d+\.\d+$'
+            allowTags: 'regexp:^v3\.\d+\.\d+$'
           manifestTargets:
             kustomize:
               name: ghcr.io/flaresolverr/flaresolverr
@@ -117,7 +121,7 @@ spec:
         - alias: kiwix-serve
           imageName: ghcr.io/kiwix/kiwix-serve:3.7.0
           commonUpdateSettings:
-            allowTags: '^3\.\d+\.\d+$'
+            allowTags: 'regexp:^3\.\d+\.\d+$'
           manifestTargets:
             kustomize:
               name: ghcr.io/kiwix/kiwix-serve
@@ -130,7 +134,7 @@ spec:
         - alias: beets
           imageName: lscr.io/linuxserver/beets:2.2.0
           commonUpdateSettings:
-            allowTags: '^2\.\d+\.\d+$'
+            allowTags: 'regexp:^2\.\d+\.\d+$'
           manifestTargets:
             kustomize:
               name: lscr.io/linuxserver/beets
