@@ -201,13 +201,27 @@ kubectl annotate application <name> -n argocd argocd.argoproj.io/refresh=hard --
 kubectl logs -n kube-system -l app.kubernetes.io/name=traefik --tail=50 | grep -i error
 ```
 
-Two failure modes have bitten this cluster repeatedly and are worth checking
-first:
+### One thing ArgoCD will not do for you
 
-1. **A NetworkPolicy that allows the apiserver only at `10.43.0.1:443`.** k3s
-   translates that to the node's own address on port 6443 *before* NetworkPolicy
-   egress is evaluated, so the rule matches nothing and API calls fail — often
-   silently, as a controller that never wins leader election. Every policy needs
-   both rules.
-2. **A Traefik middleware that fails to build takes its entire router down.**
-   Attach a new middleware to one low-stakes route first, confirm, then roll out.
+`apps/argocd/` is excluded from the ApplicationSet — ArgoCD cannot reconcile
+its own definition. So a change to the ApplicationSet, the AppProject or
+`argocd-cm` sits in git doing nothing until you apply it:
+
+```bash
+./scripts/bootstrap-argocd.sh
+```
+
+The cluster ran a stale ApplicationSet for a full day this way. If ArgoCD's
+behaviour doesn't match what the repo says it should be, run that first.
+
+### Two failure modes have bitten this cluster repeatedly
+
+**A NetworkPolicy that allows the apiserver only at `10.43.0.1:443`.** k3s
+translates that to the node's own address on port 6443 *before* NetworkPolicy
+egress is evaluated, so the rule matches nothing and API calls fail — often
+silently, as a controller that never wins leader election. Every policy needs
+both rules.
+
+**A Traefik middleware that fails to build takes its entire router down.** Not
+just the middleware — the whole route. Attach a new one to a single low-stakes
+route first, confirm, then roll out.
