@@ -35,6 +35,7 @@ resources:
   - monitoring-pvc.yaml
   - networkpolicy.yaml
   - ingress.yaml
+  - dashboard-homelab.yaml
 
 helmCharts:
   # Stack: Prometheus, Grafana, Alertmanager, node-exporter.

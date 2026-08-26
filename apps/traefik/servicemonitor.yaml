@@ -1,0 +1,38 @@
+---
+# Traefik already exposes Prometheus metrics on its `metrics` entrypoint
+# (--metrics.prometheus=true, :9100), but nothing was scraping them - so the
+# request rates, status codes and latencies existed and were simply thrown
+# away. Prometheus only collects what a ServiceMonitor points it at.
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-metrics
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: traefik-metrics
+spec:
+  selector:
+    app.kubernetes.io/name: traefik
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: 9100
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: traefik
+  namespace: kube-system
+  labels:
+    # kube-prometheus-stack only adopts ServiceMonitors carrying its release
+    # label; without it this is silently ignored.
+    release: kps
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik-metrics
+  namespaceSelector:
+    matchNames: [kube-system]
+  endpoints:
+    - port: metrics
+      interval: 30s
