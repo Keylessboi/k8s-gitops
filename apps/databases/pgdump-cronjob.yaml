@@ -1,0 +1,125 @@
+---
+# Logical backups of every application database to MinIO, every 6 hours.
+#
+# This is the plan's stated backup design ("pg_dump CronJob every 6h to
+# MinIO"), and it is the one that actually protects the Vaultwarden vault -
+# passwords, logins, notes and TOTP seeds all live in PostgreSQL.
+#
+# It exists alongside barman WAL archiving rather than replacing it, because
+# barman BASE backups are currently failing: the CNPG operator cannot POST to
+# the pods/exec subresource ("dial tcp 10.43.0.1:443: connect: connection
+# refused") even though plain connectivity to the apiserver from that
+# namespace tests fine. WAL segments ship correctly, but WALs alone cannot
+# restore anything without a base backup - so trusting barman today would mean
+# believing in a backup that cannot actually be restored.
+#
+# pg_dump depends on nothing but PostgreSQL and the S3 endpoint.
+#
+# Two stages, because no single image carries both pg_dump and mc:
+#   initContainer  postgres image  -> dumps into a shared emptyDir
+#   container      mc image        -> uploads that directory to MinIO
+# An init container also guarantees ordering; two ordinary containers would
+# race.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pgdump-backup
+  namespace: databases
+spec:
+  schedule: "40 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          initContainers:
+            - name: dump
+              # Same image as the cluster, so pg_dump matches the server
+              # version exactly.
+              image: ghcr.io/tensorchord/cloudnative-vectorchord:16-0.4.1
+              env:
+                - name: PGHOST
+                  value: app-databases-rw.databases.svc.cluster.local
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-databases-superuser
+                      key: username
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-databases-superuser
+                      key: password
+              command:
+                - bash
+                - -c
+                - |
+                  set -euo pipefail
+                  STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+                  echo "$STAMP" > /work/STAMP
+                  # Every non-template database, so a new app's database is
+                  # picked up automatically rather than silently missed by a
+                  # hardcoded list.
+                  DBS=$(psql -tAc "SELECT datname FROM pg_database WHERE datistemplate = false AND datname <> 'postgres';")
+                  echo "databases: $DBS"
+                  for db in $DBS; do
+                    echo "dumping $db"
+                    pg_dump --format=custom --compress=9 --file="/work/${db}.dump" "$db"
+                  done
+                  # Roles and their passwords. Without globals a restore comes
+                  # back with no login roles and every app fails to connect.
+                  pg_dumpall --globals-only --file=/work/globals.sql
+                  ls -la /work
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+          containers:
+            - name: upload
+              image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+              env:
+                - name: MC_HOST_backup
+                  valueFrom:
+                    secretKeyRef:
+                      name: pgdump-s3
+                      key: mc-host
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  STAMP="$(cat /work/STAMP)"
+                  rm -f /work/STAMP
+                  mc cp --recursive /work/ "backup/cnpg-backups/pgdump/${STAMP}/"
+                  echo "uploaded:"
+                  mc ls "backup/cnpg-backups/pgdump/${STAMP}/"
+                  # Keep 28 runs (7 days at 6-hourly). Retention lives here,
+                  # next to the thing it governs, rather than in an invisible
+                  # bucket lifecycle rule.
+                  mc ls "backup/cnpg-backups/pgdump/" | awk '{print $NF}' | tr -d '/' | sort | head -n -28 | while read -r old; do
+                    [ -n "$old" ] && echo "pruning $old" && mc rm --recursive --force "backup/cnpg-backups/pgdump/$old/"
+                  done
+                  echo "pg_dump backup complete"
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+          volumes:
+            - name: work
+              emptyDir: {}

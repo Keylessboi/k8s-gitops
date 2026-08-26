@@ -39,3 +39,5 @@ resources:
   - databases.yaml
   # Creates Immich's extensions as superuser; its own role cannot.
   - extensions-job.yaml
+  # Logical backups: the ones that actually protect the vault.
+  - pgdump-cronjob.yaml
