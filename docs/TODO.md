@@ -16,6 +16,22 @@ Status as of 2026-08-26. Everything not listed here is done and verified.
 - [x] **`docs/RUNDOWN.md` brought up to date** with the `/data` layout, slskd,
       bgutil, the new hostnames and ArgoCD being LAN-only.
 
+## Mine — queued
+
+- [ ] **Configure the SquidWTF (Qobuz proxy) indexer + download client.** Plugin
+      is installed and loaded; registers as `Qobuz`. Needs its settings filled in.
+- [ ] **Re-read the phase 1 and phase 2 plans and verify against the running
+      cluster**, rather than against my own summary of them.
+- [ ] **Metadata enhancers for Lidarr.** Beets is deployed but is not wired into
+      Lidarr's post-import path; decide whether Beets is the enhancer or whether
+      Lidarr's own metadata/custom scripts should do it.
+- [ ] **Lidarr maintenance script (Hermes agent).** Owner has an existing script
+      that drives a Hermes agent. Needs: a Hermes agent container built and
+      deployed via GitOps, then connected to Lidarr. **Blocked: I need the
+      script and the Hermes agent image/source.**
+- [ ] **Consider moving Lidarr to `develop`.** Plugins have landed there and are
+      being merged toward main; currently pinned to `hotio/lidarr:pr-plugins`.
+
 ## Yours
 
 - [x] **RESOLVED: IP conflict on 192.168.1.240.** This was the cause of services
