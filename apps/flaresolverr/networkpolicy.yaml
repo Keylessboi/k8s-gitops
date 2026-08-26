@@ -79,3 +79,25 @@ spec:
     ports:
     - protocol: TCP
       port: 443
+  # The internet. FlareSolverr had NO rule for this at all - its only 443 rule
+  # targeted the "default" namespace, which matches pods in that namespace and
+  # never an external address, so it was a no-op. FlareSolverr therefore could
+  # not reach Cloudflare at all, and every solve ended as
+  # "Error solving the challenge. Timeout after 60.0 seconds" - indistinguishable
+  # from Cloudflare simply refusing.
+  #
+  # Port 80 as well as 443: driving a real browser through a challenge pulls
+  # scripts and assets that are not all on 443.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 192.168.0.0/16
+        - 172.16.0.0/12
+    ports:
+    - port: 443
+      protocol: TCP
+    - port: 80
+      protocol: TCP
+
