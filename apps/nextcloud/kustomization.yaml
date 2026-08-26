@@ -78,6 +78,32 @@ helmCharts:
             $CONFIG = array (
               'allow_local_remote_servers' => true,
             );
+        # S3 as PRIMARY storage, which is what the plan asks for: MinIO
+        # primary, NFS only as a media-streaming fallback. Nextcloud speaks S3
+        # natively, so this needs no filesystem gateway - which is what sank
+        # the JuiceFS approach.
+        #
+        # Credentials come from the existing nextcloud-s3 secret by reference;
+        # host and bucket are not secret and stay readable here.
+        #
+        # autoCreate is false deliberately: the bucket is provisioned on the
+        # NAS, and letting an app create its own bucket hides a misconfigured
+        # endpoint until data has already been written somewhere unintended.
+        objectStore:
+          s3:
+            enabled: true
+            existingSecret: nextcloud-s3
+            secretKeys:
+              accessKey: access-key
+              secretKey: secret-key
+            host: 192.168.1.67
+            port: "9000"
+            ssl: false
+            # MinIO serves buckets by path, not by DNS subdomain.
+            usePathStyle: true
+            region: us-east-1
+            bucket: nextcloud-data
+            autoCreate: false
         existingSecret:
           enabled: true
           secretName: nextcloud-admin
