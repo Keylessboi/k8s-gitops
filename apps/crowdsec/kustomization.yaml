@@ -24,6 +24,7 @@ namespace: crowdsec
 resources:
   - namespace.yaml
   - networkpolicy.yaml
+  - doppler-secret.yaml
 
 helmCharts:
   - name: crowdsec
@@ -56,6 +57,14 @@ helmCharts:
         env:
           - name: DISABLE_ONLINE_API
             value: "false"
+          # Registers a bouncer named `traefik` under this key on startup.
+          # The same value reaches Traefik through its own DopplerSecret, so
+          # the two ends cannot drift apart.
+          - name: BOUNCER_KEY_traefik
+            valueFrom:
+              secretKeyRef:
+                name: crowdsec-bouncer-key
+                key: bouncer-key
       # The agent parses Traefik's logs from the node.
       agent:
         acquisition:

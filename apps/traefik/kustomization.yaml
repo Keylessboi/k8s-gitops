@@ -23,6 +23,7 @@ resources:
   - forward-auth-middleware.yaml
   - rate-limit-middleware.yaml
   - crowdsec-middleware.yaml
+  - doppler-secret.yaml
 
 helmCharts:
   - name: traefik
@@ -35,6 +36,18 @@ helmCharts:
       # The CrowdSec bouncer runs as a Traefik plugin, so Traefik itself has
       # to load it. Plugins are fetched at startup, which is why this lives in
       # the chart values rather than only in a Middleware.
+      # The bouncer key is presented from a mounted file rather than inlined
+      # in the Middleware, which is a plain-text CRD field readable by anyone
+      # who can get middlewares. The Secret behind it comes from Doppler.
+      deployment:
+        additionalVolumes:
+          - name: crowdsec-bouncer-key
+            secret:
+              secretName: crowdsec-bouncer-key
+      additionalVolumeMounts:
+        - name: crowdsec-bouncer-key
+          mountPath: /etc/crowdsec
+          readOnly: true
       experimental:
         plugins:
           crowdsec:

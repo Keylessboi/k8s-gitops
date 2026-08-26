@@ -23,7 +23,8 @@ spec:
       crowdsecMode: stream
       crowdsecLapiHost: crowdsec-service.crowdsec.svc.cluster.local:8080
       crowdsecLapiScheme: http
-      crowdsecLapiKey: ""
+      # A file, not an inline value - see the volume mount in the chart values.
+      crowdsecLapiKeyFile: /etc/crowdsec/bouncer-key
       # Requests from inside the cluster and the LAN are never bounced, so a
       # bad decision cannot lock out internal traffic or the ACME solver.
       clientTrustedIPs:
