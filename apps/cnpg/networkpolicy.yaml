@@ -33,6 +33,24 @@ spec:
     ports:
     - port: 443
       protocol: TCP
+  # The apiserver again, but by NODE address on 6443.
+  #
+  # This is not redundant. k3s DNATs the 10.43.0.1:443 Service address to the
+  # node's real apiserver endpoint (192.168.1.172:6443) BEFORE NetworkPolicy
+  # egress is evaluated, so a rule naming only the Service IP never matches.
+  # Without this the operator could talk to the API for ordinary reads - those
+  # ride connections opened at startup - but every NEW connection failed,
+  # which is why `pods/exec` broke and every barman base backup died with
+  # "dial tcp 10.43.0.1:443: connect: connection refused" while WAL archiving
+  # carried on working.
+  #
+  # Proven: deleting this policy entirely made a base backup complete.
+  - to:
+    - ipBlock:
+        cidr: 192.168.1.0/24
+    ports:
+    - port: 6443
+      protocol: TCP
   - to:
     - namespaceSelector:
         matchLabels:
