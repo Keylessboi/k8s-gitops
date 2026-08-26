@@ -39,6 +39,16 @@ spec:
     - port: 8686
       protocol: TCP
   egress:
+  # Lidarr's own API, for the nightly maintenance CronJob. Ingress from this
+  # namespace is already allowed, but egress is not - and both directions must
+  # permit a flow. Without this the job dies on its first queue fetch.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: lidarr
+    ports:
+    - port: 8686
+      protocol: TCP
   # slskd's API, which shares gluetun's pod in the downloads namespace.
   - to:
     - namespaceSelector:
