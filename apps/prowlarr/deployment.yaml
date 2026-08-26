@@ -50,7 +50,15 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /config
+            # Custom Cardigann definitions. Prowlarr reads user definitions
+            # from here and prefers them over the built-in set of the same id.
+            - name: definitions
+              mountPath: /config/Definitions
+              readOnly: true
       volumes:
+        - name: definitions
+          configMap:
+            name: prowlarr-definitions
         - name: config
           persistentVolumeClaim:
             claimName: prowlarr-config

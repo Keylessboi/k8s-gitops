@@ -35,5 +35,6 @@ resources:
   - pvc-config.yaml
   - networkpolicy.yaml
   - deployment.yaml
+  - custom-definitions.yaml
   - ingress.yaml
 
