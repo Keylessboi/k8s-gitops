@@ -90,6 +90,12 @@ spec:
               value: "false"
             # /admin is disabled outright rather than left on a token. It is
             # the highest-value endpoint on a public vault.
+            # The admin panel token. Absent it, /admin is disabled entirely -
+            # and with signups closed that panel is the only way to invite a
+            # user, so there was no route to add anyone at all.
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef: {name: vaultwarden-admin, key: admin-token}
             - name: DISABLE_ADMIN_TOKEN
               value: "false"
             # SSO via Authentik. These are only honoured by the fork above;
