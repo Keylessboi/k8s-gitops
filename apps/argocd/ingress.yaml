@@ -1,0 +1,38 @@
+---
+# ArgoCD, reachable from the LAN and Tailscale only.
+#
+# This is the cluster's control plane - anything that reaches it can deploy
+# anything - so it is deliberately NOT on the public internet. The IP allowlist
+# runs before everything else, so a request from outside is refused with 403
+# before Authentik or ArgoCD ever see it.
+#
+# NOTE: this file is in apps/argocd, which is excluded from the ApplicationSet,
+# so it is applied by scripts/bootstrap-argocd.sh rather than synced.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd
+  namespace: argocd
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Order matters: allowlist first, so public traffic is dropped before it
+    # can reach the auth layer or consume a rate-limit slot.
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-lan-only@kubernetescrd,kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - argocd.sandstorm.chat
+      secretName: argocd-tls
+  rules:
+    - host: argocd.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 80

@@ -24,6 +24,7 @@ resources:
   - rate-limit-middleware.yaml
   - crowdsec-middleware.yaml
   - servicemonitor.yaml
+  - lan-only-middleware.yaml
 
 helmCharts:
   - name: traefik

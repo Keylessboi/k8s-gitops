@@ -30,3 +30,9 @@ metadata:
     app.kubernetes.io/part-of: argocd
 data:
   controller.diff.server.side: "true"
+
+  # Serve plain HTTP. TLS terminates at Traefik, and without this argocd-server
+  # answers its own TLS on the same port - so Traefik would have to be told to
+  # speak HTTPS to a self-signed backend, or the UI ends up in a redirect loop.
+  # Standard practice when ArgoCD sits behind a TLS-terminating proxy.
+  server.insecure: "true"

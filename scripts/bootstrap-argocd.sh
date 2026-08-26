@@ -19,9 +19,12 @@ kubectl apply -f apps/argocd/app-project.yaml
 kubectl apply -f apps/argocd/argocd-cm.yaml
 kubectl apply -f apps/argocd/argocd-cmd-params-cm.yaml
 kubectl apply -f apps/argocd/root-applicationset.yaml
+kubectl apply -f apps/argocd/ingress.yaml
 
 # argocd-cm is read at startup by the components that consume it:
 # kustomize.buildOptions by the repo-server, diff settings by the controller.
+# argocd-server reads server.insecure at startup, so it needs restarting too.
+kubectl rollout restart deploy/argocd-server -n argocd
 kubectl rollout restart deploy/argocd-repo-server -n argocd
 kubectl rollout restart sts/argocd-application-controller -n argocd
 

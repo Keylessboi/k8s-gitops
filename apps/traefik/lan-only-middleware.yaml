@@ -1,0 +1,24 @@
+---
+# Restrict a route to the LAN and Tailscale.
+#
+# Traefik v3 renamed this from ipWhiteList to ipAllowList; the old name is
+# silently ignored on this version, which would leave the route wide open
+# rather than erroring - so it is worth being explicit about which is in use.
+#
+# depth: 1 reads the client address from the last hop in X-Forwarded-For, which
+# is the address Traefik itself observed. Without it the check runs against the
+# router's address and either admits everyone or no one.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: lan-only
+  namespace: kube-system
+spec:
+  ipAllowList:
+    sourceRange:
+      - 192.168.1.0/24      # LAN
+      - 100.64.0.0/10       # Tailscale (CGNAT range)
+      - 10.42.0.0/16        # cluster pods
+      - 10.43.0.0/16        # cluster services
+    ipStrategy:
+      depth: 1
