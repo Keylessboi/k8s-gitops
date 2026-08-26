@@ -18,6 +18,33 @@ Status as of 2026-08-26. Everything not listed here is done and verified.
 
 ## Yours
 
+- [ ] **Remove the duplicate 80/443 port-forward pointing at the Raspberry Pi.**
+      This is what makes services appear to "go down" at random.
+
+      A device with MAC `e4:5f:01:83:1d:87` (Raspberry Pi) holds **two** LAN
+      addresses, `192.168.1.39` and `192.168.1.199`, and runs its own Traefik on
+      80 and 443. The router alternates between forwarding WAN traffic to it and
+      to the cluster, so requests land on one or the other at random.
+
+      Evidence: the certificate served externally during a failure fingerprints
+      as `E2:63:9F:38:80:C8…`, which is the Pi's exactly; when it works it is
+      `74:D1:38:52:41:4B…`, the cluster's. On port 80 the same split shows up as
+      the Pi's Go-style "404 page not found" versus Traefik's 301. Requests that
+      fail never appear in the cluster's Traefik access log at all.
+
+      The cluster is not at fault: from the LAN, `192.168.1.240` consistently
+      serves the correct Let's Encrypt certificate for every hostname, ARP for
+      `.240` is stable, and Traefik has logged no reloads or TLS errors.
+
+      Fix in the router: delete the stale 80/443 forward to the Pi, leaving only
+      the one to `192.168.1.240`. Also worth asking why that Pi holds two DHCP
+      leases.
+
+- [ ] **Review the cluster against best practice, the docs, and the plan.**
+      Requested as standing work: after changes, verify the running cluster
+      still matches `docs/RUNDOWN.md`, the phase goals, and sane defaults -
+      rather than assuming a green sync means correct.
+
 - [ ] **Add indexers to Prowlarr.** Only CrackingPatching and Internet Archive
       exist. Which trackers, and any accounts, are your call.
       Tag anything Cloudflare-protected with `flaresolverr` — the proxy is
