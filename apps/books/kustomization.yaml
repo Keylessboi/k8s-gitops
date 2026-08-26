@@ -29,6 +29,7 @@ labels:
 
 resources:
   - namespace.yaml
+  - media-data-pv.yaml
   - pvc.yaml
   - networkpolicy.yaml
   - calibre-web-automated.yaml

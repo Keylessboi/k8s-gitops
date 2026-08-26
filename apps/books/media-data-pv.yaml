@@ -1,0 +1,46 @@
+---
+# The shared /data volume, so Readarr can hardlink instead of copying.
+#
+# Downloads land in /data/torrents/books and Readarr imports into
+# /data/ingest/books - both inside this one mount, so the import is a hardlink
+# and the torrent stays seedable. Previously Readarr's root folder was on a
+# separate PVC from qBittorrent's downloads, which forces copy-then-delete.
+#
+# /data/ingest/books rather than /data/media/books because CWA owns the final
+# library: it watches the ingest folder, processes each book and files it into
+# the Calibre library, DELETING the ingest copy afterwards. Pointing an arr's
+# root folder straight at the library is what the CWA docs warn causes
+# duplicate imports and a corrupt database.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: media-data-books
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.1
+    - hard
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: media-data-books
+    volumeAttributes:
+      server: 192.168.1.67
+      share: /extra/nfs-csi
+      subDir: data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media-data
+  namespace: books
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: media-data-books
+  resources:
+    requests:
+      storage: 500Gi

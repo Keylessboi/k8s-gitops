@@ -44,8 +44,11 @@ spec:
               mountPath: /config
             - name: library
               mountPath: /calibre-library
+            # Ingest now lives inside the shared media volume so Readarr's
+            # imports into it can hardlink from /data/torrents/books.
             - name: ingest
               mountPath: /cwa-book-ingest
+              subPath: ingest/books
       volumes:
         - name: config
           persistentVolumeClaim:
@@ -55,7 +58,7 @@ spec:
             claimName: calibre-library
         - name: ingest
           persistentVolumeClaim:
-            claimName: book-ingest
+            claimName: media-data
 ---
 apiVersion: v1
 kind: Service

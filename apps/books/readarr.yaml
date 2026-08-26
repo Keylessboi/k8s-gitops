@@ -54,20 +54,18 @@ spec:
               mountPath: /config
             # Readarr files completed books into the same ingest volume CWA
             # watches, so both acquisition paths converge on one library.
-            - name: ingest
-              mountPath: /cwa-book-ingest
-            - name: library
-              mountPath: /calibre-library
+            # The whole shared volume: /data/torrents/books (downloads) and
+            # /data/ingest/books (Readarr's root folder) must be in one mount
+            # for imports to hardlink.
+            - name: data
+              mountPath: /data
       volumes:
         - name: config
           persistentVolumeClaim:
             claimName: readarr-config
-        - name: ingest
+        - name: data
           persistentVolumeClaim:
-            claimName: book-ingest
-        - name: library
-          persistentVolumeClaim:
-            claimName: calibre-library
+            claimName: media-data
 ---
 apiVersion: v1
 kind: Service
