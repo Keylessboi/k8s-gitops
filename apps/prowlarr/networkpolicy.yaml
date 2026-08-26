@@ -114,6 +114,13 @@ spec:
     ports:
     - port: 443
       protocol: TCP
+      # Plain HTTP too. Several trackers redirect via port 80 or serve
+      # torrent files there; with only 443 allowed the request is not
+      # refused, it hangs - surfacing as "indexer's server is unavailable,
+      # Http request timed out", which looks like the tracker being down
+      # rather than a local policy drop.
+    - protocol: TCP
+      port: 80
   # ...and the same rule again in post-DNAT terms. k3s translates
   # 192.168.1.240:443 to the Traefik pod at :8443 BEFORE NetworkPolicy egress is
   # evaluated, so the ipBlock rule above matches nothing on a new connection -
@@ -138,3 +145,10 @@ spec:
     ports:
     - protocol: TCP
       port: 443
+    # Plain HTTP too. Several trackers redirect via port 80 or serve their
+    # torrent files there; with only 443 allowed the request is not refused,
+    # it hangs - surfacing as "indexer's server is unavailable, Http request
+    # timed out", which reads like the tracker being down rather than a
+    # local policy drop.
+    - port: 80
+      protocol: TCP
