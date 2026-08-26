@@ -92,30 +92,50 @@ Closing the verified plan gaps from `docs/PLAN-GAPS.md`, largest first.
       the database behind and merely stopped tracking it. Set to `delete` first,
       then removed. The role is `ensure: absent` for the same reason - CNPG only
       drops a role it is still told about.
-- [ ] **7. SquidWTF (Qobuz) — BLOCKED UPSTREAM, needs a decision from you.**
-      The plugin is installed and loaded in Lidarr (v1.0.0.8) and exposes a
-      `Qobuz` indexer and download client. It cannot be pointed anywhere:
+- [x] **7. Music sources — reworked around free frontends only.** SquidWTF is
+      gone (uninstalled: its upstream Qobuz service no longer exists, and it
+      collided with a working plugin by registering the same `Qobuz`
+      implementation name). Tubifarry upgraded 2.0.4.1 -> 2.1.0.0.
 
-      - It needs a "SquidWTF Qobuz API URL". The service that used to answer
-        that is gone - `qobuz.squid.wtf` is NXDOMAIN, and squid.wtf's own
-        landing page now lists only debrid, gog, khinsider, logs, saavn and
-        spec. No Qobuz.
-      - Self-hosting the chain is possible in principle. It is three parts:
-        the `QobuzDL/Qobuz-DL` web frontend, the author's companion
-        `trembon/SquidWTF.Qobuz.DownloadAPI` (which drives that frontend with
-        headless Playwright), and then the Lidarr plugin. Both have published
-        ghcr images.
-      - But Qobuz-DL needs `QOBUZ_APP_ID`, `QOBUZ_SECRET` and a
-        `QOBUZ_AUTH_TOKENS` value taken from **a paying Qobuz account** -
-        without a token it is capped at 30-second previews. Only you can supply
-        that.
-      - Fair warning even if you have one: the DownloadAPI drives the frontend
-        by filling a `#search` element, and current Qobuz-DL does not render
-        that id, so the scraper would likely need patching too.
+      Verified live by testing every indexer and client through Lidarr's own
+      test endpoint:
 
-      Tell me if you have a Qobuz subscription and I will build the whole chain
-      over GitOps. Otherwise this one is not reachable from here.
-- [x] **8. Lidarr maintenance script — RUNNING; the Hermes half is blocked.**
+      | Source | State | Note |
+      |---|---|---|
+      | Soulseek (slskd) | **working** | free, lossless. Indexer was pointing at `http://gluetun:50393` and holding a pre-rotation API key - both fixed |
+      | Lucida | **working** | free frontend for Qobuz/Tidal/Deezer/SoundCloud. Was 403 behind Cloudflare |
+      | qBittorrent + Prowlarr | **working** | BT.etree and Internet Archive both pass |
+      | YouTube / Tubifarry | needs cookies | the `cookies.txt` you said to skip |
+      | DABMusic | **disabled** | no usable instance - see below |
+      | TripleTriple / T2Tunes | dead | `t2tunes.site` redirects to `/unavailable` |
+      | arcod.xyz | alive, unusable | see below |
+
+      **Why Lucida was broken:** Tubifarry's FlareSolverr integration was
+      configured with `http://flaresolverr:8191/` - a bare hostname that cannot
+      resolve across namespaces. FlareSolverr itself was fine the whole time
+      (it solves lucida.to's challenge on demand). This is the third instance of
+      the same short-hostname defect today, after the Slskd indexer and the 15
+      Prowlarr ones.
+
+      **Why DAB is disabled:** `dabmusic.xyz` returns 522 (origin down).
+      `dab.yeet.su` - the instance the plugin itself lists as its placeholder -
+      serves a chain rooted at **ISRG Root YE**, a new Let's Encrypt ECDSA root
+      that is not yet in the container's CA bundle, so TLS verification fails
+      before authentication is even attempted. Not worth working around by
+      disabling certificate validation; it will likely fix itself when the base
+      image ships a newer CA bundle. Re-enable both entries then.
+
+      **arcod.xyz** is alive and is a genuinely free Qobuz frontend, but no
+      installed plugin speaks its API. It is Qobuz-DL family - `/api/get-music`
+      returning Qobuz-native JSON (`data.albums.items[]`) - whereas the DAB
+      plugin parses a flat `albums[]`, so it cannot be used as a DAB base URL.
+      It would need its own plugin written.
+
+      Also installed but **not configured**, and left in place only in case you
+      ever subscribe: TrevTV's Qobuz, Deezer and Tidal plugins. All three need
+      paid accounts, so none of them are in use. Say the word and I will remove
+      them.
+- [x] **8. Lidarr maintenance script + Hermes — BOTH RUNNING.**
       Your `lidarr-maintenance-script` runs nightly at 02:00 as a CronJob and is
       verified end to end against Lidarr (all four phases). It is pure standard
       library, so it needs no build step, and it clones fresh each run - push to
@@ -127,12 +147,27 @@ Closing the verified plan gaps from `docs/PLAN-GAPS.md`, largest first.
       NetworkPolicy allowed ingress from this namespace but not egress, so
       nothing in it could call Lidarr's own API.
 
-      **Blocked:** the Hermes agent-oversight layer. Hermes Agent is a
-      third-party product - there is no `hermes` binary on your machine, no
-      `~/.hermes`, and nothing matching in your 32 repos - so I cannot
-      containerise it without knowing which distribution you run. The mechanical
-      cleanup is fully delivered without it; items the script refuses to judge
-      print as `[AGENT_OVERSIGHT_NEEDED]` and surface in the job log.
+      **Hermes is now deployed** (`apps/hermes`) from the official image,
+      `nousresearch/hermes-agent:v2026.8.19` - upstream is
+      `NousResearch/hermes-agent`, and although their compose builds locally,
+      their CI publishes to Docker Hub, so there is a real image to pin and no
+      dependency on any workstation.
+
+      It is running with its state on a persistent volume, egress to Lidarr's
+      API, and the private ranges excluded so a prompt cannot turn it into a
+      LAN scanner. The dashboard is on container loopback because a non-loopback
+      bind fails closed without an auth provider - upstream made that mandatory
+      after unauthenticated dashboards were used to plant SSH backdoors in June
+      2026. It speaks self-hosted OIDC, so it can move behind Authentik.
+
+      **Needs you:** one interactive setup to add an LLM provider key, which
+      only you can choose:
+
+          kubectl exec -it -n hermes deploy/hermes -- hermes setup
+
+      It writes to the mounted volume, so it survives restarts and upgrades.
+      After that, `hermes cron add` schedules the review of the maintenance
+      script's `[AGENT_OVERSIGHT_NEEDED]` items.
 - [ ] **9. Vaultwarden push notifications** - optional; needs a free install id
       and key from bitwarden.com/host for mobile push.
 
