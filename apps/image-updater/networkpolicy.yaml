@@ -1,0 +1,64 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  # Nothing needs to reach the controller. It has no UI and no API; Prometheus
+  # is not scraping it. Deny by having no ingress rule at all.
+  ingress: []
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
+  # "default" namespace matches PODS in it, never the 10.43.0.1 service IP.
+  # k3s also DNATs 10.43.0.1:443 to the node's own address before NetworkPolicy
+  # egress is evaluated, so both forms are needed - the Service rule matches
+  # nothing on a new connection. This is the same defect that broke CNPG's base
+  # backups and kept the Doppler operator from winning leader election.
+  - to:
+    - ipBlock:
+        cidr: 10.43.0.1/32
+    ports:
+    - port: 443
+      protocol: TCP
+  - to:
+    - ipBlock:
+        cidr: 192.168.1.0/24
+    ports:
+    - port: 6443
+      protocol: TCP
+  # Container registries, to find out what tags exist: ghcr.io, lscr.io,
+  # docker.io, quay.io.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 192.168.0.0/16
+        - 172.16.0.0/12
+    ports:
+    - protocol: TCP
+      port: 443
+  # github.com over SSH, to push the tag bumps. Deploy keys are SSH-only, so
+  # 443 is not enough here.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 192.168.0.0/16
+        - 172.16.0.0/12
+    ports:
+    - protocol: TCP
+      port: 22

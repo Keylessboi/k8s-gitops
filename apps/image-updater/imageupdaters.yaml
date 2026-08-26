@@ -31,7 +31,7 @@ apiVersion: argocd-image-updater.argoproj.io/v1alpha1
 kind: ImageUpdater
 metadata:
   name: homelab
-  namespace: argocd
+  namespace: image-updater
 spec:
   writeBackConfig:
     # `git:secret:<ns>/<name>` rather than plain `git`: plain git makes the
@@ -39,7 +39,7 @@ spec:
     # argocd.argoproj.io/secret-type label - and the Doppler operator's managed
     # secrets cannot be given extra labels. This form points at an ordinary
     # secret instead, which Doppler can produce directly.
-    method: git:secret:argocd/image-updater-git
+    method: git:secret:image-updater/image-updater-git
     gitConfig:
       # SSH, not the https URL the Applications use: the deploy key is the only
       # write credential, and GitHub deploy keys are SSH-only.

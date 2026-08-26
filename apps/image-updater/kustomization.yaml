@@ -3,10 +3,15 @@
 # tag bumps back to this repo, so an update is a reviewable commit rather than
 # a manual edit someone remembers to make.
 #
-# Deployed into the argocd namespace (not its own) because the controller
-# defaults to watching Applications in whatever namespace it runs in. apps/argocd
-# is excluded from the root ApplicationSet, so this lives in its own app
-# directory and simply targets that namespace.
+# Runs in its own namespace, not in argocd. ArgoCD applies cluster-scoped RBAC
+# with `kubectl auth reconcile`, which requires the Application's destination
+# namespace to exist - and the root ApplicationSet derives that from the
+# directory name. Targeting the argocd namespace therefore left the ClusterRole
+# and ClusterRoleBinding permanently SyncFailed on `namespaces "image-updater"
+# not found`, and without them the controller could not even list its own CRs.
+#
+# `argocd.namespace` below is what points it back at the Applications; its
+# ImageUpdater CRs are read from its own namespace.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 metadata:
@@ -19,7 +24,7 @@ metadata:
     app.kubernetes.io/part-of: homelab
     app.kubernetes.io/managed-by: argocd
 
-namespace: argocd
+namespace: image-updater
 
 # `labels` with includeSelectors:false, NOT `commonLabels` - commonLabels
 # rewrites Deployment selectors, which are immutable.
@@ -31,6 +36,8 @@ labels:
     includeSelectors: false
 
 resources:
+  - namespace.yaml
+  - networkpolicy.yaml
   - imageupdaters.yaml
 
 helmCharts:
@@ -38,10 +45,13 @@ helmCharts:
     repo: https://argoproj.github.io/argo-helm
     version: 1.2.4
     releaseName: image-updater
-    namespace: argocd
+    namespace: image-updater
     includeCRDs: true
     valuesInline:
       config:
+        # Where the Argo CD Applications live. Without this the controller looks
+        # for them in its own namespace and finds none.
+        argocd.namespace: argocd
         # Attribution for the commits it makes, so `git log` shows who bumped a
         # tag without anyone having to guess.
         git.user: argocd-image-updater
