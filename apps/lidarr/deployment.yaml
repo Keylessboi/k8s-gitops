@@ -7,7 +7,9 @@ metadata:
   name: lidarr
   namespace: lidarr
 spec:
-  replicas: 1
+  # Temporarily 0 while the config volume is restored from the NAS backup.
+  # Restored to 1 in the follow-up commit.
+  replicas: 0
   strategy:
     type: Recreate
   selector:
