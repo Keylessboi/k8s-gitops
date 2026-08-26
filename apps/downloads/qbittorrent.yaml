@@ -115,20 +115,24 @@ spec:
                   name: slskd
                   key: password
             # Lidarr authenticates to slskd with this rather than a login.
-            - name: SLSKD_API_KEYS_LIDARR_KEY
+            # The nesting matters: slskd maps config paths to env by prefixing
+            # SLSKD_ and flattening with underscores, so the key lives under
+            # web.authentication.api_keys.<name>. A shorter name is silently
+            # ignored and every request comes back 401.
+            - name: SLSKD_WEB_AUTHENTICATION_API_KEYS_LIDARR_KEY
               valueFrom:
                 secretKeyRef:
                   name: slskd
                   key: api-key
-            - name: SLSKD_API_KEYS_LIDARR_ROLE
+            - name: SLSKD_WEB_AUTHENTICATION_API_KEYS_LIDARR_ROLE
               value: readwrite
             # Any in-cluster caller; the pod is not reachable from outside it.
-            - name: SLSKD_API_KEYS_LIDARR_CIDR
+            - name: SLSKD_WEB_AUTHENTICATION_API_KEYS_LIDARR_CIDR
               value: 10.42.0.0/16,10.43.0.0/16,127.0.0.1/32
             - name: SLSKD_HTTP_PORT
               value: "5030"
             # The AirVPN-forwarded port for incoming Soulseek connections.
-            - name: SLSKD_SOULSEEK_LISTEN_PORT
+            - name: SLSKD_SLSK_LISTEN_PORT
               value: "6874"
             # Downloads land inside the shared volume so Lidarr can import
             # them without copying across filesystems.
