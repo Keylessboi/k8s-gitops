@@ -70,6 +70,18 @@ helmCharts:
       service:
         enabled: true
         type: LoadBalancer
+        # Preserve the real client address.
+        #
+        # With the default `Cluster`, kube-proxy SNATs every inbound packet and
+        # Traefik logged 10.42.0.1 - the node's own gateway - as the client for
+        # ALL public traffic. CrowdSec would then only ever see one attacker and
+        # ban an address internal to the cluster, and the rate limiter would
+        # treat the entire internet as a single client. Both were effectively
+        # inert. `Local` keeps the source address intact; on a single node there
+        # is no imbalance cost, because every packet already lands on the only
+        # node running Traefik.
+        spec:
+          externalTrafficPolicy: Local
         annotations:
           # Pin the forwarded address. The router sends 80/443 here, so any
           # other LoadBalancer grabbing this IP would siphon all public traffic.
