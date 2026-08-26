@@ -20,10 +20,18 @@ Status as of 2026-08-26. Everything not listed here is done and verified.
 
 Closing the verified plan gaps from `docs/PLAN-GAPS.md`, largest first.
 
-- [ ] **1. S3 primary storage.** The plan calls for MinIO S3 primary with NFS
-      fallback for media streaming only; today that is inverted. Nextcloud and
-      Immich both speak S3 natively - no gateway needed, which is what sank
-      JuiceFS. Start with Nextcloud (`objectstore` is unset), then Immich.
+- [x] **1a. Nextcloud on S3 primary storage — DONE.** Verified end to end: a
+      WebDAV PUT returns 201, the object appears in the `nextcloud-data` bucket
+      as `urn:oid:85`, and a read returns the content. Credentials by secret
+      reference, `autoCreate` off so a wrong endpoint cannot silently create a
+      bucket and write there.
+- [ ] **1b. Immich on S3 — needs a gateway.** Correction to my earlier claim:
+      Immich does NOT speak S3 natively, it requires a POSIX filesystem. That
+      is exactly why the plan wanted a gateway. JuiceFS was rejected because its
+      metadata would live in the Postgres it was backing; that objection does
+      not apply if the metadata engine is something else (its own Redis, or
+      SQLite on local-path). Alternatives: rclone or s3fs mount. Needs a
+      decision before building.
 - [ ] **2. Navidrome SQLite -> PostgreSQL** via pgloader, per the plan.
 - [ ] **3. smartctl_exporter** so a failing disk is visible.
 - [ ] **4. ArgoCD Image Updater** so image bumps are not manual.
