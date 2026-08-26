@@ -39,6 +39,26 @@ helmCharts:
       # The CSI node plugin has to see the kubelet's directory to publish
       # volumes; k3s keeps it in the default location.
       kubeletDir: /var/lib/kubelet
+      globalConfig:
+        enabled: true
+        manageByHelm: true
+        # Applies to EVERY mount pod, existing volumes included. The
+        # equivalent StorageClass parameters only affect newly provisioned
+        # volumes, which is not enough here: JuiceFS defaults each mount pod
+        # to 1 CPU / 1Gi, and with 14 volumes that reserved ~14Gi on a 12Gi
+        # node. Memory sat at 111% and everything newly scheduled went
+        # Pending.
+        #
+        # Requests only. Limits stay generous so a mount can still burst while
+        # actually moving data.
+        mountPodPatch:
+          - resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                cpu: "1"
+                memory: 1Gi
       node:
         resources:
           requests:
