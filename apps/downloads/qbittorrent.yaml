@@ -67,7 +67,12 @@ spec:
               mountPath: /app
       containers:
         - name: gluetun
-          image: qmcgaw/gluetun:v3.40.0
+          # v3.40.0 aborted at startup the moment it detected the pod's
+          # IPv6 link-local address: "for ip6tables: failed cleaning up test
+          # rule ... Bad rule", immediately followed by shutdown. Nothing in
+          # the cluster was wrong - ip6tables works fine inside the LXC and the
+          # kernel modules are loaded - it is gluetun's own ip6tables probe.
+          image: qmcgaw/gluetun:v3.41.3
           securityContext:
             capabilities:
               add: ["NET_ADMIN"]
