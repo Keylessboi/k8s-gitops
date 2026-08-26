@@ -25,14 +25,26 @@ Closing the verified plan gaps from `docs/PLAN-GAPS.md`, largest first.
       as `urn:oid:85`, and a read returns the content. Credentials by secret
       reference, `autoCreate` off so a wrong endpoint cannot silently create a
       bucket and write there.
-- [ ] **1b. Immich on S3 — needs a gateway.** Correction to my earlier claim:
+- [ ] **1b. Immich on S3 — decided: JuiceFS with SQLite metadata.** Chosen for
+      speed with least overhead: SQLite is a file rather than another service,
+      it is a single mount used only by Immich (the earlier 1 CPU/1Gi-per-app
+      blow-up came from mounting it everywhere), and it is far faster than s3fs
+      or rclone for a photo library's random reads and thumbnailing. The
+      original objection does not apply - it was specific to Postgres metadata
+      living in the database being backed.
+      Original note: Correction to my earlier claim:
       Immich does NOT speak S3 natively, it requires a POSIX filesystem. That
       is exactly why the plan wanted a gateway. JuiceFS was rejected because its
       metadata would live in the Postgres it was backing; that objection does
       not apply if the metadata engine is something else (its own Redis, or
       SQLite on local-path). Alternatives: rclone or s3fs mount. Needs a
       decision before building.
-- [ ] **2. Navidrome SQLite -> PostgreSQL** via pgloader, per the plan.
+- [x] **2. Navidrome SQLite -> PostgreSQL — NOT POSSIBLE, closing.** Navidrome
+      has no PostgreSQL support in any release: upstream PR #2821
+      "feat(persistence): Postgres support" is still open (last updated
+      2026-08-19). The plan assumed a capability that does not exist yet, so
+      this is an upstream limitation rather than something left undone. Revisit
+      if that PR merges; the pgloader step only becomes meaningful then.
 - [ ] **3. smartctl_exporter** so a failing disk is visible.
 - [ ] **4. ArgoCD Image Updater** so image bumps are not manual.
 - [ ] **5. Per-app Grafana dashboards** - currently only the stack's generic set
