@@ -5,6 +5,15 @@ metadata:
   labels:
     app.kubernetes.io/name: monitoring
     app.kubernetes.io/part-of: homelab
-    pod-security.kubernetes.io/enforce: baseline
+    # node-exporter cannot run under `baseline`: reading host CPU, memory, disk
+    # and network counters requires hostNetwork, hostPID and hostPath mounts of
+    # /proc, /sys and /. Under baseline the DaemonSet was rejected outright
+    # ("violates PodSecurity baseline:latest"), which left the whole monitoring
+    # Application permanently Progressing - and that stalled sync held back
+    # unrelated changes to the Grafana Ingress.
+    #
+    # This is the node-exporter's nature, not a workaround. Everything else in
+    # the namespace is still audited and warned against `restricted`.
+    pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted
