@@ -36,3 +36,4 @@ resources:
   - readarr.yaml
   - ingress.yaml
   - authentik-outpost.yaml
+  - book-downloader-ingress.yaml

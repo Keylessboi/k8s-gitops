@@ -1,0 +1,66 @@
+---
+# The Anna's Archive downloader, published behind Authentik.
+#
+# This is the non-P2P acquisition path and its only interface; without an
+# Ingress the feature exists but cannot be used. It stays behind forward-auth
+# because it is an unauthenticated download tool - publishing it bare would
+# repeat the Lidarr exposure.
+#
+# Withdrawn once already when inbound port 80 was not reaching the cluster, so
+# Let's Encrypt could not answer the HTTP-01 challenge and the host served
+# Traefik's self-signed default certificate. Port 80 now works.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: book-downloader
+  namespace: books
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - bookdl.sandstorm.chat
+      secretName: book-downloader-tls
+  rules:
+    - host: bookdl.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: book-downloader
+                port:
+                  number: 8084
+---
+# The outpost callback for this host - see apps/books/authentik-outpost.yaml.
+# Separate Ingress so forward-auth is not applied to the callback itself,
+# which would loop.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: book-downloader-outpost
+  namespace: books
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - bookdl.sandstorm.chat
+      secretName: book-downloader-tls
+  rules:
+    - host: bookdl.sandstorm.chat
+      http:
+        paths:
+          - path: /outpost.goauthentik.io
+            pathType: Prefix
+            backend:
+              service:
+                name: authentik-outpost
+                port:
+                  number: 9000
