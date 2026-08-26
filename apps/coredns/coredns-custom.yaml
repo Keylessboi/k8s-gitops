@@ -42,7 +42,6 @@ data:
         192.168.1.240 kiwix.sandstorm.chat
         192.168.1.240 lidarr.sandstorm.chat
         192.168.1.240 books.sandstorm.chat
-        192.168.1.240 bookdl.sandstorm.chat
         192.168.1.240 qui.sandstorm.chat
         192.168.1.240 grafana.sandstorm.chat
         fallthrough
