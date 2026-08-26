@@ -22,10 +22,11 @@ Status as of 2026-08-26. Everything not listed here is done and verified.
       exist. Which trackers, and any accounts, are your call.
       Tag anything Cloudflare-protected with `flaresolverr` — the proxy is
       configured but stays disabled until at least one indexer carries that tag.
-- [ ] **Rotate the DAB account password** at dabmusic.xyz. It appeared in this
-      session's log when I read the restored download clients. Note the service
-      is currently down (HTTP 522 from outside the network), so this can wait.
-      The qBittorrent password and slskd API key were already rotated.
+- [x] **DAB account password — deliberately not rotated.** It appeared in this
+      session's log when the restored download clients were read. Owner's
+      decision to leave it; noted here so it is not raised again. The
+      qBittorrent password and slskd API key *were* rotated.
+
 - [ ] **YouTube `cookies.txt`** — skipped per your instruction. If you ever want
       it, drop the file at `/data/cookies/youtube.txt`; the path and the bgutil
       POT provider are already in place.
