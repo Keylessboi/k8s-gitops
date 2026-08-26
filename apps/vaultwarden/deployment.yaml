@@ -90,12 +90,14 @@ spec:
               value: "false"
             # /admin is disabled outright rather than left on a token. It is
             # the highest-value endpoint on a public vault.
-            # The admin panel token. Absent it, /admin is disabled entirely -
-            # and with signups closed that panel is the only way to invite a
-            # user, so there was no route to add anyone at all.
-            - name: ADMIN_TOKEN
-              valueFrom:
-                secretKeyRef: {name: vaultwarden-admin, key: admin-token}
+            # ADMIN_TOKEN deliberately unset, so /admin stays disabled and is
+            # not an attack surface. Everyone authenticates through Authentik,
+            # and the existing accounts are already associated.
+            #
+            # Trade-off: a brand-new user cannot self-register while
+            # SIGNUPS_ALLOWED is false - upstream treats SSO login as a signup
+            # for someone with no prior account. Adding one later means briefly
+            # restoring this token, or flipping SIGNUPS_ALLOWED, via a commit.
             - name: DISABLE_ADMIN_TOKEN
               value: "false"
             # SSO via Authentik. These are only honoured by the fork above;
