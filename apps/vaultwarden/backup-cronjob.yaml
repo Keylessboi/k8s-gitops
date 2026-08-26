@@ -1,0 +1,69 @@
+---
+# Backs up Vaultwarden's data VOLUME to MinIO.
+#
+# The vault itself - passwords, logins, notes, TOTP seeds - lives in
+# PostgreSQL and is already covered by CNPG base backups and WAL archiving.
+# This covers the part that is NOT in the database:
+#
+#   rsa_key.pem   signs every JWT. Losing it invalidates all sessions and
+#                 logs every client out until they re-authenticate.
+#   attachments/  real user data, gone for good if the volume is lost.
+#   sends/        Bitwarden Send payloads.
+#
+# Without this a single lost PVC meant losing attachments outright, which is
+# exactly the failure worth guarding against on a password manager.
+#
+# Versioning is enabled on the bucket, so an accidental delete or a corrupted
+# sync can be rolled back rather than propagated.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vaultwarden-data-backup
+  namespace: vaultwarden
+spec:
+  # Every 6 hours, matching the etcd snapshot cadence.
+  schedule: "20 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+              env:
+                - name: MC_HOST_backup
+                  valueFrom:
+                    secretKeyRef:
+                      name: vaultwarden-backup-s3
+                      key: mc-host
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  echo "backing up /data -> app-data-backups/vaultwarden"
+                  # --overwrite keeps the mirror current; --remove would let a
+                  # local wipe erase the backup too, so it is deliberately off.
+                  mc mirror --overwrite /data "backup/app-data-backups/vaultwarden"
+                  echo "backup complete:"
+                  mc du "backup/app-data-backups/vaultwarden"
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: vaultwarden-data

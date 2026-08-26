@@ -37,4 +37,5 @@ resources:
   - deployment.yaml
   - service.yaml
   - networkpolicy.yaml
+  - backup-cronjob.yaml
   - ingress.yaml
