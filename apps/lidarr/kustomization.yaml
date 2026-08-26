@@ -37,4 +37,5 @@ resources:
   - networkpolicy.yaml
   - deployment.yaml
   - ingress.yaml
+  - authentik-outpost.yaml
 
