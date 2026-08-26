@@ -31,13 +31,22 @@ spec:
       ports:
         - port: 8080
           protocol: TCP
-    # Lidarr drives slskd through its API.
+    # Lidarr drives slskd through its API, and both Lidarr and Readarr drive
+    # qBittorrent's WebUI. 8080 was previously allowed only from downloads and
+    # prowlarr, so the arr apps' download-client tests failed with "Unable to
+    # connect to qBittorrent" while qBittorrent itself was perfectly healthy -
+    # a login through the same Service from the node returned 200.
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: lidarr
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: books
       ports:
         - port: 5030
+          protocol: TCP
+        - port: 8080
           protocol: TCP
   egress:
     # k3s apiserver, reachable only by ipBlock.
