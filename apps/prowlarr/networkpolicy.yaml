@@ -54,6 +54,17 @@ spec:
       protocol: TCP
   # Tubifarry routes Cloudflare-protected indexer requests through
   # FlareSolverr; without this egress rule the connection silently times out.
+  # k3s DNATs 10.43.0.1:443 to the node's own address before NetworkPolicy
+  # egress is evaluated, so the Service rule above matches nothing for a new
+  # connection and the API call fails. This is the defect that broke CNPG's
+  # base backups and, here, kept the Doppler operator from ever winning leader
+  # election - i.e. from ever syncing a secret.
+  - to:
+    - ipBlock:
+        cidr: 192.168.1.0/24
+    ports:
+    - port: 6443
+      protocol: TCP
   - to:
     - namespaceSelector:
         matchLabels:
