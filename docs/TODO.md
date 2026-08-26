@@ -18,27 +18,36 @@ Status as of 2026-08-26. Everything not listed here is done and verified.
 
 ## Yours
 
-- [ ] **Remove the duplicate 80/443 port-forward pointing at the Raspberry Pi.**
-      This is what makes services appear to "go down" at random.
+- [x] **RESOLVED: IP conflict on 192.168.1.240.** This was the cause of services
+      appearing to drop at random, and it was never the cluster.
 
-      A device with MAC `e4:5f:01:83:1d:87` (Raspberry Pi) holds **two** LAN
-      addresses, `192.168.1.39` and `192.168.1.199`, and runs its own Traefik on
-      80 and 443. The router alternates between forwarding WAN traffic to it and
-      to the cluster, so requests land on one or the other at random.
+      A Raspberry Pi (MAC `e4:5f:01:83:1d:87`, holding both `192.168.1.39` and
+      `192.168.1.199`) was **also answering ARP for 192.168.1.240** - the
+      MetalLB address the router forwards 80/443 to. Both machines replied to
+      every ARP request, the Pi about 1ms behind, so whichever reply the router
+      cached last won. Traffic landed on the cluster or on the Pi's Traefik at
+      random.
 
-      Evidence: the certificate served externally during a failure fingerprints
-      as `E2:63:9F:38:80:C8…`, which is the Pi's exactly; when it works it is
-      `74:D1:38:52:41:4B…`, the cluster's. On port 80 the same split shows up as
-      the Pi's Go-style "404 page not found" versus Traefik's 301. Requests that
-      fail never appear in the cluster's Traefik access log at all.
+      Proof: `tcpdump` showed two replies per probe -
+      `192.168.1.240 is-at bc:24:11:16:58:4e` (k3s node) and
+      `is-at e4:5f:01:83:1d:87` (Pi). The certificate served externally during a
+      failure fingerprinted as the Pi's exactly; when it worked, the cluster's.
+      Failing requests never appeared in the cluster's Traefik access log.
 
-      The cluster is not at fault: from the LAN, `192.168.1.240` consistently
-      serves the correct Let's Encrypt certificate for every hostname, ARP for
-      `.240` is stable, and Traefik has logged no reloads or TLS errors.
+      Note the earlier entry here blamed a duplicate port-forward rule. That was
+      wrong - the forwards were correct all along, a single rule per port
+      pointing at `.240`. `ip neigh` had shown a single clean MAC because it
+      displays only the cached winner, not every responder; only a packet
+      capture revealed the second. Worth remembering: to find a duplicate ARP
+      claim you must watch the wire, not the cache.
 
-      Fix in the router: delete the stale 80/443 forward to the Pi, leaving only
-      the one to `192.168.1.240`. Also worth asking why that Pi holds two DHCP
-      leases.
+      Resolved by powering the Pi off. Verified afterwards: one ARP responder
+      for `.240` across repeated probes, and all twelve public services
+      returning correct status with verified TLS from outside the network,
+      eight consecutive attempts with no failures.
+
+      If that Pi is ever wanted again, it must not carry `192.168.1.240` -
+      MetalLB's pool is `192.168.1.240-250`, so nothing else may use that range.
 
 - [ ] **Review the cluster against best practice, the docs, and the plan.**
       Requested as standing work: after changes, verify the running cluster
