@@ -324,3 +324,41 @@ Verified already correct, so do not go changing these:
   is registered - an authorize probe returns 302 into the login flow rather than
   an invalid-redirect error.
 - `SSO_ONLY=false` stays false, so an Authentik outage cannot lock you out.
+
+### Troubleshooting Vaultwarden SSO
+
+Read the server log first — it distinguishes the two failure halves immediately:
+
+```
+kubectl logs -n vaultwarden deploy/vaultwarden --tail=200 | grep -iE "sso|oidc|token|error"
+```
+
+A **working** SSO handshake looks like this, and this is what was in the log the
+whole time the apps appeared broken:
+
+```
+GET  /identity/sso/prevalidate?domainHint=... => 200 OK
+GET  /identity/connect/oidc-signin?<code>&<state> => 307 Temporary Redirect
+POST /identity/connect/token => 200 OK
+```
+
+So if you see those three, **SSO is not your problem**. Two things fail *after*
+that point and both look like "SSO is broken":
+
+1. `Error sending new device email: Connection error: Network unreachable` —
+   Bitwarden's apps and extension demand a new-device verification email on
+   first login. This was the actual fault: the NetworkPolicy opened 443 but not
+   587, so the mail never left. The web vault kept working because it was an
+   already-known device, which is exactly what made it look like an app-side SSO
+   bug. Fixed.
+
+2. `Unable to refresh login credentials: Impossible to read refresh_token:
+   Error decoding JWT: Error(InvalidSignature)` — a token signed with a
+   different key than the one now loaded. `/data/rsa_key.pem` is on the
+   persistent volume, so this is not a per-restart problem; it means the client
+   is holding a token from before that key was created. Log out fully in the
+   client and log back in. If it recurs *after* a fresh login, that is when to
+   suspect the key.
+
+`SSO_DEBUG_TOKENS=true` with `LOG_LEVEL=debug` dumps the tokens if you need to
+inspect claims — turn it off again afterwards, it logs credentials.

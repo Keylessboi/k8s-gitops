@@ -180,6 +180,39 @@ Closing the verified plan gaps from `docs/PLAN-GAPS.md`, largest first.
   `slskd.downloads.svc.cluster.local:5030` and re-keyed from slskd's running
   config; Lidarr validates on save, and both saved clean.
 
+## Blocked on you
+
+- [ ] **Hermes needs your local AI box powered on.** Hermes is deployed and
+      Running, but the Tailscale node named `llm` (100.112.201.48) has been
+      **offline for 8 days** - no ping, and 11434/8000/1234/5000/8080 all
+      refused. I could not find the setup documented in any of your 15 GitHub
+      repos either, so I cannot tell which engine or model it serves.
+
+      Once it is on I need two things and can finish in one pass: its **LAN**
+      address (not the Tailscale one - the pod would have to route 100.64/10
+      through the node, whereas a LAN IP is one NetworkPolicy rule) and which
+      server it runs. Hermes takes an OpenAI-compatible endpoint with no real
+      key, e.g. for Ollama:
+
+      ```yaml
+      providers:
+        local:
+          api: http://192.168.1.X:11434/v1
+          api_key: "unused"     # local servers ignore it; the field must exist
+      ```
+
+      Its egress policy currently excludes the private ranges on purpose, so a
+      prompt cannot turn the agent into a LAN scanner - that box gets one
+      explicit allow rule, the same way the smartctl exporters did.
+
+- [ ] **Lidarr plugin for arcod / the Qobuz frontends.** Parked at your request.
+      Reference you sent: https://discord.com/channels/1347344910008979548/1423268870361190486/1533343627365974057
+      (I cannot read it - Discord needs an authenticated session - so paste
+      anything relevant from it when we pick this up.)
+
+      Not urgent: a real search now returns 16 releases, 13 of them from Lucida,
+      which already fronts Qobuz/Tidal/Deezer/SoundCloud for free.
+
 ## Yours
 
 - [ ] **15 dead indexers in Lidarr, left over from the backup restore.** They
