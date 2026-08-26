@@ -39,6 +39,26 @@ spec:
     - port: 8686
       protocol: TCP
   egress:
+  # Prowlarr, both to register with it and to pull indexer results through
+  # it. Registration fails with "Prowlarr URL is invalid, Lidarr cannot
+  # connect to Prowlarr" without this - Prowlarr tests the reverse direction
+  # before it will save the application.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: prowlarr
+    ports:
+    - port: 9696
+      protocol: TCP
+  # qBittorrent's WebUI, for when the download client is added. Books
+  # already has this; Lidarr did not.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: downloads
+    ports:
+    - port: 8080
+      protocol: TCP
   # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
   # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so
   # the old rule was a no-op. Every NetworkPolicy in this repo was missing real
