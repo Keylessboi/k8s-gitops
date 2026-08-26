@@ -16,7 +16,7 @@ metadata:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     # <namespace>-<name>@kubernetescrd is how a middleware in another
     # namespace is referenced.
-    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
 spec:
   ingressClassName: traefik
   tls:

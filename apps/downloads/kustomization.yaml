@@ -25,6 +25,7 @@ resources:
   - namespace.yaml
   - pvc.yaml
   - networkpolicy.yaml
+  - doppler-secret.yaml
   - qbittorrent.yaml
   - qui.yaml
   - ingress.yaml
