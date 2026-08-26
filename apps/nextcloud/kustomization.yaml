@@ -66,6 +66,18 @@ helmCharts:
           # X-Forwarded-* headers at all.
           - name: TRUSTED_PROXIES
             value: 10.42.0.0/16
+        configs:
+          # Nextcloud refuses outbound HTTP to private addresses by default, and
+          # CoreDNS now resolves authentik.sandstorm.chat to the load balancer
+          # (see apps/coredns). OIDC discovery therefore failed with
+          # "Host 192.168.1.240 ... violates local access rules" and the
+          # "Log in with authentik" button 404'd. The Authentik integration docs
+          # call for exactly this setting when the IdP is reachable locally.
+          local-servers.config.php: |
+            <?php
+            $CONFIG = array (
+              'allow_local_remote_servers' => true,
+            );
         existingSecret:
           enabled: true
           secretName: nextcloud-admin
