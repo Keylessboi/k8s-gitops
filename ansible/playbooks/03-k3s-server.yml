@@ -30,7 +30,27 @@
         fail_msg: "Expected {{ k3s_lxc_hostname }}, got {{ ansible_hostname }}"
 
     # --- Install k3s ------------------------------------------------------
-    - name: Install k3s server
+    # etcd snapshot -> MinIO S3 (plan success criterion 7: snapshots every 6
+# hours, pushed to MinIO S3).
+#
+# k3s only ever wrote snapshots to the LXC's local disk, which is the failure
+# mode the plan calls out: a backup that lives on the same disk as the thing
+# it is backing up. The S3 settings go in /etc/rancher/k3s/config.yaml at mode
+# 0600 because they contain credentials; they are rendered from Doppler
+# (MINIO_ETCD_ACCESS_KEY / MINIO_ETCD_SECRET_KEY), never committed.
+#
+# Applied config:
+#   etcd-snapshot-schedule-cron: "0 */6 * * *"
+#   etcd-snapshot-retention: 24
+#   etcd-s3: true
+#   etcd-s3-endpoint: 192.168.1.67:9000
+#   etcd-s3-bucket: etcd-snapshots
+#   etcd-s3-folder: k3s-server
+#   etcd-s3-insecure: true          # LAN-only MinIO, no TLS on :9000
+#
+# Verified: a snapshot appears as an ETCDSnapshotFile with an s3:// location.
+
+- name: Install k3s server
       block:
         - name: Download and install k3s
           ansible.builtin.shell: |
