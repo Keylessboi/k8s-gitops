@@ -35,17 +35,21 @@ spec:
       annotations:
         # Server-side diff is on cluster-wide (argocd-cmd-params-cm) because it
         # stops API-server-defaulted fields reading as permanent drift. It
-        # breaks on the downloads Deployment though: ArgoCD cannot rebuild the
-        # predicted live object and reports "associative list with keys has an
-        # element that omits key field name" even though every container in the
-        # rendered manifest is named. That app then sits at sync status Unknown
-        # and deploys nothing at all, so it falls back to client-side diff.
+        # breaks on some Deployments though: ArgoCD cannot rebuild the predicted
+        # live object and reports "associative list with keys has an element
+        # that omits key field name" even though every container in the rendered
+        # manifest is named. The app then sits at sync status Unknown - it still
+        # deploys, but drift is no longer detected - so those fall back to
+        # client-side diff.
+        #
+        # vaultwarden joined downloads here after its mutating webhook started
+        # rewriting the container list the same way.
         #
         # Written as a quoted scalar, not a {{- if }} block: this file is a
         # CustomResource that kubectl must parse as YAML before ArgoCD ever
         # templates it, and a bare conditional makes it invalid. Every other app
         # renders an empty string here, which ArgoCD reads as no options.
-        argocd.argoproj.io/compare-options: '{{ if eq .path.basename "downloads" }}ServerSideDiff=false{{ end }}'
+        argocd.argoproj.io/compare-options: '{{ if has .path.basename (list "downloads" "vaultwarden") }}ServerSideDiff=false{{ end }}'
       finalizers:
         - resources-finalizer.argocd.argoproj.io
     spec:
