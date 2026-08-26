@@ -38,6 +38,7 @@ resources:
   - dashboard-homelab.yaml
   - smartctl-alerts.yaml
   - dashboard-disk-health.yaml
+  - dashboard-app-detail.yaml
 
 helmCharts:
   # Stack: Prometheus, Grafana, Alertmanager, node-exporter.
@@ -95,6 +96,17 @@ helmCharts:
       grafana:
         admin:
           existingSecret: grafana-admin
+        # Loki was deployed and Alloy was shipping every pod's logs into it, but
+        # Grafana had no Loki datasource - so none of it was reachable. The chart
+        # only provisions Prometheus and Alertmanager on its own.
+        additionalDataSources:
+          - name: Loki
+            type: loki
+            uid: loki
+            access: proxy
+            url: http://loki.monitoring.svc.cluster.local:3100
+            jsonData:
+              maxLines: 1000
         # grafana.ini reads these with $__file{}, which needs them on disk.
         extraSecretMounts:
           - name: smtp
