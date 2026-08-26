@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hermes
+  labels:
+    app.kubernetes.io/name: hermes
+    app.kubernetes.io/part-of: homelab
+    # `baseline`, not `restricted`. The official image runs s6-overlay as PID 1:
+    # it starts as root to run the cont-init.d hooks (chown of /opt/data, profile
+    # reconcile, dashboard toggle) and only then drops each supervised service to
+    # the unprivileged hermes user via s6-setuidgid. Enforcing `restricted` would
+    # block that init entirely.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

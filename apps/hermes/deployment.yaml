@@ -1,0 +1,91 @@
+---
+# Hermes Agent, the agent half of the Lidarr maintenance loop.
+#
+# The maintenance CronJob (apps/lidarr/maintenance-cronjob.yaml) does the
+# mechanical queue cleanup and deliberately refuses to judge borderline cases,
+# printing them as [AGENT_OVERSIGHT_NEEDED]. This is what looks at those.
+#
+# Everything - config, API keys, sessions, skills, memories, cron jobs - lives in
+# /opt/data on the volume. The image itself is stateless, so a version bump keeps
+# all of it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes
+  namespace: hermes
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate: /opt/data is a single agent state directory
+  # (sessions, cron job store, SQLite-backed memory). Two gateways writing it
+  # at once during a rollover is not something the agent expects.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hermes
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hermes
+    spec:
+      nodeSelector:
+        homelab/node-class: compute
+      securityContext:
+        # s6-overlay remaps its internal hermes user to these before dropping
+        # privileges. 1000:1000 matches the NFS export's anonuid/anongid, so
+        # files it creates on /opt/data stay owned correctly.
+        fsGroup: 1000
+      containers:
+        - name: hermes
+          image: nousresearch/hermes-agent:v2026.8.19
+          # `gateway run` is supervised by s6 inside the official image: the CMD
+          # process is a heartbeat and s6 restarts the real gateway if it dies.
+          # That is what makes it safe to deploy before any API key exists - the
+          # pod stays Running and `kubectl exec` works, rather than crash-looping
+          # out of reach of the setup wizard.
+          args: ["gateway", "run"]
+          env:
+            - name: HERMES_UID
+              value: "1000"
+            - name: HERMES_GID
+              value: "1000"
+            # Dashboard on, bound to container loopback. A non-loopback bind
+            # fails closed at startup unless an auth provider is configured -
+            # deliberately, after unauthenticated dashboards were used to plant
+            # backdoors in June 2026. Reach it with `kubectl port-forward`
+            # until it is put behind Authentik OIDC (see docs/RUNDOWN.md).
+            - name: HERMES_DASHBOARD
+              value: "1"
+            - name: HERMES_DASHBOARD_HOST
+              value: 127.0.0.1
+            - name: HERMES_DASHBOARD_PORT
+              value: "9119"
+            # So the agent can drive Lidarr without being told where it is.
+            - name: LIDARR_URL
+              value: http://lidarr.lidarr.svc.cluster.local:8686
+            - name: LIDARR_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-lidarr
+                  key: api-key
+                  optional: true
+          # Every provider key the setup wizard would otherwise prompt for.
+          # optional: true so the gateway still starts before the secret exists.
+          envFrom:
+            - secretRef:
+                name: hermes-llm
+                optional: true
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 3Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: hermes-data

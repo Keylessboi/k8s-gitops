@@ -1,0 +1,54 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: hermes
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  # Nothing reaches the agent. The dashboard binds container loopback and the
+  # OpenAI-compatible API server is off, so there is no port worth admitting.
+  ingress: []
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # Lidarr's API - the whole point of running this.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: lidarr
+    ports:
+    - port: 8686
+      protocol: TCP
+  # LLM providers, package registries and whatever the agent is asked to fetch.
+  # Private ranges are excluded so a prompt cannot turn the agent into a scanner
+  # of the home LAN.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 192.168.0.0/16
+        - 172.16.0.0/12
+    ports:
+    - protocol: TCP
+      port: 443
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 192.168.0.0/16
+        - 172.16.0.0/12
+    ports:
+    - protocol: TCP
+      port: 80
