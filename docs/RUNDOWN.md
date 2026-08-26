@@ -12,20 +12,27 @@ of them is rate limited (50 req/s sustained, 100 burst, per source address).
 | URL | What it is | Login |
 |---|---|---|
 | `authentik.sandstorm.chat` | SSO — the identity provider everything else defers to | `akadmin` |
-| `vaultwarden.sandstorm.chat` | Password manager | Vaultwarden account, "Log in with SSO" available |
-| `nextcloud.sandstorm.chat` | Files | Nextcloud account |
-| `immich.sandstorm.chat` | Photos | Immich account |
+| `vaultwarden.sandstorm.chat` | Password manager | Vaultwarden account, or the SSO button |
+| `nextcloud.sandstorm.chat` | Files | Nextcloud account, or "Log in with authentik" |
+| `immich.sandstorm.chat` | Photos | Immich account, or "Sign in with Authentik" |
 | `navidrome.sandstorm.chat` | Music streaming | Navidrome account |
-| `books.sandstorm.chat` | Calibre-Web Automated — read and manage the library | Authentik first, then CWA |
-| `lidarr.sandstorm.chat` | Music acquisition | Authentik first, then Lidarr |
-| `qui.sandstorm.chat` | Torrent management UI | Authentik first |
 | `kiwix.sandstorm.chat` | Offline Wikipedia and other archives | none |
 | `grafana.sandstorm.chat` | Dashboards and metrics | Grafana account |
+| `books.sandstorm.chat` | Calibre-Web Automated — read and manage the library | Authentik, then CWA |
+| `bookdl.sandstorm.chat` | Anna's Archive downloader — the non-P2P book path | Authentik |
+| `lidarr.sandstorm.chat` | Music acquisition | Authentik, then Lidarr |
+| `prowlarr.sandstorm.chat` | Indexer management | Authentik, then Prowlarr |
+| `qui.sandstorm.chat` | Torrent management | Authentik, then qui |
+| `argocd.sandstorm.chat` | GitOps control plane — **LAN and Tailscale only** | ArgoCD admin |
 
-Four of those — books, lidarr, qui, and anything else marked "Authentik first" —
-are behind forward-auth: Traefik asks Authentik whether you're signed in before
-the request ever reaches the application. That matters because Lidarr and qui
-are admin interfaces with weak or no built-in auth of their own.
+Everything above sits behind Authentik forward-auth except Authentik itself and
+the three that keep their own accounts (Vaultwarden, Nextcloud, Immich, which
+use Authentik as an SSO option instead).
+
+ArgoCD is the exception to public reachability: an IP allowlist runs ahead of
+everything else, so a request from the internet is refused with 403 before
+Authentik, CrowdSec or ArgoCD ever see it. It can deploy anything to the
+cluster, so it stays on the LAN and Tailscale only.
 
 ### A thing to watch after adding an Authentik provider
 
@@ -44,21 +51,20 @@ provider and a stray `ak-outpost-*` Ingress appears, that setting got reset.
 kubectl get ingress -A    # should be exactly the ten in the table above
 ```
 
-### Not published, deliberately
+### Not published
 
-Prowlarr, FlareSolverr, Readarr, the book downloader, Beets, Octo-Fiesta and
-qBittorrent's own WebUI have no Ingress. Neither does ArgoCD - it is the
-control plane for everything else, so it stays off the public internet. All of
-them are reachable over Tailscale or by port-forward:
+FlareSolverr, the bgutil POT provider, slskd's web UI and qBittorrent's own
+WebUI have no Ingress. Nothing is lost by that: slskd and qBittorrent are driven
+through Lidarr and qui, and the other two are called by other services rather
+than people. Reach them over Tailscale or by port-forward if needed:
 
 ```bash
-kubectl port-forward -n prowlarr svc/prowlarr 9696:9696
-kubectl port-forward -n music     svc/beets    8337:8337
-kubectl port-forward -n argocd   svc/argocd-server 8080:443
+kubectl port-forward -n downloads svc/slskd 5030:5030
+kubectl port-forward -n downloads svc/qbittorrent 8080:8080
 ```
 
-Nothing is lost by this — Prowlarr feeds Lidarr and Readarr over cluster DNS,
-and qBittorrent is driven through qui.
+qBittorrent's WebUI deliberately stays unpublished — it is an admin interface
+for a client running untrusted peer traffic.
 
 ## Adding a person
 
@@ -70,7 +76,12 @@ the application keeps its own user record, created on first login.
 
 ## AirVPN and the torrent stack
 
-**This is the one thing left to do, and it takes about a minute.**
+**Done.** Kept as reference for when a port or key changes.
+
+AirVPN forwards **6877** for qBittorrent and **6874** for slskd. Those numbers
+have to agree in three places or inbound peers silently never arrive: the
+AirVPN reservation, gluetun's `FIREWALL_VPN_INPUT_PORTS`, and each client's own
+listen port.
 
 qBittorrent shares a pod with gluetun, so the two run in one network namespace
 and qBittorrent has no route to the internet except the VPN tunnel. If the
@@ -140,19 +151,43 @@ Two independent acquisition paths, on purpose:
 
 Read at `books.sandstorm.chat`.
 
+## Storage layout
+
+Everything media-related lives under one NFS directory mounted at `/data`:
+
+```
+/data/
+├── media/music        ← Lidarr's root folder; Navidrome serves it; slskd shares it
+├── media/books
+├── ingest/books       ← Readarr imports here; CWA processes and files it
+├── torrents/{music,books,soulseek,youtube,dab,lucida}
+└── cookies/           ← youtube.txt goes here if you ever add it
+```
+
+One mount, deliberately. Hardlinks cannot cross filesystems, so with separate
+volumes every import becomes copy-then-delete: double the disk, slow imports,
+and the torrent unseedable afterwards because the file it was seeding is gone.
+Verified by hardlinking a file from `torrents/music` into `media/music`.
+
+These paths match the ones already inside the restored Lidarr database, so the
+restore needed no remapping.
+
 ## Music
 
-The chain is: Lidarr acquires → Beets tags and organises → Navidrome serves.
+Lidarr acquires → Beets tags → Navidrome serves, all against
+`/data/media/music`.
 
-Beets and Navidrome mount the *same* NFS directory, through a static PV pinned
-to Navidrome's library path, so a file Beets tags appears in Navidrome without
-copying. Octo-Fiesta sits alongside for Deezer-sourced material.
+Download clients on Lidarr: qBittorrent (torrents), slskd (Soulseek), and
+Tubifarry's YouTube, Lucida and DABmusic. YouTube also uses a `bgutil` POT
+provider in the lidarr namespace — without it YouTube either refuses or serves
+only low-quality audio. Cookies are the other half of that recommendation and
+must come from a logged-in browser session.
 
-One caveat worth knowing: that static PV is pinned to
-`pvc-9ea2b827-163b-4545-9224-cc13c2594ad9`. If `navidrome-music` is ever
-deleted and recreated it gets a new UUID and
-`apps/music/music-library-pv.yaml` must be updated to match, or Beets will
-silently tag into a directory nothing reads.
+slskd shares `/data/media/music`, so Soulseek uploads come from the tagged
+library rather than the download directory.
+
+DABmusic currently fails its connection test because dabmusic.xyz is down
+(HTTP 522 from outside the network entirely), not because of anything here.
 
 ## Backups
 
