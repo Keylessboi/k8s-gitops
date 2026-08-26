@@ -16,21 +16,26 @@ Status as of 2026-08-26. Everything not listed here is done and verified.
 - [x] **`docs/RUNDOWN.md` brought up to date** with the `/data` layout, slskd,
       bgutil, the new hostnames and ArgoCD being LAN-only.
 
-## Mine — queued
+## Mine — in order
 
-- [ ] **Configure the SquidWTF (Qobuz proxy) indexer + download client.** Plugin
-      is installed and loaded; registers as `Qobuz`. Needs its settings filled in.
-- [ ] **Re-read the phase 1 and phase 2 plans and verify against the running
-      cluster**, rather than against my own summary of them.
-- [ ] **Metadata enhancers for Lidarr.** Beets is deployed but is not wired into
-      Lidarr's post-import path; decide whether Beets is the enhancer or whether
-      Lidarr's own metadata/custom scripts should do it.
-- [ ] **Lidarr maintenance script (Hermes agent).** Owner has an existing script
-      that drives a Hermes agent. Needs: a Hermes agent container built and
-      deployed via GitOps, then connected to Lidarr. **Blocked: I need the
-      script and the Hermes agent image/source.**
-- [ ] **Consider moving Lidarr to `develop`.** Plugins have landed there and are
-      being merged toward main; currently pinned to `hotio/lidarr:pr-plugins`.
+Closing the verified plan gaps from `docs/PLAN-GAPS.md`, largest first.
+
+- [ ] **1. S3 primary storage.** The plan calls for MinIO S3 primary with NFS
+      fallback for media streaming only; today that is inverted. Nextcloud and
+      Immich both speak S3 natively - no gateway needed, which is what sank
+      JuiceFS. Start with Nextcloud (`objectstore` is unset), then Immich.
+- [ ] **2. Navidrome SQLite -> PostgreSQL** via pgloader, per the plan.
+- [ ] **3. smartctl_exporter** so a failing disk is visible.
+- [ ] **4. ArgoCD Image Updater** so image bumps are not manual.
+- [ ] **5. Per-app Grafana dashboards** - currently only the stack's generic set
+      plus one overview.
+- [ ] **6. Drop the leftover `juicefs` database and role** from CNPG.
+- [ ] **7. SquidWTF (Qobuz proxy) client + indexer** - plugin installed, needs
+      configuring.
+- [ ] **8. Hermes agent for the Lidarr maintenance script** - blocked on the
+      repo URL.
+- [ ] **9. Vaultwarden push notifications** - optional; needs a free install id
+      and key from bitwarden.com/host for mobile push.
 
 ## Yours
 
