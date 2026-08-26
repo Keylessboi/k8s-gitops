@@ -1,0 +1,32 @@
+---
+# Controller command-line parameters.
+#
+# Distinct from argocd-cm: anything named `controller.*`, `server.*` or
+# `reposerver.*` is a component *flag* and belongs here. Putting
+# controller.diff.server.side in argocd-cm has no effect whatsoever - the
+# controller never reads it there, and it logs `serverSideDiff=false` while
+# looking correctly configured.
+#
+# What it does: diff against what the API server would actually do, rather than
+# comparing rendered YAML to the live object client-side. Without it every
+# field the API server defaults reads as drift that no sync can resolve - a
+# StatefulSet's volumeClaimTemplates, a Job's generated selector, a CNPG
+# Cluster's defaulted spec. `databases` and `redis` sat permanently OutOfSync
+# for exactly this reason while `kubectl diff` of the same manifests showed
+# nothing at all.
+#
+# ServerSideApply=true in the ApplicationSet governs how manifests are written.
+# This governs how they are compared. Both are needed. Requires ArgoCD >= 2.10.
+#
+# Applied by hand via scripts/bootstrap-argocd.sh; read only at controller
+# startup, so it needs a rollout to take effect.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cmd-params-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  controller.diff.server.side: "true"

@@ -17,6 +17,7 @@ cd "$(dirname "$0")/.."
 
 kubectl apply -f apps/argocd/app-project.yaml
 kubectl apply -f apps/argocd/argocd-cm.yaml
+kubectl apply -f apps/argocd/argocd-cmd-params-cm.yaml
 kubectl apply -f apps/argocd/root-applicationset.yaml
 
 # argocd-cm is read at startup by the components that consume it:
