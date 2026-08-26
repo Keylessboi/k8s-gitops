@@ -2,15 +2,19 @@
 
 Status as of 2026-08-26. Everything not listed here is done and verified.
 
-## Mine — in progress
+## Mine — done
 
-- [ ] **Readarr has no download client.** Confirmed: `downloadclient` returns 0.
-      Books can be searched but nothing can actually be fetched over the P2P
-      path until qBittorrent is added.
-- [ ] **qui is not pointed at qBittorrent.** It is published and behind
-      Authentik, but holds no instance, so it shows nothing.
-- [ ] **`docs/RUNDOWN.md` is stale.** It predates the `/data` layout, slskd,
-      bgutil, the bookdl and Prowlarr hostnames, and ArgoCD being LAN-only.
+- [x] **Readarr download client.** qBittorrent added and tests valid, category
+      `books` so downloads land in `/data/torrents/books` rather than the root.
+      Its category field is confusingly named `musicCategory` - a leftover from
+      the Lidarr fork - and defaulted to a category qBittorrent did not have.
+- [x] **qui pointed at qBittorrent.** Account created (password in Doppler as
+      `QUI_PASSWORD`), instance added, reports `connected: true`. It also shows
+      `connectionStatus: firewalled`, which is qBittorrent saying it has not yet
+      *observed* an incoming connection - expected with no active torrents,
+      worth re-checking once something is downloading.
+- [x] **`docs/RUNDOWN.md` brought up to date** with the `/data` layout, slskd,
+      bgutil, the new hostnames and ArgoCD being LAN-only.
 
 ## Yours
 
