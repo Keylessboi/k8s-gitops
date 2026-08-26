@@ -27,6 +27,23 @@ are behind forward-auth: Traefik asks Authentik whether you're signed in before
 the request ever reaches the application. That matters because Lidarr and qui
 are admin interfaces with weak or no built-in auth of their own.
 
+### A thing to watch after adding an Authentik provider
+
+Authentik's embedded outpost has a Kubernetes integration that creates its
+*own* Ingress for every proxy provider with an external host. Left on, it
+published `prowlarr.sandstorm.chat` — which has no Ingress in this repo and was
+never meant to be public — and claimed `books`, `qui` and `lidarr` on a second
+router with none of the CrowdSec or rate-limit middlewares attached.
+
+It is now disabled (`kubernetes_disabled_components: ["ingress"]` on the
+embedded outpost). Forward-auth doesn't need it: Traefik calls the outpost
+through the middleware, not through an Ingress. If you ever add a proxy
+provider and a stray `ak-outpost-*` Ingress appears, that setting got reset.
+
+```bash
+kubectl get ingress -A    # should be exactly the ten in the table above
+```
+
 ### Not published, deliberately
 
 Prowlarr, FlareSolverr, Readarr, the book downloader, Beets, Octo-Fiesta and
