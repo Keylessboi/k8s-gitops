@@ -29,6 +29,15 @@ spec:
     ports:
     - protocol: TCP
       port: 8686
+  # Prowlarr pushes indexer definitions to Lidarr and tests the
+  # connection first.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: prowlarr
+    ports:
+    - port: 8686
+      protocol: TCP
   egress:
   # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
   # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so

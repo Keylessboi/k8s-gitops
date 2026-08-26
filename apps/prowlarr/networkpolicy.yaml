@@ -41,6 +41,21 @@ spec:
     - protocol: TCP
       port: 9696
   egress:
+  # Out to the applications Prowlarr syncs indexers into.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: books
+    ports:
+    - port: 8787
+      protocol: TCP
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: lidarr
+    ports:
+    - port: 8686
+      protocol: TCP
   # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
   # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so
   # the old rule was a no-op. Every NetworkPolicy in this repo was missing real

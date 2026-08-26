@@ -25,6 +25,15 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: books
+    # Prowlarr pushes indexer definitions to Readarr and tests the
+    # connection first; without this the application registration fails
+    # with "cannot connect to Readarr (Connection refused)".
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: prowlarr
+      ports:
+        - {port: 8787, protocol: TCP}
   egress:
     - to:
         - ipBlock:
