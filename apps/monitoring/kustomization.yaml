@@ -73,6 +73,12 @@ helmCharts:
       grafana:
         admin:
           existingSecret: grafana-admin
+        # grafana.ini reads these with $__file{}, which needs them on disk.
+        extraSecretMounts:
+          - name: smtp
+            secretName: smtp
+            mountPath: /etc/secrets/smtp
+            readOnly: true
         initChownData:
           enabled: false
         nodeSelector:
@@ -100,6 +106,17 @@ helmCharts:
           server:
             domain: grafana.sandstorm.chat
             root_url: https://grafana.sandstorm.chat
+          # SMTP, so alerts can actually leave the cluster. Backups and
+          # certificate renewals run unattended; without this, a failure is only
+          # visible to someone who happens to look at Grafana.
+          smtp:
+            enabled: true
+            host: $__file{/etc/secrets/smtp/host}:587
+            user: $__file{/etc/secrets/smtp/username}
+            password: $__file{/etc/secrets/smtp/password}
+            from_address: $__file{/etc/secrets/smtp/from}
+            from_name: Grafana
+            startTLS_policy: MandatoryStartTLS
           auth.generic_oauth:
             enabled: true
             name: Authentik

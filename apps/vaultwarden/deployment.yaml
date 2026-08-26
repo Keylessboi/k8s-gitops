@@ -65,6 +65,27 @@ spec:
               value: https://vaultwarden.sandstorm.chat
             # Public signups are closed: this vault is reachable from the
             # internet and anyone could otherwise create an account.
+            # SMTP, so invites and verification mails actually send.
+            - name: SMTP_HOST
+              valueFrom:
+                secretKeyRef: {name: smtp, key: host}
+            - name: SMTP_PORT
+              valueFrom:
+                secretKeyRef: {name: smtp, key: port}
+            - name: SMTP_USERNAME
+              valueFrom:
+                secretKeyRef: {name: smtp, key: username}
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: smtp, key: password}
+            - name: SMTP_FROM
+              valueFrom:
+                secretKeyRef: {name: smtp, key: from}
+            - name: SMTP_FROM_NAME
+              value: Vaultwarden
+            # starttls on 587; "force_tls" would be port 465.
+            - name: SMTP_SECURITY
+              value: starttls
             - name: SIGNUPS_ALLOWED
               value: "false"
             # /admin is disabled outright rather than left on a token. It is

@@ -67,6 +67,31 @@ helmCharts:
               secretKeyRef:
                 name: redis-auth
                 key: redis-password
+          # SMTP. Without it Authentik cannot send password resets or account
+          # notifications, so a locked-out user has no self-service route back.
+          - name: AUTHENTIK_EMAIL__HOST
+            valueFrom:
+              secretKeyRef: {name: smtp, key: host}
+          - name: AUTHENTIK_EMAIL__PORT
+            valueFrom:
+              secretKeyRef: {name: smtp, key: port}
+          - name: AUTHENTIK_EMAIL__USERNAME
+            valueFrom:
+              secretKeyRef: {name: smtp, key: username}
+          - name: AUTHENTIK_EMAIL__PASSWORD
+            valueFrom:
+              secretKeyRef: {name: smtp, key: password}
+          - name: AUTHENTIK_EMAIL__FROM
+            valueFrom:
+              secretKeyRef: {name: smtp, key: from}
+          # Gmail on 587 is STARTTLS, not implicit TLS. Setting USE_SSL here
+          # instead makes the connection hang rather than fail cleanly.
+          - name: AUTHENTIK_EMAIL__USE_TLS
+            value: "true"
+          - name: AUTHENTIK_EMAIL__USE_SSL
+            value: "false"
+          - name: AUTHENTIK_EMAIL__TIMEOUT
+            value: "30"
           # Creates the akadmin account and an API token on first start, so
           # the initial-setup flow never has to be completed by hand and the
           # OIDC providers below can be created through the API. These are
