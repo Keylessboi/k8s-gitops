@@ -25,7 +25,12 @@ spec:
         - name: pangolin
           image: fosrl/pangolin:1.19.2
           ports:
-            - name: http
+            # 3000 dashboard API, 3001 internal API, 3002 web UI.
+            - name: web
+              containerPort: 3002
+            - name: api
+              containerPort: 3000
+            - name: internal
               containerPort: 3001
           env:
             # Signs sessions. Kept out of the ConfigMap and out of git; the
