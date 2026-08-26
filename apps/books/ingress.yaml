@@ -1,0 +1,33 @@
+---
+# Only the library UI is published, and behind Authentik.
+#
+# The book downloader and Readarr are NOT published: both are admin tooling
+# with no meaningful auth of their own, and Lidarr already demonstrated what
+# happens when that kind of app is put on the internet bare. Reach them over
+# the LAN or via port-forward.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: books
+  namespace: books
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - books.sandstorm.chat
+      secretName: books-tls
+  rules:
+    - host: books.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: calibre-web-automated
+                port:
+                  number: 8083

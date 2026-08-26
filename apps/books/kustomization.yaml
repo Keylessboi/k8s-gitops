@@ -1,0 +1,37 @@
+---
+# Book stack with TWO acquisition paths that converge on one library:
+#
+#   non-P2P: book-downloader -> Anna's Archive over HTTP -> ingest volume
+#   P2P:     readarr -> prowlarr indexers -> qBittorrent (behind gluetun)
+#            -> ingest volume
+#
+# Calibre-Web-Automated watches that shared ingest volume, converts formats as
+# needed, files everything into the Calibre library, and serves it (web + OPDS
+# + send-to-Kindle).
+#
+# The non-P2P path has no VPN dependency, so it keeps working when the tunnel
+# is down.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: books
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+
+namespace: books
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/component: books
+      homelab/tier: apps
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - pvc.yaml
+  - networkpolicy.yaml
+  - calibre-web-automated.yaml
+  - book-downloader.yaml
+  - readarr.yaml
+  - ingress.yaml

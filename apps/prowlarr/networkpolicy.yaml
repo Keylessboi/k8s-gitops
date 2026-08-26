@@ -8,6 +8,17 @@ spec:
   - Ingress
   - Egress
   ingress:
+  # Readarr (books) and Lidarr query Prowlarr for indexers.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: books
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: lidarr
+    ports:
+    - port: 9696
+      protocol: TCP
   # cert-manager creates HTTP-01 solver pods in this namespace on demand and
   # Traefik must reach them on 8089. Without this the ACME challenge 502s and
   # no certificate is ever issued for this host.

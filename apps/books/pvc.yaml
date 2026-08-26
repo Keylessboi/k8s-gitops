@@ -1,0 +1,53 @@
+---
+# The Calibre library itself: the books, plus Calibre's metadata.db.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: calibre-library
+  namespace: books
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: juicefs
+  resources:
+    requests:
+      storage: 100Gi
+---
+# Calibre-Web-Automated's own settings and app database.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cwa-config
+  namespace: books
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: juicefs
+  resources:
+    requests:
+      storage: 5Gi
+---
+# Drop zone. Anything landing here - from the Anna's Archive downloader or
+# from Readarr - is picked up by CWA, converted if needed, and filed into the
+# library automatically.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: book-ingest
+  namespace: books
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: juicefs
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: readarr-config
+  namespace: books
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: juicefs
+  resources:
+    requests:
+      storage: 5Gi

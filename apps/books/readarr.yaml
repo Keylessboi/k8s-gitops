@@ -1,0 +1,84 @@
+---
+# The P2P acquisition path: Readarr driving Prowlarr indexers and the
+# qBittorrent instance that sits behind gluetun.
+#
+# CAVEAT, stated plainly: upstream archived Readarr in 2025 and linuxserver's
+# builds stop at 2025-06-27. This is pinned to that last build rather than to
+# `nightly`, so it cannot silently change. It works, but it receives no fixes.
+# The community forks (Librarr, janholtzhausen/readarr) are early and publish
+# no reliable images yet; swap the tag here if one matures.
+#
+# The non-P2P path (book-downloader -> Anna's Archive) is unaffected by any of
+# this and needs no VPN.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: readarr
+  namespace: books
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: readarr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: readarr
+    spec:
+      containers:
+        - name: readarr
+          image: lscr.io/linuxserver/readarr:0.4.19-nightly
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: UMASK
+              value: "002"
+            - name: TZ
+              value: UTC
+          ports:
+            - name: http
+              containerPort: 8787
+          resources:
+            requests:
+              cpu: 25m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            # Readarr files completed books into the same ingest volume CWA
+            # watches, so both acquisition paths converge on one library.
+            - name: ingest
+              mountPath: /cwa-book-ingest
+            - name: library
+              mountPath: /calibre-library
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: readarr-config
+        - name: ingest
+          persistentVolumeClaim:
+            claimName: book-ingest
+        - name: library
+          persistentVolumeClaim:
+            claimName: calibre-library
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: readarr
+  namespace: books
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: readarr
+  ports:
+    - name: http
+      port: 8787
+      targetPort: http

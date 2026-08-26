@@ -1,0 +1,81 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: books
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Traefik, plus the ACME solver port.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 8083, protocol: TCP}
+        - {port: 8084, protocol: TCP}
+        - {port: 8787, protocol: TCP}
+        - {port: 8089, protocol: TCP}
+    # These three talk to each other.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: books
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
+        - {port: 443, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: books
+    # Readarr -> Prowlarr indexers, and -> qBittorrent behind gluetun.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: prowlarr
+      ports:
+        - {port: 9696, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: downloads
+      ports:
+        - {port: 8080, protocol: TCP}
+    # Cloudflare challenge solving for Anna's Archive.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: flaresolverr
+      ports:
+        - {port: 8191, protocol: TCP}
+    # MinIO, for the JuiceFS-backed volumes.
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.67/32
+      ports:
+        - {port: 9000, protocol: TCP}
+    # Outbound to book sources and metadata providers.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 192.168.0.0/16
+              - 172.16.0.0/12
+      ports:
+        - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 80}
