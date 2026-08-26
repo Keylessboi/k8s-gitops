@@ -73,6 +73,27 @@ helmCharts:
                     secretKeyRef:
                       name: redis-auth
                       key: redis-password
+                # OIDC settings as a declared file rather than clicks in the
+                # admin UI. Immich exposes no env vars for OAuth, so without
+                # this the login page shows no SSO button no matter what
+                # Authentik has configured on its side.
+                IMMICH_CONFIG_FILE: /config/immich.json
+      # bjw-s persistence, NOT immich.persistence - that key is a chart-specific
+      # shim for the library volume only, and anything else placed under it is
+      # silently dropped (the mount simply never appears in the Deployment).
+      #
+      # globalMounts puts the file in every container of the controller, which
+      # is what we want: IMMICH_CONFIG_FILE is set on both containers, so both
+      # need the path to exist.
+      persistence:
+        config:
+          enabled: true
+          type: secret
+          name: immich-config
+          globalMounts:
+            - path: /config
+              readOnly: true
+
       postgres:
         enabled: false
       # No `redis:` key here — the chart removed that subchart in 0.10.0 and
