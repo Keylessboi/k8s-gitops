@@ -92,8 +92,29 @@ Closing the verified plan gaps from `docs/PLAN-GAPS.md`, largest first.
       the database behind and merely stopped tracking it. Set to `delete` first,
       then removed. The role is `ensure: absent` for the same reason - CNPG only
       drops a role it is still told about.
-- [ ] **7. SquidWTF (Qobuz proxy) client + indexer** - plugin installed, needs
-      configuring.
+- [ ] **7. SquidWTF (Qobuz) — BLOCKED UPSTREAM, needs a decision from you.**
+      The plugin is installed and loaded in Lidarr (v1.0.0.8) and exposes a
+      `Qobuz` indexer and download client. It cannot be pointed anywhere:
+
+      - It needs a "SquidWTF Qobuz API URL". The service that used to answer
+        that is gone - `qobuz.squid.wtf` is NXDOMAIN, and squid.wtf's own
+        landing page now lists only debrid, gog, khinsider, logs, saavn and
+        spec. No Qobuz.
+      - Self-hosting the chain is possible in principle. It is three parts:
+        the `QobuzDL/Qobuz-DL` web frontend, the author's companion
+        `trembon/SquidWTF.Qobuz.DownloadAPI` (which drives that frontend with
+        headless Playwright), and then the Lidarr plugin. Both have published
+        ghcr images.
+      - But Qobuz-DL needs `QOBUZ_APP_ID`, `QOBUZ_SECRET` and a
+        `QOBUZ_AUTH_TOKENS` value taken from **a paying Qobuz account** -
+        without a token it is capped at 30-second previews. Only you can supply
+        that.
+      - Fair warning even if you have one: the DownloadAPI drives the frontend
+        by filling a `#search` element, and current Qobuz-DL does not render
+        that id, so the scraper would likely need patching too.
+
+      Tell me if you have a Qobuz subscription and I will build the whole chain
+      over GitOps. Otherwise this one is not reachable from here.
 - [x] **8. Lidarr maintenance script — RUNNING; the Hermes half is blocked.**
       Your `lidarr-maintenance-script` runs nightly at 02:00 as a CronJob and is
       verified end to end against Lidarr (all four phases). It is pure standard
@@ -115,7 +136,33 @@ Closing the verified plan gaps from `docs/PLAN-GAPS.md`, largest first.
 - [ ] **9. Vaultwarden push notifications** - optional; needs a free install id
       and key from bitwarden.com/host for mobile push.
 
+## Fixed along the way
+
+- **Slskd indexer and download client in Lidarr were both dead.** The indexer
+  pointed at `http://gluetun:50393`, which does not resolve, and both it and the
+  `Slskd2` download client still held the slskd API key from before I rotated it
+  - so both failed authentication. Repointed at
+  `slskd.downloads.svc.cluster.local:5030` and re-keyed from slskd's running
+  config; Lidarr validates on save, and both saved clean.
+
 ## Yours
+
+- [ ] **15 dead indexers in Lidarr, left over from the backup restore.** They
+      are named `... (Prowlarr)` and point at `http://prowlarr:9696/...` - a
+      bare hostname, which cannot resolve from the lidarr namespace. Verified:
+      that URL returns nothing from inside the Lidarr pod, while
+      `prowlarr.prowlarr.svc.cluster.local:9696` returns 302.
+
+      I did not delete them, because this is your area - you said you would set
+      the Prowlarr trackers. Prowlarr will not repair them either: it currently
+      has **zero** indexers configured, so it does not own these and a forced
+      `ApplicationIndexerSync` leaves them alone.
+
+      The fix is just to add your indexers in Prowlarr. Its Lidarr application
+      is already correct (`prowlarrUrl = http://prowlarr.prowlarr.svc.cluster.local:9696`),
+      so anything you add gets pushed to Lidarr with a working URL. Then delete
+      the 15 stale ones, or say the word and I will. Until then every Lidarr
+      search spends time failing against them.
 
 - [x] **RESOLVED: IP conflict on 192.168.1.240.** This was the cause of services
       appearing to drop at random, and it was never the cluster.
