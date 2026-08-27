@@ -219,10 +219,22 @@ Ingress — stop and check `apps/books/opds-ingress.yaml` is still applied.
 
 ### First: the Calibre plugin is the WRONG tool **(verified)**
 
-In the same **Search (magnifier)** tab, directly above *OPDS catalog*, sits
-**Find book in calibre catalog**. It is one line away and it is the wrong
-feature. Its menu reads *Manage libraries* / *Rescan disk for calibre
-libraries* / *No calibre libraries* — the giveaway is the word **disk**.
+The Calibre plugin shows up in **two** places, and neither is what you want.
+**(verified against the `v2025.10` tag, not just master.)**
+
+- **Tools (wrench) tab → Calibre** — second entry in the list. This is the one
+  with *Search settings → Manage libraries → Rescan disk for calibre
+  libraries*, and *Wireless settings*. **This is the screen that traps people.**
+- **Search (magnifier) tab → Calibre metadata search** — a few lines above
+  *OPDS catalog*.
+
+> **Label correction:** the second one is called **"Calibre metadata search"**
+> on screen. `find_book_in_calibre_catalog` is only its internal menu id — it is
+> never displayed. Don't go looking for those words. It also only appears at
+> all when the calibre plugin is enabled, so it may be absent entirely; that is
+> harmless and changes nothing below.
+
+The giveaway on the trapping screen is the word **disk**.
 
 KOReader's `calibre.koplugin` does exactly two things **(verified in
 `plugins/calibre.koplugin/main.lua`)**:
@@ -267,7 +279,11 @@ is what produced the well-known "tlsv1 protocol error" reports against CWA
 (koreader/koreader#14962 — closed, it was a reverse-proxy/URL mistake, not a
 KOReader TLS bug).
 
-### Menu path **(verified against KOReader master)**
+### Menu path **(verified against the `v2025.10` release tag)**
+
+Everything below — the ☰ icon, the four field names, the *Sync catalog*
+checkbox and the whole ☰ sync menu — is byte-for-byte identical between
+`v2025.10` and current master, so this section holds on either.
 
 1. Launch KOReader. Stay in the **file manager** — the OPDS entry only exists
    when no book is open.
@@ -340,7 +356,11 @@ up in the feed.
 
 KOReader's sync walks the feed assuming **entry #1 is the newest book** and
 stops when it reaches the `last_download` href it recorded last time
-**(verified in `getSyncDownloadList`/`fillPendingSyncs`)**. The `/opds` root is
+**(verified in `getSyncDownloadList`/`fillPendingSyncs`, identical at
+`v2025.10`)**. On `v2025.10` this is slightly worse than silent: that version
+calls `util.stringEndsWith(sub_table[count].url, ".opds")` with **no nil-guard**
+on `url` (master added one), so a nav entry without a link can throw rather than
+skip. The `/opds` root is
 a *navigation* feed — Hot Books, New Books, Authors, Series — and those entries
 carry **no acquisition links at all**. Sync walks the whole list, finds nothing
 downloadable, and returns an empty set. No error, no message. It just does
@@ -394,7 +414,7 @@ missed something.
 
 Worth knowing before you build a habit around it: KOReader's OPDS plugin
 registers exactly **one** Dispatcher action, `opds_show_catalog`
-**(verified in `plugins/opds.koplugin/main.lua`)**. There is no sync action, so
+**(verified in `plugins/opds.koplugin/main.lua` at `v2025.10` and master)**. There is no sync action, so
 you cannot bind sync to a gesture, and nothing runs it on boot, on wake, or on
 a schedule. The nightly tap is the workflow.
 
@@ -702,7 +722,8 @@ a different OPDS client that *does* fetch it.
 |---|---|---|
 | KOReader: *"Authentication required for catalog"* | 401 — blank or wrong credentials | Re-enter username/password on the catalog (☰ → long-press catalog → **Edit**). Verify from a laptop with the `curl -u` command in §2 first. |
 | Feed loads, but tapping a book gives an error / 401 | The `kindle` user is missing **Allow Downloads** | Admin → Users → `kindle` → tick **Allow Downloads**. `/opds/download/...` calls `role_download()` explicitly. Everything else in the feed works without it, which makes this failure look mysterious. |
-| Calibre plugin says *"No calibre libraries"* no matter how often you rescan | Wrong plugin — it scans the device disk, and talks to a running Calibre GUI over LAN. It cannot reach CWA. | Back out, use **Search tab → OPDS catalog** (the entry *below* it). §3. |
+| Calibre plugin says *"No calibre libraries"* no matter how often you rescan | Wrong plugin — it scans the device disk, and talks to a running Calibre GUI over LAN. It cannot reach CWA. | Back out to the file manager, then **Search (magnifier) tab → OPDS catalog** (last entry). §3. |
+| Cannot find *"Find book in calibre catalog"* in the menu | That string is an internal menu id, never shown. The on-screen label is **"Calibre metadata search"** — and it is absent entirely if the calibre plugin is disabled | Ignore it; it is not needed. Go straight to **OPDS catalog**. |
 | **"Sync all catalogs" appears to work but downloads nothing, silently** | The synced catalog points at `/opds` — a navigation feed with no acquisition links | Point the sync catalog at `https://books.sandstorm.chat/opds/new`. §3. |
 | Sync errors 404 | The account lost **Show Recent Books** visibility; `feed_new()` aborts 404 without it | Admin → Users → re-tick **Show Recent Books**. |
 | *"Please choose a folder for sync downloads first"* | No sync folder set | OPDS screen → ☰ → **Set sync folder** → `/mnt/us/koreader-books`. |
