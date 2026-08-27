@@ -27,7 +27,17 @@ spec:
           # tracks master, where /api/v1/plugin returns 404 and there is no way
           # to install a plugin at all. linuxserver publishes no plugins tag,
           # so this uses hotio's plugins-branch build.
-          image: ghcr.io/hotio/lidarr:pr-plugins
+          # hotio's `testing` stream is Lidarr's develop branch. Plugin
+          # support now lives there (src/NzbDrone.Core/Plugins), and the old
+          # `plugins` branch has been abandoned - its last commit is
+          # 2026-01-18 against develop's 2026-08-23, so staying on it meant
+          # forgoing seven months of fixes.
+          #
+          # This is an upgrade, not a sideways move: develop builds 3.1.4 and
+          # the plugins branch built 3.1.2, same major line, so the schema
+          # migrations run forward cleanly. Pinned rather than floating on
+          # `testing`, like every other image here.
+          image: ghcr.io/hotio/lidarr:testing-3.1.3.4987
           env:
             - name: PUID
               value: "1000"
