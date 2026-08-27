@@ -7,12 +7,9 @@ metadata:
   name: lidarr
   namespace: lidarr
 spec:
-  # TEMPORARILY 0. A one-off maintenance Job is deleting ~150k dead trackFile
-  # rows straight out of SQLite, and it must be the only writer. Doing this
-  # through Lidarr's API was not viable: every delete round-trips through its
-  # ORM against a single-writer database, four workers managed ~16k rows/hour,
-  # and twelve were SLOWER because they merely contended on the write lock.
-  # Set back to 1 as soon as the Job reports done.
+  # Stays 1, permanently. /config/lidarr.db is SQLite and single-writer, so a
+  # second replica would not share the load, it would contend on the write
+  # lock. The one-off trackFile purge that briefly took this to 0 has finished.
   replicas: 1
   strategy:
     type: Recreate
@@ -55,15 +52,37 @@ spec:
           ports:
             - name: http
               containerPort: 8686
-          # Raised from 500m/512Mi after repeated OOMKills. 512Mi was set when
-          # this was an empty Lidarr; the restored library is 498 artists and it
-          # now loads five Tubifarry providers on top. A release search across
-          # every indexer reliably killed the container mid-request, which reads
-          # as a search that mysteriously returns nothing.
+          # Sized for the 31k-album mass search, from measurement rather than
+          # guesswork. Limits are deliberately UNCHANGED - they are already
+          # right:
+          #
+          #   cpu: "2"    - at 500m this container was throttled on 46-76% of
+          #                 CFS periods. At 2 cores it throttles on 0.0%, with
+          #                 a measured 24h peak of 1.16 cores. Raising it
+          #                 further would buy nothing and this node is at 299%
+          #                 CPU-limit overcommit already.
+          #   memory: 2Gi - a live AlbumSearch across 15 active indexers holds
+          #                 a flat ~320Mi working set; the worst spike seen
+          #                 across every pod incarnation in 24h was 1508Mi
+          #                 (74% of this limit). Do not raise it: the node only
+          #                 has 13824Mi allocatable against 256% memory-limit
+          #                 overcommit, and .NET's GC expands to fill whatever
+          #                 ceiling it is given, so a bigger limit means more
+          #                 uncollected garbage and more node pressure, not a
+          #                 safer Lidarr.
+          #
+          # The requests are what actually needed fixing for a multi-day run.
+          # They were 50m/512Mi, which is what the scheduler reserves and what
+          # the kubelet ranks evictions by (usage above request). Mid-search
+          # eviction would kill a multi-day job and drop a 3.6 GB SQLite file
+          # mid-write, so buy headroom over the observed peaks. There is room:
+          # node CPU requests sit at 19% and memory requests at 59%, so this
+          # takes nothing from qBittorrent, beets or FlareSolverr, which keep
+          # their own reservations.
           resources:
             requests:
-              cpu: 50m
-              memory: 512Mi
+              cpu: 500m
+              memory: 768Mi
             limits:
               cpu: "2"
               memory: 2Gi
