@@ -1,0 +1,100 @@
+---
+# The thing that actually imports.
+#
+# The LSIO image's only service is `beet web` - nothing in it ever runs
+# `beet import`. Without this CronJob the library stays empty no matter how
+# well beets is configured, which is what it was doing.
+#
+# It runs as its own pod rather than inside the Deployment on purpose: a
+# separate pod picks up ConfigMap changes on every run, cannot take the web
+# UI down with it, and is visible as a Job with logs instead of a background
+# process someone has to remember to check. Both processes touch the same
+# SQLite library on NFS, which is why `timeout` is 60s in the config - the
+# web plugin defaults to readonly, so this is one writer plus one reader.
+#
+# The pod deliberately overrides `command`, which bypasses the s6 init
+# entirely. That means PUID/PGID are not honoured, so the uid/gid are set
+# directly instead, and BEETSDIR/HOME are set because there is no s6 stage to
+# do it. Verified on this cluster: uid 1000, all 14 plugins load, the mounted
+# config is the effective config, and /config stays writable for
+# state.pickle.
+#
+# `incremental: yes` means a run is resumable: finished directories are
+# recorded in /config/state.pickle on the PVC, so a killed pod, an evicted
+# node or the next scheduled run all pick up where this one stopped rather
+# than starting over.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: beets-import
+  namespace: music
+spec:
+  # Every six hours. A single pass over a full library is bounded by
+  # MusicBrainz's one-request-per-second limit, not by this node, so a run
+  # takes many hours and Forbid makes the schedule effectively "start again
+  # once the last one is done". Six hours rather than continuous so that
+  # albums Lidarr is still writing get a chance to finish before beets looks
+  # at them; anything caught half-written is skipped, and because
+  # incremental_skip_later is off it is retried next time.
+  schedule: "0 */6 * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # No retry. A failed import is not made better by an immediate second
+      # attempt against the same rate-limited API; the next schedule resumes
+      # from the incremental state anyway.
+      backoffLimit: 0
+      # 11.5h, just under the next-but-one schedule, so a wedged run cannot
+      # hold Forbid closed forever.
+      activeDeadlineSeconds: 41400
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: import
+              image: lscr.io/linuxserver/beets:2.2.0
+              command:
+                - /lsiopy/bin/beet
+                - import
+                - /data/media/music
+              env:
+                # No s6 stage to set these when `command` is overridden.
+                - name: HOME
+                  value: /config
+                - name: BEETSDIR
+                  value: /config
+                - name: TZ
+                  value: UTC
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 256Mi
+                limits:
+                  cpu: "4"
+                  memory: 1Gi
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+                - name: config-file
+                  mountPath: /config/config.yaml
+                  subPath: config.yaml
+                  readOnly: true
+                - name: data
+                  mountPath: /data
+          volumes:
+            - name: config
+              persistentVolumeClaim:
+                claimName: beets-config
+            - name: config-file
+              configMap:
+                name: beets-config-file
+            - name: data
+              persistentVolumeClaim:
+                claimName: media-data

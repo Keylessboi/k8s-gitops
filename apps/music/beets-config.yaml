@@ -1,0 +1,322 @@
+---
+# Beets' configuration, moved out of the beets-config PVC and into git.
+#
+# It used to exist only as a file inside the PVC - unmanaged, undiffable, and
+# impossible to account for later. LSIO's init-beets-config oneshot does
+# `cp -n /defaults/config.yaml /config/config.yaml`, so a file that already
+# exists at that path is never overwritten; mounting this ConfigMap read-only
+# over it therefore wins. Verified in a throwaway pod on this cluster: beets
+# reported the mounted values from `beet config`, and the `lsiown -R abc:abc
+# /config` that follows the copy fails with "chown: changing ownership of
+# '/config/config.yaml': Read-only file system" but is NOT fatal - the image
+# prints its "Permissions could not be set" warning and carries on to `beet
+# web`. /config itself stays writable, so state.pickle, musiclibrary.blb and
+# beet.log still land on the PVC where they belong.
+#
+# Changing this file does not restart the Deployment - a subPath mount is not
+# refreshed in a running container. After a change:
+#   kubectl -n music delete pod -l app.kubernetes.io/name=beets
+# The import CronJob gets a fresh pod each run, so it always reads the current
+# version.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: beets-config-file
+  namespace: music
+data:
+  config.yaml: |
+    # ------------------------------------------------------------------ main
+
+    # Where beets thinks the library lives. Nothing is ever moved INTO it -
+    # see the import section - but `directory` still has to be right for
+    # `beet unimported`, `beet stats` and friends to reason about the tree.
+    directory: /data/media/music
+    library: /config/musiclibrary.blb
+
+    # LSIO's default was `albumart`, which is the one common cover-art name
+    # Navidrome does NOT look for. Its CoverArtPriority default is
+    # "cover.*, folder.*, front.*, embedded, external" - external files are
+    # tried BEFORE embedded art - so `cover` puts fetchart's output at the
+    # very top of Navidrome's search order.
+    # https://www.navidrome.org/docs/usage/library/artwork/
+    art_filename: cover
+
+    # Pipelines the importer's stages, so the second-long MusicBrainz wait
+    # overlaps with tag reads, art fetches and Last.fm lookups for other
+    # albums. Default yes; kept explicit because it is the single setting
+    # that decides whether the rate limit is a floor or a multiplier.
+    threaded: yes
+
+    # SQLite lock timeout, in seconds. Default is 5.0. The library database
+    # sits on NFS and `beet web` holds it open while the import CronJob
+    # writes, so five seconds is not enough headroom for a contended lock on
+    # a network filesystem.
+    timeout: 60.0
+
+    original_date: no
+    per_disc_numbering: no
+
+    # ------------------------------------------------------------- plugins
+    #
+    # Loading a plugin only registers its commands and hooks; the expensive
+    # ones are all gated behind an `auto` flag that is off below. So this
+    # list is "what beet subcommands exist", not "what runs on import".
+    plugins:
+        # `beet bad` - runs mp3val / flac -t over the library to find
+        # truncated and corrupt downloads. Both binaries are present in the
+        # image (verified). Deliberately NOT wired into the import: see the
+        # badfiles section.
+        - badfiles
+        # Acoustic fingerprinting. Loaded so `beet fingerprint` and the
+        # chroma.yaml overlay work; auto is off. See the chroma section.
+        - chroma
+        # Transcoding, on demand only (auto: no). Kept because the owner
+        # configured it deliberately.
+        - convert
+        # `beet duplicates` - manual command, no import cost at all.
+        # Worth having with ~31k albums arriving from five different
+        # download paths.
+        - duplicates
+        # `beet embedart` on demand; auto is off. See the embedart section.
+        - embedart
+        # Cover art. The one plugin that does real work on import, and the
+        # only one whose output Navidrome actually consumes.
+        - fetchart
+        # Guesses track number, title and artist from the filename when the
+        # file carries no title tag. No network, no CPU, and it only fires
+        # on files that are already hopeless - which is exactly the Soulseek
+        # and YouTube material here.
+        # https://beets.readthedocs.io/en/stable/plugins/fromfilename.html
+        - fromfilename
+        # Genres from Last.fm. Lidarr does not write genres at all, so this
+        # is the clearest thing beets adds over what Lidarr already does.
+        - lastgenre
+        # `beet mbsync` - re-pulls MusicBrainz metadata for items that
+        # already have MBIDs. Manual; useful after MB corrections land.
+        - mbsync
+        # `beet missing` - lists incomplete albums. One network call per
+        # album when run, none on import. Very relevant to Soulseek grabs,
+        # which are routinely missing tracks.
+        - missing
+        # ReplayGain on demand; auto is off. See the replaygain section.
+        - replaygain
+        # `beet scrub` on demand; auto is off. See the scrub section.
+        - scrub
+        # `beet unimported` - lists files under `directory` that beets has
+        # no record of. This is how you audit what a quiet import skipped.
+        - unimported
+        # REQUIRED. `beet web` is the container's only long-running
+        # process; drop this and the pod has nothing to run.
+        - web
+
+    # -------------------------------------------------------------- import
+    #
+    # This block is where the Lidarr conflict is resolved. Lidarr owns
+    # /data/media/music: root folder id 6, renameTracks true,
+    # artistFolderFormat "{Artist Name}", standardTrackFormat
+    # "{Album Title} {(Album Disambiguation)}/{Artist Name}_{Album Title}_{track:00}_{Track Title}".
+    #
+    # With copy/move/link/hardlink all off, beets' manipulate_files() sees
+    # operation=None and never calls item.move() - files are catalogued
+    # exactly where Lidarr put them and the `paths:` templates are never
+    # applied. That is deliberate and it is the only safe arrangement:
+    # beets' own default template resolves to the SAME artist and album
+    # directories Lidarr uses but different filenames, so hardlinking would
+    # have dropped a second, differently-named copy of every track inside
+    # Lidarr's own album folders.
+    import:
+        # OFF, and this is the setting to revisit first - see the report.
+        # Lidarr is currently configured with writeAudioTags "sync" and
+        # scrubAudioTags true, i.e. it strips and rewrites tags on every
+        # refresh. Two taggers on one tree means whichever ran last wins and
+        # the other's work is wasted I/O. Until Lidarr's tag writing is
+        # turned off, beets catalogues and fetches art but does not touch a
+        # single audio byte - which also means nothing here can invalidate a
+        # torrent hardlinked in from /data/torrents.
+        write: no
+
+        # All five file operations off => import in place. Also makes
+        # ui.should_move() false, so `beet update` and `beet modify` can
+        # never silently reorganise Lidarr's tree either.
+        copy: no
+        move: no
+        link: no
+        hardlink: no
+        reflink: no
+
+        # Unattended means never blocking on stdin. `quiet` is the setting
+        # that actually guarantees it; `quiet_fallback` only has meaning
+        # once quiet is on.
+        quiet: yes
+        quiet_fallback: skip
+        none_rec_action: skip
+
+        # Default is `ask`, which prompts. With ~31k albums from five
+        # sources, duplicates are certain.
+        duplicate_action: skip
+
+        # `resume: ask` was the previous value. It is doubly neutered here -
+        # importer.set_config() forces resume off whenever incremental is on,
+        # and beets refuses to honour "ask" under quiet - but leaving a
+        # blocking value in the file invites it back the day incremental is
+        # turned off.
+        resume: no
+
+        # This is what makes the run resumable. Every finished directory is
+        # recorded in /config/state.pickle, which lives on the PVC and so
+        # survives pod restarts, evictions and node reboots: a re-run picks
+        # up where the last one stopped.
+        incremental: yes
+        # Default, kept explicit: SKIPPED directories are NOT recorded, so
+        # an album that was skipped because Lidarr was still writing it gets
+        # retried on the next run instead of being lost forever.
+        incremental_skip_later: no
+
+        timid: no
+        detail: no
+        log: /config/beet.log
+
+    # -------------------------------------------------------- musicbrainz
+    #
+    # DO NOT raise `ratelimit`. musicbrainz.org measures request rate per
+    # source IP: "Currently that rate is (on average) 1 request per second",
+    # and over it "all your requests will be declined (http 503) until the
+    # rate drops again" - not a percentage, all of them.
+    # https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting
+    # The beets default of ratelimit 1 / ratelimit_interval 1.0 is exactly
+    # that budget and is left alone. Only a local mirror would justify more.
+    musicbrainz:
+        # Default is 5. autotag/mb.py match_album() issues one
+        # search_releases() and then one album_for_id() per result, so
+        # searchlimit is literally "extra seconds per album": 5 costs 6
+        # requests, 3 costs 4. That is a 33% throughput gain on the only
+        # resource that is actually scarce here. Raise it back to 5 if too
+        # many albums come out unmatched - they are retried on the next run
+        # either way.
+        searchlimit: 3
+
+    # ------------------------------------------------------------ fetchart
+    fetchart:
+        auto: yes
+        # Trimmed from the default `filesystem coverart itunes amazon
+        # albumart`. amazon and albumart.org are scrapers of long-dead
+        # endpoints; every album that reaches them pays two dead HTTP
+        # round-trips before giving up.
+        sources: filesystem coverart itunes
+        # Cover Art Archive happily serves 3000px, multi-megabyte scans.
+        # Navidrome caches its own thumbnails, so full resolution on NFS
+        # buys nothing. ImageMagick and Pillow are both in the image, so
+        # the resize actually works rather than silently no-opping.
+        minwidth: 300
+        maxwidth: 1200
+        quality: 85
+
+    # ------------------------------------------------------------ embedart
+    #
+    # OFF. It rewrites every audio file to embed the cover - a full-file
+    # rewrite per track, over NFS, for hundreds of thousands of tracks - and
+    # buys nothing: Navidrome reads cover.* BEFORE embedded art, and Lidarr
+    # already has embedCoverArt enabled. `beet embedart` stays available.
+    embedart:
+        auto: no
+
+    # --------------------------------------------------------------- scrub
+    #
+    # OFF, and this is the single most expensive default that was on.
+    # scrub.py's _scrub_item() reads the file, deletes every tag, calls
+    # try_write() to put beets' tags back, then re-opens and re-saves to
+    # restore the artwork: three metadata writes per track on top of the
+    # normal one, and it destroys anything beets does not track (lyrics,
+    # ISRCs, credits from the Qobuz/Deezer rippers). `beet scrub` remains
+    # available for the cases that genuinely need it.
+    scrub:
+        auto: no
+
+    # -------------------------------------------------------------- chroma
+    #
+    # OFF for the bulk run. The docs are blunt that fingerprinting "demands
+    # significantly more CPU and memory resources, resulting in slower
+    # import times", and it is per TRACK, not per album: every file is
+    # decoded, fingerprinted, and looked up against AcoustID. On top of
+    # that Lidarr already runs allowFingerprinting "allFiles", so this would
+    # be the second fingerprint pass over the same bytes.
+    # https://beets.readthedocs.io/en/stable/plugins/chroma.html
+    #
+    # Turn it on per-run for the material that actually needs it - untagged
+    # Soulseek folders - with the overlay below:
+    #   beet -c /config/chroma.yaml import /data/torrents/soulseek/<dir>
+    chroma:
+        auto: no
+
+    # ------------------------------------------------------------ lastgenre
+    #
+    # One Last.fm call per album, which overlaps with the MusicBrainz wait
+    # under `threaded: yes`, so it is close to free in wall-clock terms.
+    # Lidarr writes no genres at all, so this is beets' clearest win.
+    lastgenre:
+        auto: yes
+        source: album
+        count: 3
+
+    # ----------------------------------------------------------- replaygain
+    #
+    # OFF. The default backend decodes every file end to end; the docs call
+    # it "a slow process" and advise disabling auto if import speed matters.
+    # Run `beet replaygain` as a separate pass once the library has settled.
+    replaygain:
+        auto: no
+
+    # ------------------------------------------------------------- badfiles
+    #
+    # check_on_import is deliberately left at its default of `no`, despite
+    # corrupt Soulseek downloads being exactly what it is for.
+    #
+    # The published docs describe import_action_on_error / _on_warning, but
+    # beets 2.2.0 does NOT ship them - `grep -c import_action` over the
+    # installed beetsplug/badfiles.py returns 0. What it actually does is
+    # call ui.input_options(["aBort", "skip", "continue"]) from
+    # on_import_task_before_choice, unconditionally, and ui.input_() raises
+    # UserError("stdin stream ended while input required") on EOF. In an
+    # unattended pod the first file mp3val grumbles about would abort the
+    # entire import - and mp3val grumbles about plenty of playable files.
+    #
+    # Use it as the separate, parallel, non-interactive pass it is:
+    #   beet bad
+    badfiles:
+        check_on_import: no
+
+    # ------------------------------------------------------------- convert
+    convert:
+        auto: no
+        ffmpeg: /usr/bin/ffmpeg
+        opts: -ab 320k -ac 2 -ar 48000
+        max_bitrate: 320
+        threads: 1
+
+    # ----------------------------------------------------------- unimported
+    unimported:
+        ignore_extensions: jpg jpeg png gif nfo m3u m3u8 cue log txt sfv lrc
+
+    # ------------------------------------------------------------------ web
+    #
+    # host MUST stay 0.0.0.0. The beets default is 127.0.0.1 - confirmed by
+    # a test pod that logged "Running on http://127.0.0.1:8337" the moment
+    # this key was absent - and on 127.0.0.1 neither the Service nor the
+    # kubelet's readiness probe can reach it.
+    web:
+        host: 0.0.0.0
+        port: 8337
+
+    # NOTE: there is deliberately no `paths:` block. Nothing is ever moved
+    # or copied, so path templates would be dead configuration that only
+    # becomes live - and immediately starts fighting Lidarr's naming - if
+    # someone flips copy/move on without thinking. Do not run `beet move`.
+
+  # Overlay for the one case that justifies fingerprinting: a directory of
+  # untagged files where MusicBrainz text search has nothing to work with.
+  # `-c` merges on top of the base config rather than replacing it, so every
+  # other setting above still applies.
+  #   beet -c /config/chroma.yaml import /data/torrents/soulseek/<dir>
+  chroma.yaml: |
+    chroma:
+        auto: yes

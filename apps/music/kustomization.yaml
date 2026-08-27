@@ -3,6 +3,9 @@
 # still maintains.
 #
 #   Beets       - metadata enrichment; curates the library Navidrome serves.
+#                 Its configuration lives in beets-config.yaml rather than in
+#                 the PVC, and beets-import-cronjob.yaml is what actually runs
+#                 `beet import` - the image itself only ever serves the web UI.
 #   Octo-Fiesta - Subsonic proxy for an external catalogue.
 #
 # Deliberately NOT included:
@@ -34,5 +37,7 @@ resources:
   - music-library-pv.yaml
   - pvc.yaml
   - networkpolicy.yaml
+  - beets-config.yaml
   - beets.yaml
+  - beets-import-cronjob.yaml
   - octo-fiesta.yaml

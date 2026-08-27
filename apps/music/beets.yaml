@@ -38,22 +38,64 @@ spec:
           ports:
             - name: http
               containerPort: 8337
+          # Raised from 500m/512Mi. This pod normally just serves the web
+          # UI, but `kubectl exec ... beet import` is the obvious way to run
+          # an ad-hoc import and 500m on an 11-core node throttled that to
+          # half a core. beets' pipeline is a handful of stages, so it
+          # cannot use more than a few cores no matter what; 4 is burst
+          # headroom, not a reservation, and leaves qBittorrent (3500m),
+          # flaresolverr (3000m) and Lidarr (2000m) their own.
+          #
+          # Memory stays modest on purpose: the node has 13824Mi total with
+          # 10462Mi already in use. 1Gi covers beets plus an ImageMagick
+          # resize of a full-resolution Cover Art Archive scan.
           resources:
             requests:
-              cpu: 25m
-              memory: 128Mi
+              cpu: 50m
+              memory: 256Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: "4"
+              memory: 1Gi
+          # The container previously ran with no probe at all, so a wedged
+          # `beet web` would have kept receiving traffic.
+          #
+          # Generous on purpose. An over-tight probe on Lidarr in this
+          # cluster emptied a Service's endpoints and cost hours of
+          # misdiagnosis, and this pod may be busy importing. GET / is the
+          # web plugin's static UI - measured at 5ms in-container - not a
+          # database query, but 10s and six failures means it takes two
+          # minutes of genuine unresponsiveness to pull the endpoint.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
           volumeMounts:
             - name: config
               mountPath: /config
+            # Mounted OVER the copy LSIO drops into the PVC. subPath, so
+            # only this one file is replaced and /config stays writable for
+            # state.pickle, musiclibrary.blb and beet.log.
+            - name: config-file
+              mountPath: /config/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: config-file
+              mountPath: /config/chroma.yaml
+              subPath: chroma.yaml
+              readOnly: true
             - name: data
               mountPath: /data
       volumes:
         - name: config
           persistentVolumeClaim:
             claimName: beets-config
+        - name: config-file
+          configMap:
+            name: beets-config-file
         - name: data
           persistentVolumeClaim:
             claimName: media-data
