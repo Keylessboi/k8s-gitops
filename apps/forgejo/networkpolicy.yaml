@@ -1,0 +1,88 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: forgejo
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Traefik.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 3000
+      protocol: TCP
+  # cert-manager's HTTP-01 solver pods land in this namespace.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 8089
+      protocol: TCP
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: databases
+    ports:
+    - port: 5432
+      protocol: TCP
+  # Authentik, for OIDC discovery. CoreDNS resolves *.sandstorm.chat to the
+  # load balancer, and the catch-all rule below excludes 192.168.0.0/16, so
+  # without this the lookup succeeds and the connection is then dropped.
+  - to:
+    - ipBlock:
+        cidr: 192.168.1.240/32
+    ports:
+    - port: 443
+      protocol: TCP
+  # ...and the same rule post-DNAT. k3s rewrites 192.168.1.240:443 to the
+  # Traefik pod on :8443 before NetworkPolicy egress is evaluated, so the
+  # ipBlock rule above matches nothing on a new connection.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 8443
+      protocol: TCP
+    - port: 8000
+      protocol: TCP
+  # Outbound git, avatars and release fetches.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 192.168.0.0/16
+        - 172.16.0.0/12
+    ports:
+    - protocol: TCP
+      port: 443
+  # SMTP submission. Named explicitly - the catch-all above only opens 443,
+  # which is what left Vaultwarden unable to send mail.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 192.168.0.0/16
+        - 172.16.0.0/12
+    ports:
+    - protocol: TCP
+      port: 587

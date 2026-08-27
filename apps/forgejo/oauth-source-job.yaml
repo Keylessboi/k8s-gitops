@@ -1,0 +1,92 @@
+---
+# Registers Authentik as an OAuth2 login source.
+#
+# Forgejo has no environment variable for this: auth sources live in the
+# database and can only be created through the CLI or the web UI. A PostSync
+# hook keeps it declarative anyway - the Job re-runs on every sync and updates
+# the existing source rather than duplicating it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: forgejo-oauth-source
+  namespace: forgejo
+  annotations:
+    # After the Deployment is healthy: the Job writes to the same database and
+    # needs the schema migrations to have already run.
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: register
+          image: codeberg.org/forgejo/forgejo:16.0.3-rootless
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              environment-to-ini -o "$GITEA_APP_INI"
+              G="/usr/local/bin/gitea -c $GITEA_APP_INI"
+              # add-oauth errors if the name is taken, so branch on what exists.
+              ID=$($G admin auth list 2>/dev/null | awk '$2 == "authentik" {print $1}' | head -1)
+              set -- \
+                --name authentik \
+                --provider openidConnect \
+                --key "$OIDC_CLIENT_ID" \
+                --secret "$OIDC_CLIENT_SECRET" \
+                --auto-discover-url https://authentik.sandstorm.chat/application/o/forgejo/.well-known/openid-configuration \
+                --scopes "openid email profile" \
+                --group-claim-name groups \
+                --admin-group Admin
+              if [ -n "$ID" ]; then
+                echo "updating existing auth source $ID"
+                $G admin auth update-oauth --id "$ID" "$@"
+              else
+                echo "creating auth source"
+                $G admin auth add-oauth "$@"
+              fi
+              $G admin auth list
+          env:
+            - name: FORGEJO__database__DB_TYPE
+              value: postgres
+            - name: FORGEJO__database__HOST
+              value: app-databases-rw.databases.svc.cluster.local:5432
+            - name: FORGEJO__database__NAME
+              value: forgejo
+            - name: FORGEJO__database__USER
+              valueFrom:
+                secretKeyRef: {name: forgejo-app, key: db-user}
+            - name: FORGEJO__database__PASSWD
+              valueFrom:
+                secretKeyRef: {name: forgejo-app, key: db-password}
+            - name: FORGEJO__security__SECRET_KEY
+              valueFrom:
+                secretKeyRef: {name: forgejo-app, key: secret-key}
+            - name: FORGEJO__security__INSTALL_LOCK
+              value: "true"
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef: {name: forgejo-oidc, key: client-id}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: forgejo-oidc, key: client-secret}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/gitea
+          resources:
+            requests: {cpu: 25m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: forgejo-data
