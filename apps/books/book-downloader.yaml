@@ -275,18 +275,23 @@ spec:
             # Z-Library and Welib use only the FIRST entry; the rest are here so
             # failing over is a one-line edit rather than research.
             #
-            # z-lib.gd was dropped: measured from inside the pod 2026-08-27 it
-            # returns 503, and because only the first entry is used, every
-            # direct-download search was waiting on a dead host (plus MAX_RETRY
-            # retries) before Z-Library produced anything. The three below were
-            # each fetched through FlareSolverr the same night and all returned
-            # HTTP 200 with a genuine "Z-Library - the world's largest e-book
-            # library" page. A plain curl of these 307-loops (login/JS wall),
-            # which is expected - the app drives them through the bypasser, not
-            # curl. welib was checked at the same time and is fine (bypasser
-            # returns "Challenge not detected" in ~2.7s), so it is left as-is.
+            # Ordered by SEARCH-path health, not root-page health - the two are
+            # different and only the search path matters. Measured through
+            # FlareSolverr against /s/dune, 2026-08-27:
+            #   z-library.sk  200 in 1.7s, 212 real hits, "dune: search on
+            #                 Z-Library"                              KEEP, 1st
+            #   z-lib.fm      200 but a "Verifying your browser | DiamWall"
+            #                 interstitial, 0 hits - root works, search is
+            #                 challenged                              fallback
+            #   1lib.sk       200 in 1.6s but an EMPTY page, 0 hits   fallback
+            #   z-lib.gd      503 (dropped earlier the same night)
+            # Only the first entry is used, so z-library.sk leads; the other two
+            # stay as one-line failovers. The earlier ordering led with z-lib.fm,
+            # whose ROOT page looked healthy but whose search path returns the
+            # DiamWall challenge - which is exactly the root-vs-search trap that
+            # also hid Anna's Archive being dead.
             - name: ZLIB_MIRROR_URLS
-              value: https://z-lib.fm,https://z-library.sk,https://1lib.sk
+              value: https://z-library.sk,https://z-lib.fm,https://1lib.sk
             - name: WELIB_MIRROR_URLS
               value: https://welib.org
             # The mirrors above are inert until the Direct Download source is
@@ -303,13 +308,29 @@ spec:
             # LibGen put roughly a minute and a half of guaranteed-useless
             # connect timeouts in front of every result set. Flip this back to
             # true the moment a mirror above serves real Library Genesis HTML.
+            #
+            # aa-fast is now DISABLED too. Anna's Archive put its /search behind
+            # DDoS-Guard, which FlareSolverr cannot solve from here: measured
+            # 2026-08-27, annas-archive.gl and .pk each spent 75.5s and returned
+            # an error, on every search. Because aa-fast led the fast tier, every
+            # direct-download search burned ~150s on two dead AA mirrors before
+            # anything else was tried - which is the "direct download takes a
+            # while" the owner reported. All clearnet AA mirrors use DDoS-Guard,
+            # so there is no free mirror to swap in; AA is dropped rather than
+            # nursed. With both fast sources off, the fast tier is intentionally
+            # empty and every search goes straight to SOURCE_PRIORITY below.
+            # Re-enable if AA ever drops DDoS-Guard or a solvable mirror appears.
             - name: FAST_SOURCES_DISPLAY
-              value: '[{"id": "libgen", "enabled": false}, {"id": "aa-fast", "enabled": true}]'
-            # Slow sources, tried after those. aa-slow-wait is last on purpose:
-            # it parks the download behind a countdown timer, so it should only
-            # be reached once every mirror that fails fast has been tried.
+              value: '[{"id": "libgen", "enabled": false}, {"id": "aa-fast", "enabled": false}]'
+            # The working direct-download sources, tested through FlareSolverr
+            # 2026-08-27: zlib (z-library.sk) 200 in 1.7s with real results,
+            # welib 200 in 2.8s with real results. Both lead now. The two AA
+            # slow sources are disabled for the same DDoS-Guard reason as
+            # aa-fast - aa-slow-wait also parks behind a countdown timer, so it
+            # was always the worst case, and aa-slow-nowait shares AA's dead
+            # search path. Flip either back to true if AA becomes solvable again.
             - name: SOURCE_PRIORITY
-              value: '[{"id": "aa-slow-nowait", "enabled": true}, {"id": "zlib", "enabled": true}, {"id": "welib", "enabled": true}, {"id": "aa-slow-wait", "enabled": true}]'
+              value: '[{"id": "zlib", "enabled": true}, {"id": "welib", "enabled": true}, {"id": "aa-slow-nowait", "enabled": false}, {"id": "aa-slow-wait", "enabled": false}]'
             # 3, down from 15. The 15 assumed this counter walks the mirror
             # list; it does not. MAX_RETRY is the retry_limit of the transport
             # loop in download/http.py, and every attempt re-requests the SAME
