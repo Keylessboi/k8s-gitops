@@ -315,6 +315,89 @@ KOReader gives specific messages:
 - Anything mentioning `tlsv1` → almost always a typo'd URL (missing `https://`,
   or a raw `host:port`), not a real TLS problem. See §6.
 
+### Ongoing sync: the nightly workflow **(verified)**
+
+The goal is: grab a book on the computer tonight, read it on the Kindle tonight.
+Three hops, and only the last one is manual.
+
+#### Hop 1 — computer into the library
+
+Any of these; all land in the same ingest folder, which CWA watches:
+
+| Way | How | Works off-LAN? |
+|---|---|---|
+| **Web upload** | `https://books.sandstorm.chat/` → upload button | Yes (via Authentik) |
+| **NFS drop** | mount `192.168.1.67:/extra/nfs-csi` and copy into `data/ingest/books/` | LAN only |
+| **book-downloader** | `https://bookdl.sandstorm.chat/` — searches Anna's Archive, files straight into ingest | Yes |
+
+CWA's ingest watcher then converts to EPUB, files it into the Calibre library,
+and **deletes the ingest copy**. Give it a minute or two before the book shows
+up in the feed.
+
+#### Hop 2 — the sync catalog
+
+**The `/opds` nav root cannot be synced.** This is the trap, and it is silent:
+
+KOReader's sync walks the feed assuming **entry #1 is the newest book** and
+stops when it reaches the `last_download` href it recorded last time
+**(verified in `getSyncDownloadList`/`fillPendingSyncs`)**. The `/opds` root is
+a *navigation* feed — Hot Books, New Books, Authors, Series — and those entries
+carry **no acquisition links at all**. Sync walks the whole list, finds nothing
+downloadable, and returns an empty set. No error, no message. It just does
+nothing, forever.
+
+Point sync at the **New Books** acquisition feed instead:
+
+```
+https://books.sandstorm.chat/opds/new
+```
+
+**(verified in `cps/opds.py`)** — `feed_new()` sorts
+`[db.Books.timestamp.desc()]`, i.e. newest-added first, which is exactly the
+ordering KOReader's sync assumes.
+
+So keep **two** catalog entries:
+
+| Name | URL | Sync catalog |
+|---|---|---|
+| `sandstorm` | `https://books.sandstorm.chat/opds` | ❌ unticked — for browsing by author/series |
+| `sandstorm-sync` | `https://books.sandstorm.chat/opds/new` | ✅ **ticked** — for the nightly pull |
+
+**"Sync catalog"** is a checkbox on the same add/edit form as the four text
+fields, below the password box **(verified)**.
+
+One more gate: `feed_new()` calls `check_visibility(SIDEBAR_RECENT)` and
+**aborts with 404** if the account lacks it. `config_default_show = 262143`
+(every visibility bit) **(verified)**, so a new user gets it automatically —
+just don't untick **Show Recent Books** on the `kindle` account, or sync starts
+404ing with no useful message.
+
+#### Hop 3 — pull it on the Kindle
+
+Set the folder **once**, before the first sync:
+
+- ☰ → **Set sync folder** → `/mnt/us/koreader-books`
+  (mandatory — without it sync refuses with *"Please choose a folder for sync
+  downloads first"* **(verified)**)
+- ☰ → **Set file types to sync** → `epub`
+- ☰ → **Set max number of files to sync** → default 50, fine
+
+Then each night, two taps:
+
+> **OPDS catalog → ☰ → Sync all catalogs**
+
+or long-press just the one catalog → **Sync**. **Force sync** ignores the
+`last_download` marker and re-walks the whole feed — use it if you think it
+missed something.
+
+#### It is manual. There is no autosync.
+
+Worth knowing before you build a habit around it: KOReader's OPDS plugin
+registers exactly **one** Dispatcher action, `opds_show_catalog`
+**(verified in `plugins/opds.koplugin/main.lua`)**. There is no sync action, so
+you cannot bind sync to a gesture, and nothing runs it on boot, on wake, or on
+a schedule. The nightly tap is the workflow.
+
 ---
 
 ## 4. Formats
@@ -620,6 +703,10 @@ a different OPDS client that *does* fetch it.
 | KOReader: *"Authentication required for catalog"* | 401 — blank or wrong credentials | Re-enter username/password on the catalog (☰ → long-press catalog → **Edit**). Verify from a laptop with the `curl -u` command in §2 first. |
 | Feed loads, but tapping a book gives an error / 401 | The `kindle` user is missing **Allow Downloads** | Admin → Users → `kindle` → tick **Allow Downloads**. `/opds/download/...` calls `role_download()` explicitly. Everything else in the feed works without it, which makes this failure look mysterious. |
 | Calibre plugin says *"No calibre libraries"* no matter how often you rescan | Wrong plugin — it scans the device disk, and talks to a running Calibre GUI over LAN. It cannot reach CWA. | Back out, use **Search tab → OPDS catalog** (the entry *below* it). §3. |
+| **"Sync all catalogs" appears to work but downloads nothing, silently** | The synced catalog points at `/opds` — a navigation feed with no acquisition links | Point the sync catalog at `https://books.sandstorm.chat/opds/new`. §3. |
+| Sync errors 404 | The account lost **Show Recent Books** visibility; `feed_new()` aborts 404 without it | Admin → Users → re-tick **Show Recent Books**. |
+| *"Please choose a folder for sync downloads first"* | No sync folder set | OPDS screen → ☰ → **Set sync folder** → `/mnt/us/koreader-books`. |
+| Book is in CWA but not in the feed yet | Ingest watcher still converting/filing | Wait a minute or two; CWA deletes the ingest copy when it is done. |
 | KOReader shows an HTML login page, or garbled parse errors | You hit a path outside `/opds` and got redirected to Authentik | Check the catalog URL is exactly `https://books.sandstorm.chat/opds`. Not `/opds/nav/start`, not `/`. |
 | Browser redirect to `authentik.sandstorm.chat` for `/opds` itself | The `books-opds` Ingress is gone or lost its rule | `kubectl get ingress -n books` — you should see both `books` and `books-opds`. If missing, check ArgoCD synced `apps/books/opds-ingress.yaml`. **Fix it in git, not with `kubectl edit`** — selfHeal reverts. |
 | `tlsv1 protocol error` | Almost certainly a malformed URL (missing `https://`, or `host:port`) | Retype the URL with the scheme. The server offers only TLS 1.2/1.3 and KOReader speaks both. |
@@ -642,11 +729,20 @@ Username      kindle
 Password      (Vaultwarden)
 CWA role      Allow Downloads + Allow Viewer  ONLY
 
+Browse URL    https://books.sandstorm.chat/opds       (Sync catalog OFF)
+SYNC URL      https://books.sandstorm.chat/opds/new   (Sync catalog ON)
+              ^ sync MUST use /opds/new - /opds has no download links
+
+Get books in  https://books.sandstorm.chat/     (upload button)
+              https://bookdl.sandstorm.chat/    (Anna's Archive)
+              192.168.1.67:/extra/nfs-csi  ->  data/ingest/books/
+
 KOReader:
   Add catalog     File manager → Search (magnifier) tab → OPDS catalog
                   → ☰ top-left → Add catalog
-  Bulk sync       OPDS screen → ☰ → Sync all catalogs   (default 50 books/run)
+  Nightly pull    OPDS screen → ☰ → Sync all catalogs   (manual only, no autosync)
   Download dir    OPDS screen → ☰ → Set sync folder     (/mnt/us/koreader-books)
+  File types      OPDS screen → ☰ → Set file types to sync  (epub)
   Progress sync   open a book → Tools (wrench) tab → Progress sync
   Wi-Fi           Settings (gear) → Network
                   → Restore Wi-Fi connection on resume = ON
