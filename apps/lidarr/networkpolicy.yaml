@@ -39,6 +39,15 @@ spec:
     - port: 8686
       protocol: TCP
   egress:
+  # Postgres. The *arr apps keep their main and log databases in the shared
+  # CNPG cluster rather than local SQLite.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: databases
+    ports:
+    - port: 5432
+      protocol: TCP
   # Lidarr's own API, for the nightly maintenance CronJob. Ingress from this
   # namespace is already allowed, but egress is not - and both directions must
   # permit a flow. Without this the job dies on its first queue fetch.

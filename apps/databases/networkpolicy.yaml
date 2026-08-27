@@ -32,6 +32,15 @@ spec:
               kubernetes.io/metadata.name: forgejo
         - namespaceSelector:
             matchLabels:
+              kubernetes.io/metadata.name: prowlarr
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: books
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: lidarr
+        - namespaceSelector:
+            matchLabels:
               kubernetes.io/metadata.name: databases
       ports:
         - {port: 5432, protocol: TCP}

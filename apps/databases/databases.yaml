@@ -57,4 +57,75 @@ spec:
   owner: forgejo
   cluster:
     name: app-databases
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: prowlarr-main
+  namespace: databases
+spec:
+  name: prowlarr_main
+  owner: prowlarr
+  cluster:
+    name: app-databases
+
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: prowlarr-log
+  namespace: databases
+spec:
+  name: prowlarr_log
+  owner: prowlarr
+  cluster:
+    name: app-databases
+
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: readarr-main
+  namespace: databases
+spec:
+  name: readarr_main
+  owner: readarr
+  cluster:
+    name: app-databases
+
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: readarr-log
+  namespace: databases
+spec:
+  name: readarr_log
+  owner: readarr
+  cluster:
+    name: app-databases
+
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: lidarr-main
+  namespace: databases
+spec:
+  name: lidarr_main
+  owner: lidarr
+  cluster:
+    name: app-databases
+
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: lidarr-log
+  namespace: databases
+spec:
+  name: lidarr_log
+  owner: lidarr
+  cluster:
+    name: app-databases
 

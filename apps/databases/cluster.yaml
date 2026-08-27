@@ -71,6 +71,22 @@ spec:
         login: true
         passwordSecret:
           name: forgejo-db-credentials
+      # The *arr apps. Each needs two databases (main + log); one role owns both.
+      - name: prowlarr
+        ensure: present
+        login: true
+        passwordSecret:
+          name: prowlarr-db-credentials
+      - name: readarr
+        ensure: present
+        login: true
+        passwordSecret:
+          name: readarr-db-credentials
+      - name: lidarr
+        ensure: present
+        login: true
+        passwordSecret:
+          name: lidarr-db-credentials
   # Backups to MinIO on the NAS.
   #
   # This block previously authenticated with a `minio-creds` secret whose
