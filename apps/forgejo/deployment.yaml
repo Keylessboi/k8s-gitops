@@ -110,6 +110,14 @@ spec:
             - name: FORGEJO__mailer__FROM
               valueFrom:
                 secretKeyRef: {name: smtp, key: from}
+          # PodSecurity `restricted` demands these per CONTAINER; setting them
+          # only on the pod is not enough and the ReplicaSet is refused outright
+          # with "unrestricted capabilities".
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: 3000

@@ -80,6 +80,14 @@ spec:
             - name: OIDC_CLIENT_SECRET
               valueFrom:
                 secretKeyRef: {name: forgejo-oidc, key: client-secret}
+          # PodSecurity `restricted` demands these per CONTAINER; setting them
+          # only on the pod is not enough and the ReplicaSet is refused outright
+          # with "unrestricted capabilities".
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
           volumeMounts:
             - name: data
               mountPath: /var/lib/gitea
