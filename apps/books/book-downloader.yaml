@@ -42,6 +42,34 @@ spec:
             # the FlareSolverr instance already running for the indexers.
             - name: USE_CF_BYPASS
               value: "true"
+            # Hardcover, for metadata and want-to-read lists.
+            - name: HARDCOVER_ENABLED
+              value: "true"
+            - name: HARDCOVER_API_KEY
+              valueFrom:
+                secretKeyRef: {name: bookdl-extras, key: hardcover-api-key}
+            # qBittorrent, so torrent results can be grabbed rather than only
+            # direct downloads. The category matches what Readarr already uses,
+            # so completed books land in the same place under /data/torrents.
+            - name: QBITTORRENT_URL
+              value: http://qbittorrent.downloads.svc.cluster.local:8080
+            - name: QBITTORRENT_USERNAME
+              value: admin
+            - name: QBITTORRENT_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: bookdl-extras, key: qbittorrent-password}
+            - name: QBITTORRENT_CATEGORY
+              value: books
+            - name: QBITTORRENT_CATEGORY_AUDIOBOOK
+              value: books
+            - name: QBITTORRENT_DOWNLOAD_DIR
+              value: /data/torrents/books
+            # Hardlink rather than copy when moving a finished torrent into the
+            # ingest folder - same filesystem, so the seed keeps its data and
+            # the book is not stored twice. This is the TRaSH layout's whole
+            # point and only works because both paths are on the one mount.
+            - name: TORRENT_HARDLINK
+              value: "true"
             # Native OIDC, in addition to the forward-auth middleware on the
             # Ingress. Forward-auth alone authenticates at the edge and leaves
             # the app itself anonymous - every request arrives as the same
@@ -90,8 +118,17 @@ spec:
             - name: ingest
               mountPath: /cwa-book-ingest
               subPath: ingest/books
+            # The completed torrents, so a finished download can be hardlinked
+            # into the ingest folder rather than copied. Same claim, same
+            # filesystem - which is what makes the hardlink possible at all.
+            - name: torrents
+              mountPath: /data/torrents/books
+              subPath: torrents/books
       volumes:
         - name: ingest
+          persistentVolumeClaim:
+            claimName: media-data
+        - name: torrents
           persistentVolumeClaim:
             claimName: media-data
 ---
