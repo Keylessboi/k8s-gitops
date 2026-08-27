@@ -64,11 +64,15 @@ spec:
               # failed to import with a permissions error.
               chown -R 1000:1000 /app
               mkdir -p /data/torrents/soulseek/incomplete
-              # Repair only mis-owned entries. This keeps the init cheap as the
-              # folder grows and never triggers a full-tree chown over NFS - the
-              # reason fsGroup is deliberately NOT set on this pod (its /data
-              # mount is the whole media library).
-              find /data/torrents/soulseek \! -uid 1000 -exec chown 1000:1000 {} \; 2>/dev/null || true
+              # Recursively chown the Soulseek tree only. busybox 1.36 find has
+              # no -uid predicate (it errors), so a conditional "repair only
+              # mis-owned" find silently does nothing - a plain chown -R is what
+              # actually works here. This is scoped to the Soulseek subtree, not
+              # all of /data, so it stays cheap and never becomes the full-tree
+              # NFS chown that fsGroup would cause (which is why fsGroup is
+              # deliberately NOT set on this pod - its /data mount is the whole
+              # media library).
+              chown -R 1000:1000 /data/torrents/soulseek
               echo "slskd.yml rendered and ownership repaired"
           env:
             - name: SLSKD_API_KEY
