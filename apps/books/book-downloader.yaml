@@ -36,8 +36,10 @@ spec:
               value: "1000"
             - name: TZ
               value: UTC
+            # Same directory CWA watches, reached through the single /data
+            # mount above rather than its own subPath mount.
             - name: INGEST_DIR
-              value: /cwa-book-ingest
+              value: /data/ingest/books
             # Anna's Archive sits behind Cloudflare; route challenges through
             # the FlareSolverr instance already running for the indexers.
             - name: USE_CF_BYPASS
@@ -113,22 +115,16 @@ spec:
               cpu: 500m
               memory: 512Mi
           volumeMounts:
-            # Ingest now lives inside the shared media volume so Readarr's
-            # imports into it can hardlink from /data/torrents/books.
-            - name: ingest
-              mountPath: /cwa-book-ingest
-              subPath: ingest/books
-            # The completed torrents, so a finished download can be hardlinked
-            # into the ingest folder rather than copied. Same claim, same
-            # filesystem - which is what makes the hardlink possible at all.
-            - name: torrents
-              mountPath: /data/torrents/books
-              subPath: torrents/books
+            # ONE mount of the shared volume at /data, not two subPath mounts of
+            # the same claim. Mounting a PVC twice in a single pod hangs the
+            # nfs-csi driver: the pod sits in ContainerCreating indefinitely with
+            # no FailedMount event to explain it. This also mirrors how
+            # qBittorrent mounts the same claim, so the absolute paths agree
+            # between the two containers, which is what lets the hardlink work.
+            - name: data
+              mountPath: /data
       volumes:
-        - name: ingest
-          persistentVolumeClaim:
-            claimName: media-data
-        - name: torrents
+        - name: data
           persistentVolumeClaim:
             claimName: media-data
 ---
