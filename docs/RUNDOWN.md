@@ -360,5 +360,30 @@ that point and both look like "SSO is broken":
    client and log back in. If it recurs *after* a fresh login, that is when to
    suspect the key.
 
+3. `POST /identity/accounts/prelogin/password => 404 Not Found` — this one
+   presents as **"an unexpected error has occurred"** on a plain email+password
+   login, while SSO keeps working, because the SSO path never calls that route.
+   It meant the server was the old `timshel/vaultwarden` fork, which never
+   implemented it. Fixed by moving to **OIDCWarden**, the renamed and actively
+   maintained continuation of that fork.
+
 `SSO_DEBUG_TOKENS=true` with `LOG_LEVEL=debug` dumps the tokens if you need to
 inspect claims — turn it off again afterwards, it logs credentials.
+
+### The two accounts
+
+There are two Vaultwarden users, both holding 319 items, with **different master
+passwords and different vault keys** (verified: neither `password_hash` nor
+`akey` match):
+
+- `root@example.com` — created first, under the placeholder email that was in
+  place before Authentik's admin identity was corrected.
+- `travis@sandstorm.chat` — created later; this is the only one SSO can ever
+  reach, because Authentik's provider uses `sub_mode = user_email` and its only
+  user carries that address.
+
+Bitwarden derives the vault key client-side using **the email as KDF salt**, so
+the right password for the wrong account fails locally, inside the client, with
+no server round-trip. That is why the log shows every `connect/token` returning
+200 while the client still says the master password is wrong. Resolving this
+means deciding which account survives — see docs/TODO.md.
