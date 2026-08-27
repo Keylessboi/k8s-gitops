@@ -53,6 +53,11 @@ spec:
               value: readarr_main
             - name: READARR__POSTGRES__LOGDB
               value: readarr_log
+            # Readarr also opens a third database for its metadata cache.
+            # Unset, it defaults to "readarr-cache" and aborts at startup with
+            # 3D000 if that database does not exist.
+            - name: READARR__POSTGRES__CACHEDB
+              value: readarr_cache
             - name: READARR__POSTGRES__USER
               valueFrom:
                 secretKeyRef: {name: readarr-db, key: user}

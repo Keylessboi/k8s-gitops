@@ -104,6 +104,21 @@ spec:
   owner: readarr
   cluster:
     name: app-databases
+---
+# Readarr differs from Prowlarr and Lidarr: it opens a THIRD database for its
+# metadata cache. Without it Readarr aborts at startup with
+# 3D000 database "readarr-cache" does not exist - the default name it uses when
+# CACHEDB is unset - and never binds its port.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: readarr-cache
+  namespace: databases
+spec:
+  name: readarr_cache
+  owner: readarr
+  cluster:
+    name: app-databases
 
 ---
 apiVersion: postgresql.cnpg.io/v1
