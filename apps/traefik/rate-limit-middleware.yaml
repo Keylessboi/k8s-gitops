@@ -23,10 +23,10 @@ metadata:
 spec:
   rateLimit:
     # Sustained requests per second per source, averaged over the period.
-    average: 50
+    average: 100
     # Short bursts above that are allowed - a browser opening a page fires
     # many requests at once and should not be throttled for it.
-    burst: 100
+    burst: 200
     period: 1s
 ---
 # A stricter limit for login endpoints, where brute force actually matters.
@@ -37,6 +37,6 @@ metadata:
   namespace: kube-system
 spec:
   rateLimit:
-    average: 5
-    burst: 10
+    average: 10
+    burst: 20
     period: 1s

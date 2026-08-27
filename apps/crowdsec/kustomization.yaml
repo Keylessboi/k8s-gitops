@@ -81,3 +81,19 @@ helmCharts:
         env:
           - name: COLLECTIONS
             value: "crowdsecurity/traefik crowdsecurity/http-cve crowdsecurity/base-http-scenarios crowdsecurity/whitelist-good-actors"
+      # Whitelist the owner's own public IP at parser stage, so their own
+      # authentication retries - e.g. a Kindle hitting CWA OPDS with a wrong
+      # password - can never fill the http-generic-403-bf bucket and ban the IP
+      # across every service. A parser-stage whitelist means no alert or
+      # decision is ever created for this source in the first place. If the
+      # public IP changes (dynamic ISP), update it here.
+      config:
+        parsers:
+          s02-enrich:
+            owner-ip-whitelist.yaml: |
+              name: custom/owner-ip-whitelist
+              description: "Never ban the owner's own public IP"
+              whitelist:
+                reason: "owner public IP"
+                ip:
+                  - "72.68.160.122"
