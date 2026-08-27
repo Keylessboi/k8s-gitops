@@ -226,10 +226,18 @@ spec:
             # between the two containers, which is what lets the hardlink work.
             - name: data
               mountPath: /data
+            # Persist /config. This is a DIFFERENT claim from the one above -
+            # mounting the same claim twice is what hangs nfs-csi; two distinct
+            # claims are fine.
+            - name: config
+              mountPath: /config
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: media-data
+        - name: config
+          persistentVolumeClaim:
+            claimName: bookdl-config
 ---
 apiVersion: v1
 kind: Service

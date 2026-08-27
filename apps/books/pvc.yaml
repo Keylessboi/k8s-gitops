@@ -51,3 +51,21 @@ spec:
   resources:
     requests:
       storage: 5Gi
+---
+# book-downloader's own state: its settings file, cover cache and users.db.
+# Without this /config is the container's writable overlay, so every restart
+# discards it - including OIDC auto-provisioned users, which now matters because
+# the downloader authenticates against Authentik natively.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bookdl-config
+  namespace: books
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 2Gi
+
