@@ -1,0 +1,96 @@
+---
+# Plain manifests, mirroring apps/flaresolverr: the bjw-s app-template chart
+# ships an empty values.yaml that kustomize's helmCharts generator cannot
+# inflate.
+#
+# Byparr is a FlareSolverr drop-in (github.com/ThePhaseless/Byparr) that drives
+# a real browser via nodriver to beat challenges FlareSolverr cannot - notably
+# DDoS-Guard, which gates Anna's Archive /search. It is ADDITIONAL to
+# FlareSolverr, which stays as-is for Prowlarr's indexers. Byparr exists solely
+# so Shelfmark (namespace books) can solve Anna's Archive's DDoS-Guard for
+# direct-download book SEARCH. INTERNAL ONLY - no Ingress.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: byparr
+  namespace: byparr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: byparr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: byparr
+    spec:
+      containers:
+        - name: byparr
+          # 3.0.4 is the latest release (2026-08-18); its digest matches the
+          # `latest` tag. Pinned rather than floating so a silent upstream
+          # push cannot change the solver under us. Multi-arch index; the node
+          # is amd64.
+          image: ghcr.io/thephaseless/byparr:3.0.4
+          env:
+            - name: TZ
+              value: UTC
+            # Byparr honours HOST/PORT; these are the defaults, set explicitly
+            # so the Service targetPort and the readiness probe cannot drift.
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: "8191"
+          ports:
+            - name: http
+              containerPort: 8191
+          # Same reasoning as FlareSolverr: a real headless browser is not a
+          # 1-CPU workload. Limits are a burst ceiling, not a reservation - the
+          # request is what the scheduler holds, and the node had ~3.6Gi free.
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "3"
+              memory: 3Gi
+          readinessProbe:
+            # Byparr drives a browser; a check can easily exceed one second
+            # while it is solving. Going NotReady empties the Service endpoints,
+            # which is exactly what once made callers see 'connection refused'
+            # against a process that was merely busy. Generous on purpose.
+            # Root path `/` 307-redirects to `/docs`; httpGet treats 2xx-3xx as
+            # success. initialDelay is higher than FlareSolverr's because the
+            # browser stack takes longer to come up on first start.
+            timeoutSeconds: 15
+            failureThreshold: 6
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            # Chromium/nodriver need more shared memory than the container
+            # runtime's default 64Mi /dev/shm or the browser crashes mid-solve.
+            # Byparr's own docs call out shm_size: 512mb. Memory-backed, so it
+            # counts against the container memory limit above.
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: byparr
+  namespace: byparr
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: byparr
+  ports:
+    - name: http
+      port: 8191
+      targetPort: http
