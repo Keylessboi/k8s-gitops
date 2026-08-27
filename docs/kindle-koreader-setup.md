@@ -285,8 +285,31 @@ Everything below — the ☰ icon, the four field names, the *Sync catalog*
 checkbox and the whole ☰ sync menu — is byte-for-byte identical between
 `v2025.10` and current master, so this section holds on either.
 
-1. Launch KOReader. Stay in the **file manager** — the OPDS entry only exists
-   when no book is open.
+1. Launch KOReader. **Close any open book first.** This is not a nicety — it is
+   the single most common reason *OPDS catalog* "isn't there".
+
+   **(verified at `v2025.10`)** The plugin registers its menu entry inside
+   `if not self.ui.document then` — *file manager menu only* — and the string
+   `opds` appears **zero times** in `frontend/ui/elements/reader_menu_order.lua`.
+   With a book open the entry does not exist anywhere in the menu.
+
+   **Tell the two modes apart by counting the top tabs:**
+
+   | | Tabs | Search tab contains |
+   |---|---|---|
+   | **Reader** (book open) | **7** | Translate current page, Fulltext search — **no OPDS** |
+   | **File manager** | **5** | File search, and **OPDS catalog** last |
+
+   Also note the magnifier moves: it is **3rd from the right** in the reader but
+   **2nd from the right** in the file manager, because the reader adds a
+   file-browser tab. Counting from the right in the wrong mode lands you on the
+   wrong tab.
+
+   **To get out of a book:** tap the top of the screen, then tap the
+   **file-browser icon, second from the right** (`appbar.filebrowser`). Its
+   callback is `self.ui:onClose()` + `showFileManager()` **(verified)** — it
+   closes the book and drops you in the file manager. The magnifier is then
+   2nd from the right.
 2. Tap the top of the screen to open the menu bar.
 3. Go to the **magnifying-glass (Search) tab** — it is the second-from-right
    icon.
@@ -317,6 +340,22 @@ counters at zero (see §6).
 
 Tap the catalog to open it. You should see CWA's navigation feed —
 *Hot Books*, *New Books*, *Authors*, *Series*, *Categories*, etc.
+
+### If *OPDS catalog* is still missing in the file manager
+
+Only then is the plugin actually disabled. OPDS ships **enabled** — its
+`_meta.lua` carries no `disabled` flag **(verified at `v2025.10`)** — so this is
+unlikely, but a KPM-installed build could differ.
+
+> **Tools (wrench) tab → More tools** (last entry, under the separator) →
+> **Plugin management** → tick **OPDS**
+
+The list shows each plugin's `fullname`, which for this one is exactly
+**`OPDS`** **(verified)** — not "OPDS catalog", not "OPDS browser".
+
+Toggling calls `UIManager:askForRestart()` **(verified)**, so KOReader will
+prompt you to restart; accept it. To restart by hand: **☰ (last tab) → Exit →
+Restart KOReader**.
 
 ### If it errors
 
@@ -723,6 +762,7 @@ a different OPDS client that *does* fetch it.
 | KOReader: *"Authentication required for catalog"* | 401 — blank or wrong credentials | Re-enter username/password on the catalog (☰ → long-press catalog → **Edit**). Verify from a laptop with the `curl -u` command in §2 first. |
 | Feed loads, but tapping a book gives an error / 401 | The `kindle` user is missing **Allow Downloads** | Admin → Users → `kindle` → tick **Allow Downloads**. `/opds/download/...` calls `role_download()` explicitly. Everything else in the feed works without it, which makes this failure look mysterious. |
 | Calibre plugin says *"No calibre libraries"* no matter how often you rescan | Wrong plugin — it scans the device disk, and talks to a running Calibre GUI over LAN. It cannot reach CWA. | Back out to the file manager, then **Search (magnifier) tab → OPDS catalog** (last entry). §3. |
+| **No "OPDS catalog" entry in the Search tab** | A book is open. OPDS is registered for the file-manager menu only; it is absent from the reader menu entirely | Tap top of screen → **file-browser icon, 2nd from right** to close the book. Count tabs: 7 = reader, 5 = file manager. §3. |
 | Cannot find *"Find book in calibre catalog"* in the menu | That string is an internal menu id, never shown. The on-screen label is **"Calibre metadata search"** — and it is absent entirely if the calibre plugin is disabled | Ignore it; it is not needed. Go straight to **OPDS catalog**. |
 | **"Sync all catalogs" appears to work but downloads nothing, silently** | The synced catalog points at `/opds` — a navigation feed with no acquisition links | Point the sync catalog at `https://books.sandstorm.chat/opds/new`. §3. |
 | Sync errors 404 | The account lost **Show Recent Books** visibility; `feed_new()` aborts 404 without it | Admin → Users → re-tick **Show Recent Books**. |
