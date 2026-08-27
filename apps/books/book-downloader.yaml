@@ -346,6 +346,25 @@ spec:
               value: "3"
             - name: DEFAULT_SLEEP
               value: "10"
+            # OFF, on purpose. On boot shelfmark fires one throwaway
+            # direct-download search 15s after start (download/warmup.py) to
+            # pre-solve Anna's Archive's DDoS-Guard and prime the mirror/DNS/
+            # cookie caches before the first real search. But direct_download's
+            # search backend is Anna's Archive ONLY (search_books() is hardwired
+            # to get_aa_base_url()/search - direct_download.py:690), and AA's
+            # /search is behind DDoS-Guard that FlareSolverr cannot solve from
+            # here. So the warm-up can NEVER succeed: it runs the bypasser's full
+            # 5-attempt rotation (each attempt = the 60s FlareSolverr maxTimeout,
+            # rotating annas-archive.gl<->.pk and cycling cloudflare/google/quad9/
+            # opendns DoH with backoff) and only gives up ~5.5min later. Measured
+            # 2026-08-27: warm-up logged at 05:54:35, "did not complete" at
+            # 06:00:12 (warmup.py:102). Every second of that pins the SHARED
+            # FlareSolverr - the same one Prowlarr's indexers and Lidarr use - so
+            # each pod restart blocked all challenge-solving for 5+ minutes for
+            # zero benefit. warmup.py reads os.environ before the settings
+            # registry, so this switch actually takes effect.
+            - name: SEARCH_WARMUP_ENABLED
+              value: "false"
             # Universal mode searches metadata first and then offers every
             # enabled release source (the mirrors above plus qBittorrent).
             # Direct mode would narrow searching back down to Anna's Archive.
