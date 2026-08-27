@@ -42,14 +42,18 @@ spec:
         # deploys, but drift is no longer detected - so those fall back to
         # client-side diff.
         #
-        # vaultwarden joined downloads here after its mutating webhook started
-        # rewriting the container list the same way.
+        # vaultwarden and then books joined downloads here as their mutating
+        # webhooks started rewriting the container and volume lists the same
+        # way. The tell is always sync status Unknown with a ComparisonError
+        # mentioning "associative list with keys" - the app keeps deploying,
+        # but drift detection and therefore auto-sync stop, so pushes to git
+        # silently stop reaching the cluster.
         #
         # Written as a quoted scalar, not a {{- if }} block: this file is a
         # CustomResource that kubectl must parse as YAML before ArgoCD ever
         # templates it, and a bare conditional makes it invalid. Every other app
         # renders an empty string here, which ArgoCD reads as no options.
-        argocd.argoproj.io/compare-options: '{{ if has .path.basename (list "downloads" "vaultwarden") }}ServerSideDiff=false{{ end }}'
+        argocd.argoproj.io/compare-options: '{{ if has .path.basename (list "downloads" "vaultwarden" "books") }}ServerSideDiff=false{{ end }}'
       finalizers:
         - resources-finalizer.argocd.argoproj.io
     spec:
