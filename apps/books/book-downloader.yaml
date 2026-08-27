@@ -274,8 +274,19 @@ spec:
               value: https://libgen.la,https://libgen.vg,https://libgen.li
             # Z-Library and Welib use only the FIRST entry; the rest are here so
             # failing over is a one-line edit rather than research.
+            #
+            # z-lib.gd was dropped: measured from inside the pod 2026-08-27 it
+            # returns 503, and because only the first entry is used, every
+            # direct-download search was waiting on a dead host (plus MAX_RETRY
+            # retries) before Z-Library produced anything. The three below were
+            # each fetched through FlareSolverr the same night and all returned
+            # HTTP 200 with a genuine "Z-Library - the world's largest e-book
+            # library" page. A plain curl of these 307-loops (login/JS wall),
+            # which is expected - the app drives them through the bypasser, not
+            # curl. welib was checked at the same time and is fine (bypasser
+            # returns "Challenge not detected" in ~2.7s), so it is left as-is.
             - name: ZLIB_MIRROR_URLS
-              value: https://z-lib.gd,https://z-lib.fm,https://z-library.sk
+              value: https://z-lib.fm,https://z-library.sk,https://1lib.sk
             - name: WELIB_MIRROR_URLS
               value: https://welib.org
             # The mirrors above are inert until the Direct Download source is
