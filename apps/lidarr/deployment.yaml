@@ -13,7 +13,7 @@ spec:
   # ORM against a single-writer database, four workers managed ~16k rows/hour,
   # and twelve were SLOWER because they merely contended on the write lock.
   # Set back to 1 as soon as the Job reports done.
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
