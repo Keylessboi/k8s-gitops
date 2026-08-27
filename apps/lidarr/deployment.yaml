@@ -23,10 +23,9 @@ spec:
           # Lidarr's `plugins` branch, not master.
           #
           # Tubifarry is installed through Lidarr's System -> Plugins page,
-          # which exists only on the plugins branch. The linuxserver image
-          # tracks master, where /api/v1/plugin returns 404 and there is no way
-          # to install a plugin at all. linuxserver publishes no plugins tag,
-          # so this uses hotio's plugins-branch build.
+          # which master does not have - the linuxserver image tracks master,
+          # where /api/v1/plugin returns 404 and no plugin can be installed at
+          # all. So this needs a develop build, and hotio publishes one.
           # hotio's `testing` stream is Lidarr's develop branch. Plugin
           # support now lives there (src/NzbDrone.Core/Plugins), and the old
           # `plugins` branch has been abandoned - its last commit is
