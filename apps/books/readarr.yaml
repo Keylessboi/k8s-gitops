@@ -39,6 +39,26 @@ spec:
               value: "002"
             - name: TZ
               value: UTC
+            # External Postgres instead of local SQLite. The *arr apps read
+            # these as PostgresOptions and create their schema on first start.
+            #
+            # Postgres starts EMPTY - the app does not migrate its own data - so
+            # the existing config is loaded separately once the schema exists.
+            # Cutting over without that step silently presents an empty install.
+            - name: READARR__POSTGRES__HOST
+              value: app-databases-rw.databases.svc.cluster.local
+            - name: READARR__POSTGRES__PORT
+              value: "5432"
+            - name: READARR__POSTGRES__MAINDB
+              value: readarr_main
+            - name: READARR__POSTGRES__LOGDB
+              value: readarr_log
+            - name: READARR__POSTGRES__USER
+              valueFrom:
+                secretKeyRef: {name: readarr-db, key: user}
+            - name: READARR__POSTGRES__PASSWORD
+              valueFrom:
+                secretKeyRef: {name: readarr-db, key: password}
           ports:
             - name: http
               containerPort: 8787
