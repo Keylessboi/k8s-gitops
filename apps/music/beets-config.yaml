@@ -167,10 +167,25 @@ data:
         # survives pod restarts, evictions and node reboots: a re-run picks
         # up where the last one stopped.
         incremental: yes
-        # Default, kept explicit: SKIPPED directories are NOT recorded, so
-        # an album that was skipped because Lidarr was still writing it gets
-        # retried on the next run instead of being lost forever.
-        incremental_skip_later: no
+        # YES, which is NOT the default and reads backwards. importer.py
+        # finalize() does:
+        #     if incremental and not (self.skip and incremental_skip_later):
+        #         self.save_history()
+        # so with the default `no`, a directory the quiet importer SKIPPED is
+        # still written to the incremental list and is never looked at again.
+        # Measured on this cluster: an album that quiet_fallback skipped came
+        # back as "Skipping previously-imported path" on the very next run.
+        #
+        # That is the wrong failure mode here. Albums get skipped because
+        # Lidarr was still writing them, because MusicBrainz was flaky, or
+        # because half the tracks had not landed yet - all of which fix
+        # themselves given another pass. `yes` means skipped directories are
+        # not recorded, so the next run retries them.
+        #
+        # The cost is that genuinely unmatchable albums are retried on every
+        # run forever. Once the library has settled, `beet unimported` will
+        # list them; deal with them by hand and flip this back to `no`.
+        incremental_skip_later: yes
 
         timid: no
         detail: no
