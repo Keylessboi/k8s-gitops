@@ -87,25 +87,51 @@ spec:
             # category alone cannot say who queued a torrent. The tag can.
             - name: QBITTORRENT_TAG
               value: shelfmark
-            # Keep the torrent after import - removing it would delete the data
-            # the hardlink below shares, and end seeding.
+            # Keep the torrent after import - removing it would delete the
+            # data behind the seed. Copying (not hardlinking, see below) into
+            # ingest means the seed is never entangled with what CWA consumes.
             - name: PROWLARR_TORRENT_ACTION
               value: keep
-            # Hardlink rather than copy when moving a finished torrent into the
-            # ingest folder - same filesystem, so the seed keeps its data and
-            # the book is not stored twice. This is the TRaSH layout's whole
-            # point and only works because both paths are on the one mount.
+            # Inert. TORRENT_HARDLINK is the pre-1.0 name; should_hardlink()
+            # reads HARDLINK_TORRENTS and only falls back to this when that is
+            # None, but HARDLINK_TORRENTS is a registered field so it resolves
+            # to its default rather than None and the fallback never fires.
+            # The one place it still mattered was the legacy settings migration
+            # (TORRENT_HARDLINK -> HARDLINK_TORRENTS/_AUDIOBOOK), and that
+            # migration returns early once DESTINATION/FILE_ORGANIZATION exist
+            # in /config/plugins/downloads.json - which they now do. Kept at
+            # false only so it cannot contradict the real key below.
             - name: TORRENT_HARDLINK
-              value: "true"
-            # TORRENT_HARDLINK above is the pre-1.0 name and no longer reaches
-            # the code that matters. should_hardlink() reads HARDLINK_TORRENTS
-            # and only falls back to TORRENT_HARDLINK when that is None - but
-            # HARDLINK_TORRENTS is a registered field, so it resolves to its
-            # default of False rather than None and the fallback never fires.
-            # The pod confirmed it: HARDLINK_TORRENTS=False, TORRENT_HARDLINK
-            # =None. Everything above was copying, not hardlinking.
+              value: "false"
+            # FALSE ON PURPOSE, and this is load-bearing - do not "fix" it back
+            # to true. Hardlinking is the storage-correct choice everywhere
+            # else in this cluster, but it is silently incompatible with how
+            # Calibre-Web-Automated watches its ingest folder.
+            #
+            # CWA's watcher is, verbatim from
+            # /etc/s6-overlay/s6-rc.d/cwa-ingest-service/run:
+            #     inotifywait -m -r --format="%e %w%f" \
+            #         -e close_write -e moved_to "$WATCH_FOLDER"
+            # It listens for exactly two events: close_write and moved_to.
+            # shelfmark's atomic_hardlink() (download/fs.py) publishes with a
+            # bare os.link() straight to the final path - no temp file, no
+            # rename - and link(2) emits only IN_CREATE. Neither watched event
+            # ever fires, so a hardlinked book lands in the ingest folder and
+            # sits there forever, correct and complete and completely ignored.
+            # Verified in place: hardlinking an epub into the ingest folder
+            # produced no cwa-ingest-service log line at all, while the same
+            # bytes delivered as a copy were imported within seconds.
+            #
+            # atomic_copy() writes a temp file in the destination directory and
+            # publishes it with os.replace() - that rename IS a moved_to, which
+            # CWA sees. Hence copy.
+            #
+            # The duplicate-storage cost this used to avoid is nearly zero
+            # anyway: the ingest folder is a staging area, and CWA moves the
+            # file into the Calibre library and empties ingest on import. The
+            # copy exists for seconds. The seed is untouched either way.
             - name: HARDLINK_TORRENTS
-              value: "true"
+              value: "false"
             # Native OIDC, in addition to the forward-auth middleware on the
             # Ingress. Forward-auth alone authenticates at the edge and leaves
             # the app itself anonymous - every request arrives as the same
