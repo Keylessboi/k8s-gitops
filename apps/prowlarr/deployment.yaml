@@ -31,6 +31,27 @@ spec:
               value: "1000"
             - name: TZ
               value: UTC
+            # External Postgres instead of local SQLite. The *arr apps read
+            # these as PostgresOptions and create their schema on first start.
+            #
+            # Postgres starts EMPTY - the app does not migrate its own data - so
+            # the existing config is loaded separately with pgloader after the
+            # schema exists. Cutting over without that step silently presents an
+            # empty install.
+            - name: PROWLARR__POSTGRES__HOST
+              value: app-databases-rw.databases.svc.cluster.local
+            - name: PROWLARR__POSTGRES__PORT
+              value: "5432"
+            - name: PROWLARR__POSTGRES__MAINDB
+              value: prowlarr_main
+            - name: PROWLARR__POSTGRES__LOGDB
+              value: prowlarr_log
+            - name: PROWLARR__POSTGRES__USER
+              valueFrom:
+                secretKeyRef: {name: prowlarr-db, key: user}
+            - name: PROWLARR__POSTGRES__PASSWORD
+              valueFrom:
+                secretKeyRef: {name: prowlarr-db, key: password}
           ports:
             - name: http
               containerPort: 9696
