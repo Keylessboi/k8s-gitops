@@ -147,12 +147,20 @@ spec:
             # resolve from another namespace.
             - name: USING_EXTERNAL_BYPASSER
               value: "true"
-            # Default is 60000ms. A cold FlareSolverr working through an Anna's
-            # Archive challenge on a box that is also serving the indexers
-            # routinely needs longer than that. 120000 is inside the accepted
-            # 10000-300000 range.
+            # 60000, NOT the 120000 this used to carry. The client-side read
+            # timeout is min(EXT_BYPASSER_TIMEOUT/1000 + 15, MAX_READ_TIMEOUT)
+            # and MAX_READ_TIMEOUT is a hard constant of 120 in
+            # bypass/external_bypasser.py. At 120000 that resolves to
+            # min(135, 120) = 120s - exactly the maxTimeout we hand FlareSolverr
+            # - so the 15s buffer vanished and requests could ONLY end as a
+            # client timeout, never as a FlareSolverr answer. Worse, abandoning
+            # the HTTP request does not cancel the Chrome session behind it, so
+            # every timeout left a solve running and the FlareSolverr task queue
+            # climbed monotonically (observed 1 -> 6 and rising while this pod
+            # was the only client). 60000 gives a real 15s margin: FlareSolverr
+            # gets 60s to solve, the client waits 75s.
             - name: EXT_BYPASSER_TIMEOUT
-              value: "120000"
+              value: "60000"
             # Prowlarr, as a release source in its own right. The mirrors
             # below cover the open web; this covers everything Prowlarr already
             # authenticates against, so a book that only exists on a tracker is
@@ -207,13 +215,37 @@ spec:
             # error. Naming a specific mirror here would pin it and lose that.
             - name: AA_BASE_URL
               value: auto
-            # Ordered deliberately: the .li/.pm/.gl/.pk domains all resolve
-            # today, the canonical .org/.se are kept as trailing fallbacks.
+            # Only the two hosts that actually serve Anna's Archive from this
+            # network. Measured from inside the pod, 2026-08-27:
+            #   .gl  200 in 0.66s, page says "Anna's Archive"   KEEP
+            #   .pk  200 in 1.56s, page says "Anna's Archive"   KEEP
+            #   .li  200 but NOT an AA page - the app quarantines it on every
+            #        boot ("responded without an Anna's Archive page")
+            #   .pm  TCP connect fails outright
+            #   .org NXDOMAIN
+            #   .se  NXDOMAIN
+            # The two NXDOMAIN entries were the expensive ones. A non-resolving
+            # host still gets handed to FlareSolverr, which spins up Chrome,
+            # fails with net::ERR_NAME_NOT_RESOLVED and returns HTTP 500 - after
+            # 46-75s, measured repeatedly in the FlareSolverr log. Six mirrors
+            # with four dead ones meant the bypasser's 5-attempt rotation spent
+            # most of its budget on hosts that cannot resolve.
             - name: AA_MIRROR_URLS
-              value: https://annas-archive.li,https://annas-archive.pm,https://annas-archive.gl,https://annas-archive.pk,https://annas-archive.org,https://annas-archive.se
-            # Tried in the order listed until one answers.
+              value: https://annas-archive.gl,https://annas-archive.pk
+            # Every one of these is dead from this network. Measured from
+            # inside the pod, 2026-08-27:
+            #   libgen.is / .rs / .st  all resolve to the SAME IP
+            #     (193.218.118.42) and all blackhole TCP - no SYN-ACK, so each
+            #     attempt burns the full connect timeout
+            #   libgen.la / .vg / .li  answer 200 fast, but the body is the
+            #     stock "Welcome to nginx!" page, on the root AND on
+            #     /index.php?req=... - parked domains, not Library Genesis
+            # The three blackholed hosts are dropped so nothing waits on a
+            # connect that never completes; the three that answer are kept so
+            # re-enabling the source is a one-line edit if they ever come back.
+            # The source itself is switched off in FAST_SOURCES_DISPLAY below.
             - name: LIBGEN_MIRROR_URLS
-              value: https://libgen.is,https://libgen.rs,https://libgen.st,https://libgen.la,https://libgen.vg,https://libgen.li
+              value: https://libgen.la,https://libgen.vg,https://libgen.li
             # Z-Library and Welib use only the FIRST entry; the rest are here so
             # failing over is a one-line edit rather than research.
             - name: ZLIB_MIRROR_URLS
@@ -226,22 +258,34 @@ spec:
             - name: DIRECT_DOWNLOAD_ENABLED
               value: "true"
             # These two are JSON arrays, not comma lists (OrderableListField).
-            # Fast sources first: LibGen needs no Cloudflare bypass at all, so
-            # it is both the quickest path and the one that still works if
-            # FlareSolverr is down - hence ahead of aa-fast, which self-disables
-            # anyway because we have no donator key.
+            # libgen is DISABLED, not merely deprioritised. It was first in the
+            # list, so every single search led with it - and all six of its
+            # mirrors are dead from here (see LIBGEN_MIRROR_URLS above). A dead
+            # host is not a fast failure: html_get_page retries transport errors
+            # MAX_RETRY times against the same URL with backoff, so leading with
+            # LibGen put roughly a minute and a half of guaranteed-useless
+            # connect timeouts in front of every result set. Flip this back to
+            # true the moment a mirror above serves real Library Genesis HTML.
             - name: FAST_SOURCES_DISPLAY
-              value: '[{"id": "libgen", "enabled": true}, {"id": "aa-fast", "enabled": true}]'
+              value: '[{"id": "libgen", "enabled": false}, {"id": "aa-fast", "enabled": true}]'
             # Slow sources, tried after those. aa-slow-wait is last on purpose:
             # it parks the download behind a countdown timer, so it should only
             # be reached once every mirror that fails fast has been tried.
             - name: SOURCE_PRIORITY
               value: '[{"id": "aa-slow-nowait", "enabled": true}, {"id": "zlib", "enabled": true}, {"id": "welib", "enabled": true}, {"id": "aa-slow-wait", "enabled": true}]'
-            # Higher than the 10 / 5s defaults: each attempt now has several
-            # mirrors to fall through, and challenge-solved requests are slow
-            # enough that a 5s backoff just hammers a host that is rate-limiting.
+            # 3, down from 15. The 15 assumed this counter walks the mirror
+            # list; it does not. MAX_RETRY is the retry_limit of the transport
+            # loop in download/http.py, and every attempt re-requests the SAME
+            # url - mirror rotation happens a layer down, inside the bypasser's
+            # own MAX_RETRY=5 constant, and the 403-to-bypasser path returns
+            # directly rather than looping. So 15 only ever multiplied the wait
+            # on a host that was already failing: a blackholed mirror cost
+            # 15 x 5s connect timeout plus backoff before the search moved on.
+            # Upstream's default is 10 and its own comments call 1 the supported
+            # value; 3 keeps a genuine retry for a flaky host without turning a
+            # dead one into a two-minute stall.
             - name: MAX_RETRY
-              value: "15"
+              value: "3"
             - name: DEFAULT_SLEEP
               value: "10"
             # Universal mode searches metadata first and then offers every
