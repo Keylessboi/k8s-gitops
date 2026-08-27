@@ -1,0 +1,54 @@
+---
+# The OPDS catalogue, exempted from Authentik forward-auth so e-reader clients
+# can actually reach it.
+#
+# KOReader (and every other OPDS client) is not a browser: it authenticates
+# with an HTTP Basic header and cannot run an OAuth redirect flow. With
+# forward-auth attached, https://books.sandstorm.chat/opds answered 302 to
+# authentik.sandstorm.chat/application/o/authorize/..., which such a client
+# follows into an HTML login page and then fails to parse. The feed was
+# unusable from anything but a logged-in browser.
+#
+# So this is a SEPARATE Ingress, the same trick as the outpost callback in
+# authentik-outpost.yaml: middleware annotations apply to every rule in an
+# Ingress, so the only way to drop forward-auth from one path is to give that
+# path its own Ingress. Traefik prefers the longer rule, so /opds lands here
+# and everything else stays on the books Ingress, still behind Authentik.
+#
+# Dropping forward-auth does not leave the path bare. Calibre-Web-Automated
+# does its own auth on this endpoint - unauthenticated requests get
+# 401 WWW-Authenticate: Basic from CWA itself - and CrowdSec and rate limiting
+# are still attached below. Only the Authentik check is omitted, and only for
+# /opds; the scope is deliberately this one prefix.
+#
+# Every OPDS route lives under it, downloads and covers included
+# (/opds/download/<id>/<format>/, /opds/cover/<id>, /opds/search/...), so one
+# prefix covers the whole catalogue and nothing outside it.
+#
+# No cert-manager annotation: it would race the books Ingress over the same
+# secret. This just reuses the certificate that one obtains.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: books-opds
+  namespace: books
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - books.sandstorm.chat
+      secretName: books-tls
+  rules:
+    - host: books.sandstorm.chat
+      http:
+        paths:
+          - path: /opds
+            pathType: Prefix
+            backend:
+              service:
+                name: calibre-web-automated
+                port:
+                  number: 8083

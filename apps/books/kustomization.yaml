@@ -38,3 +38,4 @@ resources:
   - ingress.yaml
   - authentik-outpost.yaml
   - book-downloader-ingress.yaml
+  - opds-ingress.yaml
