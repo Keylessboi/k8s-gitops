@@ -104,6 +104,109 @@ spec:
                 secretKeyRef: {name: bookdl-oidc, key: client-secret}
             - name: EXT_BYPASSER_URL
               value: http://flaresolverr.flaresolverr.svc.cluster.local:8191
+            # FlareSolverr is the bypasser, always. USE_CF_BYPASS above only
+            # says "solve Cloudflare challenges"; it does not say who solves
+            # them. Left at its default of false, the app instead drives its
+            # own headless Chromium inside this pod - which will not fit in a
+            # 512Mi limit. EXT_BYPASSER_URL above is deliberately the
+            # fully-qualified service name: a bare `flaresolverr` host does not
+            # resolve from another namespace.
+            - name: USING_EXTERNAL_BYPASSER
+              value: "true"
+            # Default is 60000ms. A cold FlareSolverr working through an Anna's
+            # Archive challenge on a box that is also serving the indexers
+            # routinely needs longer than that. 120000 is inside the accepted
+            # 10000-300000 range.
+            - name: EXT_BYPASSER_TIMEOUT
+              value: "120000"
+            # Mirrors, so no single host is a single point of failure. Upstream
+            # ships NO defaults at all (core/mirrors.py: DEFAULT_AA_MIRRORS and
+            # friends are empty lists), so every direct-download source stays
+            # locked out until these are set - which is why downloads have been
+            # entirely dependent on whatever one host the app happened to try.
+            # All four keys are comma-separated lists, not JSON.
+            #
+            # auto = try AA_MIRROR_URLS in order at startup and fail over on
+            # error. Naming a specific mirror here would pin it and lose that.
+            - name: AA_BASE_URL
+              value: auto
+            # Ordered deliberately: the .li/.pm/.gl/.pk domains all resolve
+            # today, the canonical .org/.se are kept as trailing fallbacks.
+            - name: AA_MIRROR_URLS
+              value: https://annas-archive.li,https://annas-archive.pm,https://annas-archive.gl,https://annas-archive.pk,https://annas-archive.org,https://annas-archive.se
+            # Tried in the order listed until one answers.
+            - name: LIBGEN_MIRROR_URLS
+              value: https://libgen.is,https://libgen.rs,https://libgen.st,https://libgen.la,https://libgen.vg,https://libgen.li
+            # Z-Library and Welib use only the FIRST entry; the rest are here so
+            # failing over is a one-line edit rather than research.
+            - name: ZLIB_MIRROR_URLS
+              value: https://z-lib.gd,https://z-lib.fm,https://z-library.sk
+            - name: WELIB_MIRROR_URLS
+              value: https://welib.org
+            # The mirrors above are inert until the Direct Download source is
+            # switched on - it is off by default, so this is what actually puts
+            # AA/LibGen/Z-Lib/Welib in front of a search.
+            - name: DIRECT_DOWNLOAD_ENABLED
+              value: "true"
+            # These two are JSON arrays, not comma lists (OrderableListField).
+            # Fast sources first: LibGen needs no Cloudflare bypass at all, so
+            # it is both the quickest path and the one that still works if
+            # FlareSolverr is down - hence ahead of aa-fast, which self-disables
+            # anyway because we have no donator key.
+            - name: FAST_SOURCES_DISPLAY
+              value: '[{"id": "libgen", "enabled": true}, {"id": "aa-fast", "enabled": true}]'
+            # Slow sources, tried after those. aa-slow-wait is last on purpose:
+            # it parks the download behind a countdown timer, so it should only
+            # be reached once every mirror that fails fast has been tried.
+            - name: SOURCE_PRIORITY
+              value: '[{"id": "aa-slow-nowait", "enabled": true}, {"id": "zlib", "enabled": true}, {"id": "welib", "enabled": true}, {"id": "aa-slow-wait", "enabled": true}]'
+            # Higher than the 10 / 5s defaults: each attempt now has several
+            # mirrors to fall through, and challenge-solved requests are slow
+            # enough that a 5s backoff just hammers a host that is rate-limiting.
+            - name: MAX_RETRY
+              value: "15"
+            - name: DEFAULT_SLEEP
+              value: "10"
+            # Universal mode searches metadata first and then offers every
+            # enabled release source (the mirrors above plus qBittorrent).
+            # Direct mode would narrow searching back down to Anna's Archive.
+            - name: SEARCH_MODE
+              value: universal
+            # Hardcover over the stock openlibrary: the API key is already wired
+            # up above, and its series/edition data is the better of the two.
+            - name: METADATA_PROVIDER
+              value: hardcover
+            # Comma-separated. Stock list omits PDF, which is the only format a
+            # lot of technical books exist in.
+            - name: SUPPORTED_FORMATS
+              value: epub,mobi,azw3,pdf,fb2,djvu,cbz,cbr
+            - name: BOOK_LANGUAGE
+              value: en
+            # Below the default of 3: one FlareSolverr instance is shared with
+            # the Prowlarr indexers, and three concurrent challenge solves
+            # starve it for everyone.
+            - name: MAX_CONCURRENT_DOWNLOADS
+              value: "2"
+            # Cache metadata so repeat searches do not re-spend the Hardcover
+            # API quota. 30min/1h, well inside the 604800s ceiling.
+            - name: METADATA_CACHE_ENABLED
+              value: "true"
+            - name: METADATA_CACHE_SEARCH_TTL
+              value: "1800"
+            - name: METADATA_CACHE_BOOK_TTL
+              value: "3600"
+            # Covers cache under CONFIG_DIR (/config), which has no PVC behind
+            # it - it is the container's writable layer. Keep it well under the
+            # stock 500MB cap so a long-lived pod cannot quietly eat node disk.
+            # TTL 0 means evict by size only, which is right for static artwork.
+            - name: COVERS_CACHE_ENABLED
+              value: "true"
+            - name: COVERS_CACHE_MAX_SIZE_MB
+              value: "200"
+            - name: COVERS_CACHE_TTL
+              value: "0"
+            - name: LOG_LEVEL
+              value: INFO
           ports:
             - name: http
               containerPort: 8084
