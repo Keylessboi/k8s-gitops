@@ -38,11 +38,22 @@ spec:
           # directly and cannot complete an Authentik login flow, so fronting
           # this with the outpost would break every client except the web vault.
           #
+          # OIDCWarden, which is what timshel/vaultwarden was renamed to. The
+          # old repo is stalled - its image tags stop at 1.33.x and its `main`
+          # still lacks `POST /accounts/prelogin/password`, a route newer
+          # Bitwarden clients call before a password login. Missing it returned
+          # 404, which every client reports as "an unexpected error has
+          # occurred" - so password login was impossible while SSO worked fine,
+          # because SSO never touches that endpoint.
+          #
+          # Migration is one added column (`organizations.external_id`) plus a
+          # few extra rows in `__diesel_schema_migrations`, applied on startup.
+          # Upstream documents Vaultwarden running directly on an OIDCWarden
+          # database, so this is reversible.
+          #
           # Trade-off accepted knowingly: a community fork of a password
-          # manager, currently one patch behind upstream (1.34.1 vs 1.34.3).
-          # It tracks upstream closely and is actively maintained. The database
-          # schema is identical, so the Postgres data carries over untouched.
-          image: ghcr.io/timshel/vaultwarden:1.34.1-1-alpine
+          # manager. It tracks upstream closely and is actively maintained.
+          image: ghcr.io/timshel/oidcwarden:v2026.8.0-1-alpine
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
