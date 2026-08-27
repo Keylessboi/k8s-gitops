@@ -302,8 +302,16 @@ spec:
             # The mirrors above are inert until the Direct Download source is
             # switched on - it is off by default, so this is what actually puts
             # AA/LibGen/Z-Lib/Welib in front of a search.
+            #
+            # OFF. Direct download's search backend is Anna's Archive ONLY
+            # (search_books() -> get_aa_base_url(); zlib/welib are MD5-fetch-only
+            # and libgen's mirrors are dead nginx parks). AA is DDoS-Guarded and
+            # unsolvable from here (83s error per search), so direct download
+            # cannot function at all - disabling it stops the UI offering a dead
+            # source and makes book search rely on Prowlarr's healthy torrent
+            # indexers via qBittorrent, which is the working acquisition path.
             - name: DIRECT_DOWNLOAD_ENABLED
-              value: "true"
+              value: "false"
             # These two are JSON arrays, not comma lists (OrderableListField).
             # libgen is DISABLED, not merely deprioritised. It was first in the
             # list, so every single search led with it - and all six of its
