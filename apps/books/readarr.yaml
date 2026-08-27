@@ -67,6 +67,17 @@ spec:
           ports:
             - name: http
               containerPort: 8787
+          # Readarr sat at 1/1 Running through an entire crash-loop during the Postgres
+          # cutover: with no readiness probe, a container that never bound 8787 still
+          # counted as ready. /ping verified returning 200.
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
           resources:
             requests:
               cpu: 25m

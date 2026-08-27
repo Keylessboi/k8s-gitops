@@ -58,6 +58,15 @@ spec:
           ports:
             - name: http
               containerPort: 7476
+          # Verified 200. /api/healthz is a 404 on this build.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
           resources:
             requests:
               cpu: 10m
