@@ -296,9 +296,8 @@ spec:
             # also hid Anna's Archive being dead.
             - name: ZLIB_MIRROR_URLS
               value: https://z-library.sk,https://z-lib.fm,https://1lib.sk
-            # welib REMOVED entirely (owner request).
             - name: WELIB_MIRROR_URLS
-              value: ""
+              value: https://welib.org
             # The mirrors above are inert until the Direct Download source is
             # switched on - it is off by default, so this is what actually puts
             # AA/LibGen/Z-Lib/Welib in front of a search.
@@ -311,7 +310,7 @@ spec:
             # source and makes book search rely on Prowlarr's healthy torrent
             # indexers via qBittorrent, which is the working acquisition path.
             - name: DIRECT_DOWNLOAD_ENABLED
-              value: "false"
+              value: "true"
             # These two are JSON arrays, not comma lists (OrderableListField).
             # libgen is DISABLED, not merely deprioritised. It was first in the
             # list, so every single search led with it - and all six of its
@@ -343,7 +342,7 @@ spec:
             # was always the worst case, and aa-slow-nowait shares AA's dead
             # search path. Flip either back to true if AA becomes solvable again.
             - name: SOURCE_PRIORITY
-              value: '[{"id": "zlib", "enabled": true}, {"id": "welib", "enabled": false}, {"id": "aa-slow-nowait", "enabled": false}, {"id": "aa-slow-wait", "enabled": false}]'
+              value: '[{"id": "zlib", "enabled": true}, {"id": "welib", "enabled": true}, {"id": "aa-slow-nowait", "enabled": false}, {"id": "aa-slow-wait", "enabled": false}]'
             # 3, down from 15. The 15 assumed this counter walks the mirror
             # list; it does not. MAX_RETRY is the retry_limit of the transport
             # loop in download/http.py, and every attempt re-requests the SAME
