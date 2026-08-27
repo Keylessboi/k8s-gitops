@@ -217,6 +217,32 @@ Ingress — stop and check `apps/books/opds-ingress.yaml` is still applied.
 
 ## 3. Add the catalog in KOReader
 
+### First: the Calibre plugin is the WRONG tool **(verified)**
+
+In the same **Search (magnifier)** tab, directly above *OPDS catalog*, sits
+**Find book in calibre catalog**. It is one line away and it is the wrong
+feature. Its menu reads *Manage libraries* / *Rescan disk for calibre
+libraries* / *No calibre libraries* — the giveaway is the word **disk**.
+
+KOReader's `calibre.koplugin` does exactly two things **(verified in
+`plugins/calibre.koplugin/main.lua`)**:
+
+1. **Metadata search** — walks the device's own storage looking for a
+   `metadata.calibre` file written by a real Calibre install. It never makes a
+   network request to a server.
+2. **Calibre wireless** — the Calibre desktop app's "Connect to folder /
+   Smart device app" protocol, a custom binary protocol on port 9090 to a
+   *running Calibre GUI on your LAN*. CWA does not speak it.
+
+Neither reaches a remote CWA server. Scanning will keep returning
+**"No calibre libraries"** forever, because there is no Calibre library on the
+Kindle's disk.
+
+**To back out:** press the **back arrow** (top-left of the dialog), or tap
+outside the popup, until you are at the plain file manager. Then re-open the
+menu and pick the *last* entry in the Search tab, **OPDS catalog** — below the
+separator, below the calibre entry.
+
 ### The URL
 
 Use exactly:
@@ -251,6 +277,11 @@ KOReader TLS bug).
 4. Scroll to the bottom: **OPDS catalog**.
 5. Tap the **hamburger / ☰ button in the top-left** of the OPDS screen → **Add
    catalog**.
+
+   **(verified)** On the OPDS *root* screen the left title-bar icon is always
+   the hamburger (`appbar.menu`). A **＋** icon appears there only once you
+   have navigated *into* a catalog, where it means "add this sub-catalog as its
+   own entry" — not "add a new server". If you see ＋, back out one level.
 6. Fill the four fields:
 
    | Field | Value |
@@ -588,6 +619,7 @@ a different OPDS client that *does* fetch it.
 |---|---|---|
 | KOReader: *"Authentication required for catalog"* | 401 — blank or wrong credentials | Re-enter username/password on the catalog (☰ → long-press catalog → **Edit**). Verify from a laptop with the `curl -u` command in §2 first. |
 | Feed loads, but tapping a book gives an error / 401 | The `kindle` user is missing **Allow Downloads** | Admin → Users → `kindle` → tick **Allow Downloads**. `/opds/download/...` calls `role_download()` explicitly. Everything else in the feed works without it, which makes this failure look mysterious. |
+| Calibre plugin says *"No calibre libraries"* no matter how often you rescan | Wrong plugin — it scans the device disk, and talks to a running Calibre GUI over LAN. It cannot reach CWA. | Back out, use **Search tab → OPDS catalog** (the entry *below* it). §3. |
 | KOReader shows an HTML login page, or garbled parse errors | You hit a path outside `/opds` and got redirected to Authentik | Check the catalog URL is exactly `https://books.sandstorm.chat/opds`. Not `/opds/nav/start`, not `/`. |
 | Browser redirect to `authentik.sandstorm.chat` for `/opds` itself | The `books-opds` Ingress is gone or lost its rule | `kubectl get ingress -n books` — you should see both `books` and `books-opds`. If missing, check ArgoCD synced `apps/books/opds-ingress.yaml`. **Fix it in git, not with `kubectl edit`** — selfHeal reverts. |
 | `tlsv1 protocol error` | Almost certainly a malformed URL (missing `https://`, or `host:port`) | Retype the URL with the scheme. The server offers only TLS 1.2/1.3 and KOReader speaks both. |
