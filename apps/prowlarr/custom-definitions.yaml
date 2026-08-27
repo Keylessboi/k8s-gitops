@@ -1,133 +1,20 @@
 ---
 # Custom Cardigann definitions, mounted over Prowlarr's user-definition
-# directory. Prowlarr loads anything here in preference to the built-in
-# definition of the same id, so this is how a fix ships ahead of upstream -
-# and it stays in git rather than being a file someone once edited inside a
-# pod and cannot account for later.
+# directory (/config/Definitions). Prowlarr loads anything here in preference
+# to the built-in definition of the same id, so this is how a fix ships ahead
+# of upstream - kept in git rather than edited inside a pod.
+#
+# Internet Archive was removed: its scanned books are OCR'd and the text
+# quality is poor. IA reached the book pipeline ONLY through this definition
+# (Shelfmark's own sources are Anna's Archive / LibGen / Z-Lib / Welib), so
+# dropping it here plus deleting the live Prowlarr indexer removes it entirely.
+#
+# The ConfigMap is intentionally kept (empty) because prowlarr/deployment.yaml
+# mounts it as a volume; deleting it would leave a dangling volume reference.
+# Add future custom definitions back under data:.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: prowlarr-definitions
   namespace: prowlarr
-data:
-  internetarchive.yml: |
-    ---
-    id: internetarchive
-    name: Internet Archive
-    description: "Internet Archive is a non-profit digital library offering free universal access to books, movies & music, as well as 406 billion archived web pages"
-    language: en-US
-    type: public
-    encoding: UTF-8
-    links:
-      - https://archive.org/
-    
-    caps:
-      categorymappings:
-        - {id: audio, cat: Audio, desc: audio}
-        - {id: etree, cat: Audio, desc: etree}
-        - {id: movies, cat: Movies, desc: movies}
-        - {id: movies, cat: TV, desc: movies}
-        - {id: image, cat: Other/Misc, desc: image}
-        - {id: texts, cat: Books, desc: texts}
-        - {id: software, cat: PC, desc: software}
-        - {id: web, cat: Other, desc: web}
-        - {id: collection, cat: Other, desc: collection}
-        - {id: account, cat: Other, desc: account}
-        - {id: data, cat: Other, desc: data}
-        - {id: other, cat: Other, desc: other}
-    
-      modes:
-        search: [q]
-        tv-search: [q, season, ep]
-        movie-search: [q]
-        music-search: [q]
-        book-search: [q]
-    
-    settings:
-      - name: titleOnly
-        type: checkbox
-        label: Search only in title
-        default: true
-      - name: noMagnet
-        type: checkbox
-        label: Download using .torrent only. No Magnets.
-        default: false
-      - name: sort
-        type: select
-        label: Sort requested from site
-        default: publicdate
-        options:
-          publicdate: created
-          downloads: downloads
-          item_size: size
-      - name: type
-        type: select
-        label: Order requested from site
-        default: "-"
-        options:
-          "-": desc
-          "_": asc
-    
-    search:
-      paths:
-        - path: advancedsearch.php
-          response:
-            type: json
-    
-      inputs:
-        q: "{{ if and .Config.titleOnly .Keywords }}title:({{ else }}{{ end }}{{ if .Keywords }}{{ .Keywords }}{{ else }}{{ end }}{{ if and .Config.titleOnly .Keywords }}){{ else }}{{ end }}{{ if .Keywords }} AND {{ else }}{{ end }}format:(\"Archive BitTorrent\"){{ if .Categories }} AND mediatype:({{ join .Categories \" OR \" }}){{ else }}{{ end }}"
-        fl[]: "identifier,title,mediatype,item_size,downloads,btih,publicdate"
-        sort: "{{ if .Keywords }}{{ re_replace .Config.type \"_\" \"\" }}{{ .Config.sort }}{{ else }}-publicdate{{ end }}"
-        rows: 100
-        output: json
-    
-      # archive.org tarpits Prowlarr's User-Agent on its SEARCH endpoints: the
-      # request is accepted and then never answered, so Prowlarr reports
-      # "indexer's server is unavailable, Http request timed out" and eventually
-      # disables the indexer. Verified from inside the Prowlarr pod - the identical
-      # URL returns in ~1s with wget's default UA and hangs past 120s with
-      # Prowlarr's, while archive.org's root page answers fine with either. This is
-      # the same workaround several upstream definitions already use.
-      headers:
-        User-Agent: ["Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"]
-    
-      rows:
-        selector: response.docs
-        count:
-          selector: response.numFound
-    
-      fields:
-        _id:
-          selector: identifier
-        category:
-          selector: mediatype
-        title:
-          selector: title
-          optional: true
-          default: "Missing title for {{ .Result._id }}"
-        details:
-          text: "details/{{ .Result._id }}"
-        download:
-          text: "download/{{ .Result._id }}/{{ .Result._id }}_archive.torrent"
-        _btih:
-          selector: btih
-          optional: true
-        infohash:
-          text: "{{ if .Config.noMagnet }}{{ else }}{{ .Result._btih }}{{ end }}"
-        date:
-          # 2021-10-25T16:44:43Z
-          selector: publicdate
-        size:
-          selector: item_size
-        grabs:
-          selector: downloads
-          optional: true
-        seeders:
-          text: 1
-        leechers:
-          text: 1
-        downloadvolumefactor:
-          text: 0
-        uploadvolumefactor:
-          text: 1
-    # json Elasticsearch
+data: {}
