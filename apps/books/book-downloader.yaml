@@ -42,6 +42,36 @@ spec:
             # the FlareSolverr instance already running for the indexers.
             - name: USE_CF_BYPASS
               value: "true"
+            # Native OIDC, in addition to the forward-auth middleware on the
+            # Ingress. Forward-auth alone authenticates at the edge and leaves
+            # the app itself anonymous - every request arrives as the same
+            # nobody, so its own user model and admin checks are inert. With
+            # this the app knows who you are, and the Admin group maps through.
+            # Both point at the same Authentik, so it is one login, not two.
+            - name: AUTH_METHOD
+              value: oidc
+            - name: OIDC_DISCOVERY_URL
+              value: https://authentik.sandstorm.chat/application/o/bookdl/.well-known/openid-configuration
+            - name: OIDC_SCOPES
+              value: openid email profile
+            - name: OIDC_BUTTON_LABEL
+              value: Authentik
+            - name: OIDC_AUTO_PROVISION
+              value: "true"
+            - name: OIDC_AUTO_REDIRECT
+              value: "true"
+            - name: OIDC_GROUP_CLAIM
+              value: groups
+            - name: OIDC_USE_ADMIN_GROUP
+              value: "true"
+            - name: OIDC_ADMIN_GROUP
+              value: Admin
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef: {name: bookdl-oidc, key: client-id}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: bookdl-oidc, key: client-secret}
             - name: EXT_BYPASSER_URL
               value: http://flaresolverr.flaresolverr.svc.cluster.local:8191
           ports:
