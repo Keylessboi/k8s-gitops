@@ -55,8 +55,15 @@ spec:
             # so completed books land in the same place under /data/torrents.
             - name: QBITTORRENT_URL
               value: http://qbittorrent.downloads.svc.cluster.local:8080
+            # travis, not admin. qBittorrent's WebUI\Username in this cluster
+            # is `travis`, and the API answers a wrong username with HTTP 200
+            # and the body "Fails." - no error text - so the app surfaced it as
+            # an empty "Connection failed:" rather than an auth problem.
+            # Verified from inside this pod: admin -> "Fails." / 403 on any
+            # subsequent call, travis -> "Ok." / webapiVersion 2.11.4. The
+            # password in Doppler was correct all along.
             - name: QBITTORRENT_USERNAME
-              value: admin
+              value: travis
             - name: QBITTORRENT_PASSWORD
               valueFrom:
                 secretKeyRef: {name: bookdl-extras, key: qbittorrent-password}
