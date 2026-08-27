@@ -1,0 +1,287 @@
+---
+# Internet Archive torrent trimmer.
+#
+# THE PROBLEM
+# Internet Archive reaches this cluster as a torrent and nothing else. Shelfmark
+# has no IA source of its own - `grep -rn "archive.org"` over /app/shelfmark,
+# /app/docs and /app/frontend-dist inside the running pod returns nothing at
+# all - so there is no env var that could make it prefer IA's direct HTTPS
+# download over the swarm. IA arrives only through the custom Cardigann
+# definition in apps/prowlarr/definitions/internetarchive.yml, whose download
+# field is `download/<id>/<id>_archive.torrent`, and Prowlarr hands that to
+# qBittorrent. Shelfmark's download clients have no file-selection code either
+# (no filePrio/priority handling anywhere under
+# /app/shelfmark/download/clients/), so it cannot deselect anything on its own.
+#
+# An IA `_archive.torrent` mirrors the WHOLE item, not the book. Measured on
+# the one that stalled here ("The Call of The Wild",
+# callofwild0000jack_j3c4, 227 pieces of 512 KiB, 118,917,452 bytes):
+#
+#     callofwild0000jack_j3c4.epub          18,731,259   <- wanted
+#     callofwild0000jack_j3c4.pdf           10,234,454   <- wanted
+#     callofwild0000jack_j3c4_jp2.zip       76,419,939   raw page scans
+#     callofwild0000jack_j3c4_hocr.html      5,126,024   OCR
+#     callofwild0000jack_j3c4_djvu.xml       2,747,241   OCR
+#     ...plus chocr/scandata/meta/logs/thumbnails
+#
+# 29 MB of book inside 119 MB of torrent. The other 76% is scan and OCR
+# derivative output that Calibre-Web-Automated cannot ingest and nobody reads,
+# and it is exactly where the download died: the 11 pieces qBittorrent never
+# got (216/227) were one contiguous run covering _hocr.html, its two sidecars,
+# and the boundary pieces bleeding into _djvu.xml and _jp2.zip. The .epub and
+# .pdf had both reached 100% long before. With 0 seeds and 0 peers - IA
+# torrents are served by webseed alone - those pieces had no other source and
+# the torrent sat at 95.6% forever, holding up Shelfmark's import.
+#
+# WHAT THE EVIDENCE ACTUALLY SHOWS - and it is not what was assumed
+# The going theory was that IA re-derives files after publishing the .torrent,
+# so the webseed bytes no longer match the piece hashes. Checked directly
+# against archive.org rather than assumed, and it does not hold for this item:
+#
+#   - The .torrent IA serves today has infohash 759d57ad...dc27, byte-identical
+#     to the one qBittorrent holds. Same creation date (1784084876), same
+#     `created by` (ia_make_torrent). It was never regenerated.
+#   - https://archive.org/metadata/callofwild0000jack_j3c4 reports the same
+#     size for every file as the torrent, and every mtime PREDATES the
+#     torrent's creation date. Nothing was re-derived after publication.
+#   - Refetching the failed region from the webseed and re-hashing it: all 16
+#     pieces spanning _djvu.xml -> _hocr.html -> _jp2.zip match the piece
+#     hashes in the torrent EXACTLY. The bytes are obtainable and always were.
+#
+# So the stall was a transient webseed failure, not permanent corruption -
+# consistent with libtorrent dropping a web seed that returns one bad response
+# (archive.org answers 200 with a throttle page under load) and then having no
+# source left, because the swarm is empty. That distinction matters: the data
+# is worth retrying rather than abandoning, which is why the second half of
+# this job restarts rather than gives up.
+#
+# THE FIX
+# Do not ask for the 76% nobody wants. Every byte not requested is a byte that
+# cannot fail a hash check, cannot cost a web seed, and cannot stall a torrent
+# - and it makes an IA book roughly 4x smaller and 4x faster, which shrinks the
+# window in which IA can throttle us in the first place. This removes the
+# failure mode rather than cleaning up after it; the stalled-torrent recovery
+# below is the complement for the case where the .epub itself is the casualty.
+#
+# WHY A CRONJOB AND NOT SOMETHING EVENT-DRIVEN
+# qBittorrent's "run external program on torrent added" would be exact, but it
+# lives in qBittorrent.conf on a PVC - unreachable from git, so ArgoCD could
+# neither set nor reconcile it. Prowlarr's per-indexer priority (the other
+# obvious lever) lives in Prowlarr's Postgres database for the same reason.
+# A CronJob is the only one of the three this repo can actually own.
+#
+# Every two minutes is fast enough to be prevention rather than cleanup: the
+# stalled torrent averaged 96 KB/s (dl_speed_avg 96088) and took 20 minutes
+# wall clock, so a two-minute cadence catches it after ~12 MB and skips the
+# rest. Cheap, too - one short-lived pod, no image to build, standard library
+# only, the same shape as apps/lidarr/maintenance-cronjob.yaml.
+#
+# It needs no NetworkPolicy change. The books egress rule already allows
+# downloads:8080 and the downloads ingress rule already allows books on 8080
+# (both ends, as this cluster requires), because Shelfmark itself talks to
+# qBittorrent over exactly that path. Living in `books` also means it can read
+# the qBittorrent password straight from bookdl-extras, which the Doppler
+# operator already syncs into this namespace.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ia-torrent-trim
+  namespace: books
+spec:
+  schedule: "*/2 * * * *"
+  # Forbid, not Replace: a run that is somehow still going is talking to
+  # qBittorrent, and a second one racing it could set priorities from a stale
+  # file list.
+  concurrencyPolicy: Forbid
+  # A run skipped because the node was busy is not worth catching up on - the
+  # next one is 120 seconds away and recomputes everything from scratch.
+  startingDeadlineSeconds: 60
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # No retry. Every run is a full re-evaluation from live qBittorrent
+      # state, so a failed run costs nothing but a two-minute delay, and
+      # retrying a login failure 6 times a minute helps nobody.
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 300
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: trim
+              image: python:3.12-slim
+              command: ["python3", "-c"]
+              args:
+                - |
+                  import json
+                  import os
+                  import time
+                  import urllib.parse
+                  import urllib.request
+                  from http.cookiejar import CookieJar
+
+                  BASE = os.environ["QBITTORRENT_URL"].rstrip("/")
+                  CATEGORIES = {c.strip() for c in os.environ["CATEGORIES"].split(",") if c.strip()}
+                  WANTED = {"." + e.strip().lstrip(".").lower() for e in os.environ["WANTED_EXTENSIONS"].split(",") if e.strip()}
+                  STALL_SECONDS = int(os.environ["STALL_SECONDS"])
+
+                  # Set by IA's own torrent generator and by nothing else. This
+                  # is the discriminator that keeps the job off every other
+                  # torrent in the client - it is read from
+                  # /torrents/properties, which is the only place it appears.
+                  IA_CREATED_BY = "ia_make_torrent"
+
+                  opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+
+                  def call(path, params=None, post=False):
+                      url = BASE + "/api/v2/" + path
+                      data = None
+                      if params and post:
+                          data = urllib.parse.urlencode(params).encode()
+                      elif params:
+                          url += "?" + urllib.parse.urlencode(params)
+                      # qBittorrent rejects API calls whose Referer is not its
+                      # own origin, as CSRF protection.
+                      req = urllib.request.Request(url, data=data, headers={"Referer": BASE})
+                      with opener.open(req, timeout=30) as resp:
+                          return resp.read().decode("utf-8", "replace")
+
+                  def is_wanted(name):
+                      lowered = name.lower()
+                      return any(lowered.endswith(ext) for ext in WANTED)
+
+                  # A wrong username does NOT produce an HTTP error here: the
+                  # API answers 200 with the body "Fails." and every later call
+                  # then 403s. Check the body, or the failure surfaces much
+                  # later and looks like something else entirely.
+                  body = call(
+                      "auth/login",
+                      {"username": os.environ["QBITTORRENT_USERNAME"], "password": os.environ["QBITTORRENT_PASSWORD"]},
+                      post=True,
+                  ).strip()
+                  if body != "Ok.":
+                      raise SystemExit("qBittorrent login rejected with %r (200 + 'Fails.' means bad username or password)" % body)
+
+                  now = time.time()
+                  examined = trimmed = restarted = 0
+
+                  for t in json.loads(call("torrents/info")):
+                      # Rail 1: only categories this book stack owns. Both
+                      # Shelfmark (QBITTORRENT_CATEGORY) and Readarr push into
+                      # `books`. An IA torrent added by hand under any other
+                      # category is none of this job's business.
+                      if t.get("category") not in CATEGORIES:
+                          continue
+                      # Nothing to do for a torrent that already finished, and
+                      # this guarantees the job can never alter a completed or
+                      # seeding torrent.
+                      if t.get("progress", 0) >= 1:
+                          continue
+                      # Rail 2: Internet Archive torrents only.
+                      if json.loads(call("torrents/properties", {"hash": t["hash"]})).get("created_by") != IA_CREATED_BY:
+                          continue
+                      examined += 1
+
+                      files = json.loads(call("torrents/files", {"hash": t["hash"]}))
+                      keep = [f for f in files if is_wanted(f["name"])]
+
+                      # Rail 3, and the important one. If nothing in this
+                      # torrent looks like a book, this job has misunderstood
+                      # it - so it touches nothing. Without this a torrent
+                      # whose book is in some format not listed below would be
+                      # deselected in its entirety and "complete" with zero
+                      # bytes of anything.
+                      if not keep:
+                          print("skip   %s: no file matches %s, leaving all priorities alone" % (t["name"], sorted(WANTED)))
+                          continue
+
+                      # Only ever lower a priority, only on a file that is not
+                      # wanted, and only while it is still incomplete. A file
+                      # already fully downloaded is left selected - its bytes
+                      # are on disk and paid for, and deselecting it would
+                      # change what qBittorrent reports as complete for no gain.
+                      drop = [f for f in files if not is_wanted(f["name"]) and f["priority"] != 0 and f["progress"] < 1]
+                      if drop:
+                          spared = sum(f["size"] * (1 - f["progress"]) for f in drop)
+                          call(
+                              "torrents/filePrio",
+                              {"hash": t["hash"], "id": "|".join(str(f["index"]) for f in drop), "priority": 0},
+                              post=True,
+                          )
+                          trimmed += 1
+                          print("trim   %s: deselected %d derivative file(s), ~%.1f MiB not fetched" % (t["name"], len(drop), spared / 1048576.0))
+
+                      # The complement: the book file itself is the one that
+                      # stalled. The bytes are fine (verified against the
+                      # webseed - see the header), there is simply no live
+                      # source any more, so stop/start is the cheapest way to
+                      # rebuild the web seed connections libtorrent dropped.
+                      # It is non-destructive: no data is deleted and no
+                      # priority is changed.
+                      last_activity = t.get("last_activity") or 0
+                      idle = 0 < last_activity <= now and (now - last_activity) > STALL_SECONDS
+                      if (
+                          any(f["progress"] < 1 for f in keep)
+                          # A torrent the operator stopped reports stoppedDL and
+                          # is deliberately left stopped.
+                          and t.get("state") in ("downloading", "stalledDL")
+                          # Only when there is genuinely nobody to talk to. With
+                          # a real swarm, waiting is the correct behaviour.
+                          and t.get("num_seeds", 0) == 0
+                          and t.get("num_leechs", 0) == 0
+                          and idle
+                      ):
+                          # stop/start, NOT pause/resume. qBittorrent 5.x
+                          # removed the old names outright - verified against
+                          # this exact build (5.1.2, Web API 2.11.4):
+                          # POST /torrents/pause and /torrents/resume both
+                          # answer 404, /torrents/stop and /torrents/start
+                          # answer 200.
+                          call("torrents/stop", {"hashes": t["hash"]}, post=True)
+                          time.sleep(5)
+                          call("torrents/start", {"hashes": t["hash"]}, post=True)
+                          restarted += 1
+                          print("restart %s: %d min idle, 0 seeds, 0 peers, book file still incomplete" % (t["name"], (now - last_activity) / 60))
+
+                  print("done: %d Internet Archive torrent(s) in progress, %d trimmed, %d restarted" % (examined, trimmed, restarted))
+              env:
+                - name: QBITTORRENT_URL
+                  value: http://qbittorrent.downloads.svc.cluster.local:8080
+                # travis, not admin - the same account Shelfmark uses. A wrong
+                # username answers 200 with "Fails." rather than an error.
+                - name: QBITTORRENT_USERNAME
+                  value: travis
+                - name: QBITTORRENT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: bookdl-extras
+                      key: qbittorrent-password
+                # The categories Shelfmark and Readarr use.
+                - name: CATEGORIES
+                  value: books
+                # Keep exactly what CWA can ingest. This deliberately mirrors
+                # SUPPORTED_FORMATS in book-downloader.yaml and should be
+                # changed with it - a format Shelfmark can import but this job
+                # does not list would be deselected before it ever arrived.
+                #
+                # Note djvu is a real book format here and is kept, while
+                # _djvu.txt and _djvu.xml are OCR output and are not: matching
+                # is on the full extension, so `.djvu` keeps the book and
+                # `.txt`/`.xml` drop the sidecars.
+                - name: WANTED_EXTENSIONS
+                  value: epub,mobi,azw3,pdf,fb2,djvu,cbz,cbr
+                # 15 minutes of no transferred chunk at all. Well past any
+                # normal slow patch on a 96 KB/s webseed, and it self-limits:
+                # a restart resets last_activity, so a torrent that truly
+                # cannot finish is retried about four times an hour rather
+                # than continuously.
+                - name: STALL_SECONDS
+                  value: "900"
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi

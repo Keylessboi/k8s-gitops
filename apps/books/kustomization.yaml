@@ -35,6 +35,7 @@ resources:
   - calibre-web-automated.yaml
   - book-downloader.yaml
   - readarr.yaml
+  - ia-torrent-cronjob.yaml
   - ingress.yaml
   - authentik-outpost.yaml
   - book-downloader-ingress.yaml
