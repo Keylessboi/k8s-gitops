@@ -125,10 +125,16 @@ spec:
             - name: data
               mountPath: /var/lib/gitea
           readinessProbe:
+            # A git forge doing a push or a clone will not always answer in under a second.
+            timeoutSeconds: 10
+            failureThreshold: 6
             httpGet: {path: /api/healthz, port: http}
             initialDelaySeconds: 20
             periodSeconds: 10
           livenessProbe:
+            # Liveness failure restarts the forge mid-operation; be generous.
+            timeoutSeconds: 15
+            failureThreshold: 6
             httpGet: {path: /api/healthz, port: http}
             initialDelaySeconds: 90
             periodSeconds: 30

@@ -63,6 +63,11 @@ spec:
               cpu: 250m
               memory: 256Mi
           readinessProbe:
+            # Same defect that took Lidarr out of service: the default one-second
+            # timeout is not enough once an *arr app has real work to do, and this
+            # one is about to be given ~88 indexers to test and sync.
+            timeoutSeconds: 15
+            failureThreshold: 6
             httpGet:
               path: /ping
               port: http

@@ -52,11 +52,17 @@ spec:
               cpu: 500m
               memory: 512Mi
           livenessProbe:
+            # Liveness failure restarts Redis; do not do that over a slow second.
+            timeoutSeconds: 5
+            failureThreshold: 5
             exec:
               command: ["sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" ping"]
             initialDelaySeconds: 20
             periodSeconds: 20
           readinessProbe:
+            # Cheap check, but one second leaves no headroom under load.
+            timeoutSeconds: 5
+            failureThreshold: 5
             exec:
               command: ["sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" ping"]
             initialDelaySeconds: 5

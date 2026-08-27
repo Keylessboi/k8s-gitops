@@ -66,11 +66,38 @@ spec:
               value: books
             - name: QBITTORRENT_DOWNLOAD_DIR
               value: /data/torrents/books
+            # THE key that makes every QBITTORRENT_* value above do anything.
+            # Clients are not selected by "whichever one has a URL": every
+            # client's is_configured() reads this selector and returns False
+            # unless it names that client - QBittorrentClient.is_configured()
+            # is literally `client == "qbittorrent" and bool(url)`. Left at its
+            # default of "" the pod reported CONFIGURED_PROTOCOLS: [] and
+            # get_client("torrent") -> None, so no torrent could be grabbed at
+            # all and the settings above were inert.
+            - name: PROWLARR_TORRENT_CLIENT
+              value: qbittorrent
+            # Both Readarr and this app push into the `books` category, so the
+            # category alone cannot say who queued a torrent. The tag can.
+            - name: QBITTORRENT_TAG
+              value: shelfmark
+            # Keep the torrent after import - removing it would delete the data
+            # the hardlink below shares, and end seeding.
+            - name: PROWLARR_TORRENT_ACTION
+              value: keep
             # Hardlink rather than copy when moving a finished torrent into the
             # ingest folder - same filesystem, so the seed keeps its data and
             # the book is not stored twice. This is the TRaSH layout's whole
             # point and only works because both paths are on the one mount.
             - name: TORRENT_HARDLINK
+              value: "true"
+            # TORRENT_HARDLINK above is the pre-1.0 name and no longer reaches
+            # the code that matters. should_hardlink() reads HARDLINK_TORRENTS
+            # and only falls back to TORRENT_HARDLINK when that is None - but
+            # HARDLINK_TORRENTS is a registered field, so it resolves to its
+            # default of False rather than None and the fallback never fires.
+            # The pod confirmed it: HARDLINK_TORRENTS=False, TORRENT_HARDLINK
+            # =None. Everything above was copying, not hardlinking.
+            - name: HARDLINK_TORRENTS
               value: "true"
             # Native OIDC, in addition to the forward-auth middleware on the
             # Ingress. Forward-auth alone authenticates at the edge and leaves
@@ -119,6 +146,49 @@ spec:
             # 10000-300000 range.
             - name: EXT_BYPASSER_TIMEOUT
               value: "120000"
+            # Prowlarr, as a release source in its own right. The mirrors
+            # below cover the open web; this covers everything Prowlarr already
+            # authenticates against, so a book that only exists on a tracker is
+            # reachable without a second search UI. Results are handed to
+            # qBittorrent by the client selector above.
+            - name: PROWLARR_ENABLED
+              value: "true"
+            # Fully-qualified, like every other cross-namespace URL here. A bare
+            # `prowlarr` host resolves only inside the prowlarr namespace and is
+            # the single mistake that has broken the most things in this cluster.
+            - name: PROWLARR_URL
+              value: http://prowlarr.prowlarr.svc.cluster.local:9696
+            - name: PROWLARR_API_KEY
+              valueFrom:
+                secretKeyRef: {name: bookdl-extras, key: prowlarr-api-key}
+            # PROWLARR_INDEXERS is deliberately unset: empty means search every
+            # indexer, which is what Prowlarr is for. Pinning a list here would
+            # have to be re-edited every time an indexer is added or dies.
+            #
+            # Default is 90s. Several of these indexers sit behind the same
+            # FlareSolverr this pod shares, and a cold challenge there routinely
+            # outruns 90s - the symptom is an empty result set while the Prowlarr
+            # log still shows the search running. Matches EXT_BYPASSER_TIMEOUT
+            # above; max accepted is 300.
+            - name: PROWLARR_INDEXER_TIMEOUT
+              value: "120"
+            # Book categories are inconsistently applied across trackers, so a
+            # category-filtered search returning nothing is frequently wrong
+            # rather than conclusive. Retry uncategorised before giving up.
+            - name: PROWLARR_AUTO_EXPAND
+              value: "true"
+            # Honour each indexer's own seed ratio and seed time when handing a
+            # torrent to qBittorrent. Private trackers enforce these; getting
+            # them from Prowlarr means they are not maintained twice.
+            - name: PROWLARR_USE_SEED_PREFERENCES
+              value: "true"
+            # NOT SET: PROWLARR_REMOTE_PATH_MAPPINGS. It carries
+            # env_supported=False upstream, so it is UI-only and an env var for
+            # it would be ignored outright. It is also unnecessary - a mapping
+            # only rewrites a client-reported path, and qBittorrent reports
+            # /data/torrents/books, which is the same absolute path this pod
+            # sees through its own /data mount. With no mapping matched the code
+            # uses the reported path unchanged, which is already correct.
             # Mirrors, so no single host is a single point of failure. Upstream
             # ships NO defaults at all (core/mirrors.py: DEFAULT_AA_MIRRORS and
             # friends are empty lists), so every direct-download source stays
@@ -205,6 +275,43 @@ spec:
               value: "200"
             - name: COVERS_CACHE_TTL
               value: "0"
+            # Nav button through to the Calibre-Web library this app feeds,
+            # so "did it actually land?" does not mean going and finding the
+            # other tab.
+            - name: CALIBRE_WEB_URL
+              value: https://books.sandstorm.chat
+            # There is no audiobook library in this cluster - no Audiobookshelf,
+            # no audiobook ingest path - so the combined book+audiobook selector
+            # only offers a way to drop an m4b into an ebook ingest folder that
+            # CWA cannot import. Hidden rather than left to be clicked. For the
+            # same reason DESTINATION_AUDIOBOOK, SUPPORTED_AUDIOBOOK_FORMATS and
+            # the other audiobook keys are all left unset.
+            - name: SHOW_COMBINED_SELECTOR
+              value: "false"
+            # Pinned rather than left to the default. "organize" builds author
+            # and title folders, which upstream explicitly warns against for an
+            # ingest folder - CWA watches for files, not trees. "rename" is
+            # correct here and this makes an upstream default change unable to
+            # quietly break the import.
+            - name: FILE_ORGANIZATION
+              value: rename
+            # Default is 60s. This is the grace period for a completed torrent's
+            # path to become visible to this pod, and /data is nfs-csi - the
+            # directory entry qBittorrent just wrote is not necessarily visible
+            # here the instant it says so. 180 costs nothing when the path is
+            # already there and avoids a spurious import failure when it is not.
+            - name: DOWNLOAD_CLIENT_COMPLETED_PATH_TIMEOUT
+              value: "180"
+            # Default 3600 drops a download off the queue view an hour after it
+            # finishes, which is usually before anyone looks. 86400 is the
+            # accepted maximum and makes the queue a day's worth of history.
+            - name: STATUS_TIMEOUT
+              value: "86400"
+            # NOT SET: CUSTOM_SCRIPT (no post-import script exists to run, and
+            # nothing is mounted that could hold one) and the EMAIL_* / SMTP
+            # delivery keys (BOOKS_OUTPUT_MODE stays "folder" so files reach
+            # CWA's ingest folder; email delivery would need SMTP credentials
+            # that are not in Doppler).
             - name: LOG_LEVEL
               value: INFO
           ports:

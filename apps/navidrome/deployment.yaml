@@ -52,6 +52,9 @@ spec:
               cpu: 500m
               memory: 512Mi
           readinessProbe:
+            # Library scans make a one-second check unreliable.
+            timeoutSeconds: 10
+            failureThreshold: 6
             httpGet:
               path: /ping
               port: http

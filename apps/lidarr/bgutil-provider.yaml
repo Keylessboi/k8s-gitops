@@ -45,6 +45,9 @@ spec:
               cpu: 500m
               memory: 512Mi
           livenessProbe:
+            # Node service; a restart over one slow second is not worth it.
+            timeoutSeconds: 5
+            failureThreshold: 5
             tcpSocket:
               port: 4416
             initialDelaySeconds: 20

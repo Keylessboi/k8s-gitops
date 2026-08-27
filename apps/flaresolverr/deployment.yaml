@@ -38,6 +38,12 @@ spec:
               cpu: "1"
               memory: 1Gi
           readinessProbe:
+            # FlareSolverr drives a headless Chromium; a check can easily exceed one
+            # second while it is solving a challenge. Going NotReady empties its
+            # Service endpoints, which is what makes callers see 'connection
+            # refused' against a process that is working fine.
+            timeoutSeconds: 15
+            failureThreshold: 6
             httpGet:
               path: /
               port: http
