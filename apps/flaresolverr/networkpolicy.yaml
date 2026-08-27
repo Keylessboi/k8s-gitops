@@ -8,7 +8,11 @@ spec:
   - Ingress
   - Egress
   ingress:
-  # Lidarr and Prowlarr call FlareSolverr to solve Cloudflare challenges.
+  # Lidarr, Prowlarr and book-downloader call FlareSolverr to solve Cloudflare
+  # challenges. book-downloader was missing: its own namespace already allows
+  # egress to flaresolverr:8191, but that only covers one direction, and this
+  # ingress rule listed only the two *arrs - so every bypass attempt came back
+  # as "Connection refused" from a service whose pod was healthy the whole time.
   - from:
     - namespaceSelector:
         matchLabels:
@@ -16,6 +20,9 @@ spec:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: prowlarr
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: books
     ports:
     - port: 8191
       protocol: TCP
