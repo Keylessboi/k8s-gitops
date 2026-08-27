@@ -35,6 +35,17 @@ spec:
             - -c
             - |
               set -eu
+              # Wait for Postgres before doing anything. A Job's command starts
+              # the instant the container does, which can be before the CNI has
+              # finished programming this pod's NetworkPolicy - the connection
+              # is refused, the command exits, and the Job burns a retry. The
+              # long-lived Deployment never notices because it simply reconnects.
+              for i in $(seq 1 60); do
+                nc -z -w 3 app-databases-rw.databases.svc.cluster.local 5432 && break
+                echo "waiting for postgres ($i)"; sleep 5
+              done
+              nc -z -w 3 app-databases-rw.databases.svc.cluster.local 5432 || {
+                echo "postgres still unreachable after 5 minutes"; exit 1; }
               environment-to-ini -o "$GITEA_APP_INI"
               G="/usr/local/bin/gitea -c $GITEA_APP_INI"
               # add-oauth errors if the name is taken, so branch on what exists.
