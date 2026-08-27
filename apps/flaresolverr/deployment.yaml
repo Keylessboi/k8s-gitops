@@ -30,13 +30,19 @@ spec:
           ports:
             - name: http
               containerPort: 8191
+          # Chromium is not a 1-CPU workload. Observed pegged at 940m CPU and
+          # 1014Mi against exactly these limits - throttled and one allocation
+          # away from an OOM kill - while every Prowlarr search and every
+          # Anna's Archive lookup queued behind it. It then failed even a
+          # 15-second readiness probe, lost its Service endpoints, and callers
+          # saw "connection refused" from a process that was merely overloaded.
           resources:
             requests:
-              cpu: 50m
-              memory: 256Mi
+              cpu: 200m
+              memory: 512Mi
             limits:
-              cpu: "1"
-              memory: 1Gi
+              cpu: "3"
+              memory: 3Gi
           readinessProbe:
             # FlareSolverr drives a headless Chromium; a check can easily exceed one
             # second while it is solving a challenge. Going NotReady empties its
