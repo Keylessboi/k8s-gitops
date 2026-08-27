@@ -55,7 +55,21 @@ spec:
               EOF
               chown 1000:1000 /app/slskd.yml
               chmod 600 /app/slskd.yml
-              echo "slskd.yml rendered"
+              # slskd runs as uid 1000 (container securityContext below), so it
+              # must own its config PVC to write app.db and logs, and the
+              # Soulseek download tree so Lidarr - also uid 1000 - can import
+              # what it fetches. Before this, slskd ran as root and left 0644
+              # root-owned files that uid 1000 could neither hardlink
+              # (fs.protected_hardlinks=1) nor move, so every Soulseek grab
+              # failed to import with a permissions error.
+              chown -R 1000:1000 /app
+              mkdir -p /data/torrents/soulseek/incomplete
+              # Repair only mis-owned entries. This keeps the init cheap as the
+              # folder grows and never triggers a full-tree chown over NFS - the
+              # reason fsGroup is deliberately NOT set on this pod (its /data
+              # mount is the whole media library).
+              find /data/torrents/soulseek \! -uid 1000 -exec chown 1000:1000 {} \; 2>/dev/null || true
+              echo "slskd.yml rendered and ownership repaired"
           env:
             - name: SLSKD_API_KEY
               valueFrom:
@@ -65,6 +79,8 @@ spec:
           volumeMounts:
             - name: slskd-config
               mountPath: /app
+            - name: data
+              mountPath: /data
       containers:
         - name: gluetun
           # v3.40.0 aborted at startup the moment it detected the pod's
@@ -150,6 +166,14 @@ spec:
         # would expose the connection just as a bare torrent client would.
         - name: slskd
           image: slskd/slskd:0.23.2
+          # slskd/slskd is NOT a linuxserver image, so PUID/PGID do nothing here
+          # (that is why qBittorrent uses them and slskd cannot). Run the process
+          # as 1000:1000 directly so every file it writes is owned by the same
+          # uid Lidarr imports as. The init container above repairs the config
+          # PVC and existing downloads to match.
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
           env:
             - name: SLSKD_SLSK_USERNAME
               valueFrom:
