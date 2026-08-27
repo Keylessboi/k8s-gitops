@@ -239,8 +239,12 @@ spec:
             #
             # auto = try AA_MIRROR_URLS in order at startup and fail over on
             # error. Naming a specific mirror here would pin it and lose that.
+            # Anna's Archive REMOVED entirely (owner request): every clearnet AA
+            # mirror is behind DDoS-Guard that FlareSolverr cannot solve, so AA
+            # search only ever timed out ~75s and failed. Empty base + empty
+            # mirror list disables the AA source completely.
             - name: AA_BASE_URL
-              value: auto
+              value: ""
             # Only the two hosts that actually serve Anna's Archive from this
             # network. Measured from inside the pod, 2026-08-27:
             #   .gl  200 in 0.66s, page says "Anna's Archive"   KEEP
@@ -257,7 +261,7 @@ spec:
             # with four dead ones meant the bypasser's 5-attempt rotation spent
             # most of its budget on hosts that cannot resolve.
             - name: AA_MIRROR_URLS
-              value: https://annas-archive.gl,https://annas-archive.pk
+              value: ""
             # Every one of these is dead from this network. Measured from
             # inside the pod, 2026-08-27:
             #   libgen.is / .rs / .st  all resolve to the SAME IP
@@ -292,8 +296,9 @@ spec:
             # also hid Anna's Archive being dead.
             - name: ZLIB_MIRROR_URLS
               value: https://z-library.sk,https://z-lib.fm,https://1lib.sk
+            # welib REMOVED entirely (owner request).
             - name: WELIB_MIRROR_URLS
-              value: https://welib.org
+              value: ""
             # The mirrors above are inert until the Direct Download source is
             # switched on - it is off by default, so this is what actually puts
             # AA/LibGen/Z-Lib/Welib in front of a search.
@@ -321,7 +326,7 @@ spec:
             # empty and every search goes straight to SOURCE_PRIORITY below.
             # Re-enable if AA ever drops DDoS-Guard or a solvable mirror appears.
             - name: FAST_SOURCES_DISPLAY
-              value: '[{"id": "libgen", "enabled": false}, {"id": "aa-fast", "enabled": false}]'
+              value: '[{"id": "libgen", "enabled": true}, {"id": "aa-fast", "enabled": false}]'
             # The working direct-download sources, tested through FlareSolverr
             # 2026-08-27: zlib (z-library.sk) 200 in 1.7s with real results,
             # welib 200 in 2.8s with real results. Both lead now. The two AA
@@ -330,7 +335,7 @@ spec:
             # was always the worst case, and aa-slow-nowait shares AA's dead
             # search path. Flip either back to true if AA becomes solvable again.
             - name: SOURCE_PRIORITY
-              value: '[{"id": "zlib", "enabled": true}, {"id": "welib", "enabled": true}, {"id": "aa-slow-nowait", "enabled": false}, {"id": "aa-slow-wait", "enabled": false}]'
+              value: '[{"id": "zlib", "enabled": true}, {"id": "welib", "enabled": false}, {"id": "aa-slow-nowait", "enabled": false}, {"id": "aa-slow-wait", "enabled": false}]'
             # 3, down from 15. The 15 assumed this counter walks the mirror
             # list; it does not. MAX_RETRY is the retry_limit of the transport
             # loop in download/http.py, and every attempt re-requests the SAME
