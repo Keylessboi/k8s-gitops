@@ -38,7 +38,23 @@ spec:
           type: RuntimeDefault
       containers:
         - name: downloader
-          image: ghcr.io/calibrain/calibre-web-automated-book-downloader:latest
+          # v1.3.12, not :latest. A floating tag means the running version
+          # depends on when a node last pulled, so this pod and a
+          # freshly-scheduled replacement can silently differ, git no longer
+          # records what is deployed, and a rollback has nothing to roll back
+          # to. v1.3.12 is the tag the running pod was already on - both
+          # :latest and v1.3.12 resolve to
+          # sha256:e22413551ab647388f0279f1d7b7db3ff4a6fe1151337b5b234d3747cc09f5a3
+          # today - so this pins the current behaviour rather than changing it.
+          #
+          # The tag, not the bare digest: this repository publishes both, and
+          # a tag is the form ArgoCD Image Updater's semver strategy can read
+          # if books is ever added to apps/image-updater/imageupdaters.yaml.
+          # It is NOT managed there today (the file excludes books because
+          # readarr is on a nightly channel and calibre's tags are
+          # V-prefixed), so nothing is fighting this pin - and a bare digest
+          # would have foreclosed that option.
+          image: ghcr.io/calibrain/calibre-web-automated-book-downloader:v1.3.12
           env:
             - name: FLASK_PORT
               value: "8084"
