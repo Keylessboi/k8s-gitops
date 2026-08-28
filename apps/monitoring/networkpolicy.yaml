@@ -41,6 +41,17 @@ spec:
     ports:
     - port: 9633
       protocol: TCP
+  # node-exporter, which runs with hostNetwork - so its address is the node's
+  # own LAN address, not a pod address, and the same 192.168.0.0/16 exclusion
+  # below drops the scrape. It listens on *:9100 and answers fine from the
+  # node itself; from a pod the connection simply times out, which is why this
+  # looked like a dead exporter rather than a blocked one.
+  - to:
+    - ipBlock:
+        cidr: 192.168.1.172/32
+    ports:
+    - port: 9100
+      protocol: TCP
   # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
   # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so
   # the old rule was a no-op. Every NetworkPolicy in this repo was missing real

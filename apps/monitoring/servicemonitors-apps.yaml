@@ -22,11 +22,17 @@ metadata:
   labels:
     release: kps
 spec:
-  # ArgoCD splits its metrics across six Services - controller, server, repo
-  # server, applicationset, notifications, dex - and every one of them names
+  # ArgoCD splits its metrics across several Services - controller, server,
+  # repo server, applicationset, notifications - and every one of them names
   # the port `metrics`, so a single monitor covers the lot. Their
   # `app.kubernetes.io/name` labels survive intact: apps/argocd is excluded
   # from the root ApplicationSet, so nothing rewrites them.
+  #
+  # argocd-dex-server is deliberately absent. It declares a metrics port on
+  # 5558 but nothing is listening behind it - the scrape is refused outright,
+  # not dropped - because dex only serves telemetry when its config asks for
+  # it. Including it bought a permanently down target and the TargetDown
+  # alert that comes with one.
   selector:
     matchExpressions:
       - key: app.kubernetes.io/name
@@ -37,7 +43,6 @@ spec:
           - argocd-repo-server
           - argocd-applicationset-controller
           - argocd-notifications-controller-metrics
-          - argocd-dex-server
   namespaceSelector:
     matchNames: [argocd]
   endpoints:
