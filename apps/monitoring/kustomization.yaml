@@ -353,11 +353,15 @@ helmCharts:
                 target_label  = "container"
               }
               rule {
-                # pod_node_name, not node_name: the `pod` discovery role emits
-                # __meta_kubernetes_pod_node_name, and a relabel rule whose
-                # source label does not exist is skipped in silence. Loki's
-                # label list had no `node` at all as a result - the rule looked
-                # right and had never once fired.
+                // pod_node_name, not node_name: the pod discovery role emits
+                // __meta_kubernetes_pod_node_name, and a relabel rule whose
+                // source label does not exist is skipped in silence. Loki had
+                // no `node` label at all as a result - the rule looked right
+                // and had never once fired.
+                //
+                // Comments in this block are River, not YAML: only the double
+                // slash form is legal. A YAML-style hash is an illegal
+                // character here and Alloy then refuses to load at all.
                 source_labels = ["__meta_kubernetes_pod_node_name"]
                 target_label  = "node"
               }
