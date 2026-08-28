@@ -1,4 +1,17 @@
 ---
+# The web player, behind Authentik.
+#
+# Navidrome cannot speak OIDC itself (see deployment.yaml), so this middleware
+# is the whole login: Authentik authenticates the browser and hands the
+# username back in X-authentik-username, and Navidrome creates or looks up that
+# user from the header. Before this was attached the site was open to the
+# internet with ZERO users in its database, which means the first stranger to
+# find the hostname would have been handed the admin account by the first-run
+# wizard.
+#
+# The Subsonic API and public share links are deliberately NOT under this rule;
+# they are carved out onto subsonic-ingress.yaml, because neither can follow an
+# OAuth redirect.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -7,7 +20,7 @@ metadata:
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
 spec:
   ingressClassName: traefik
   tls:

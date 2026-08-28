@@ -1,0 +1,78 @@
+---
+# The Subsonic API and public share links, exempted from Authentik
+# forward-auth so mobile clients can actually reach them.
+#
+# Symfonium, DSub, play:Sub and the rest are not browsers: they authenticate
+# with Subsonic's own scheme (u + t + s, or u + p) on the query string and
+# cannot run an OAuth redirect. With forward-auth attached, every /rest call
+# answered 302 to authentik.sandstorm.chat/application/o/authorize/..., which a
+# Subsonic client either renders as "server unreachable" or refuses outright -
+# the whole library would be browser-only.
+#
+# This is the option Navidrome's own docs recommend for that case: "you can
+# still configure your proxy to bypass authentication on /rest/* URLs and let
+# Navidrome perform authentication for those requests". The same page requires
+# /share/* to be whitelisted too, since ND_ENABLESHARING is on and a share link
+# is by definition an unauthenticated URL handed to someone with no account.
+#
+# Same mechanism as apps/books/opds-ingress.yaml: middleware annotations apply
+# to every rule in an Ingress, so the only way to drop forward-auth from a path
+# is to give that path its own Ingress. Traefik prefers the longer rule, so
+# /rest and /share land here and everything else stays on the navidrome Ingress
+# behind Authentik.
+#
+# THE TRADE-OFF. /rest is not open - Navidrome authenticates it itself, against
+# the per-user password in its database - but that password is a Navidrome
+# password, not an Authentik one, so this endpoint is outside SSO: revoking a
+# user in Authentik does NOT revoke their Subsonic client, and the strength of
+# the credential is whatever the user chose in Navidrome. Because
+# header-authenticated users are auto-created with a random password (see the
+# report/README notes), each user must set a password in Navidrome before their
+# phone can log in. CrowdSec and the rate limiter still apply, and
+# strip-auth-headers below closes the spoofing hole the carve-out would
+# otherwise open.
+#
+# The web player is unaffected by the carve-out even though it uses /rest for
+# streaming and cover art: buildAuthPayload() hands the UI a subsonicSalt and
+# subsonicToken computed from the stored password when the page loads, so its
+# Subsonic calls authenticate normally without the header.
+#
+# No cert-manager annotation: it would race the navidrome Ingress over the same
+# secret. This just reuses the certificate that one obtains.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: navidrome-subsonic
+  namespace: navidrome
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    # strip-auth-headers is NOT optional here and must stay last: without it a
+    # client could send its own X-authentik-username on these paths and be
+    # trusted, because Traefik's pod address is inside ND_REVERSEPROXYWHITELIST.
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,navidrome-strip-auth-headers@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - navidrome.sandstorm.chat
+      secretName: navidrome-tls
+  rules:
+    - host: navidrome.sandstorm.chat
+      http:
+        paths:
+          # consts.URLPathSubsonicAPI - the entire Subsonic/OpenSubsonic API.
+          - path: /rest
+            pathType: Prefix
+            backend:
+              service:
+                name: navidrome
+                port:
+                  number: 4533
+          # consts.URLPathPublic - share links and their artwork (/share/img).
+          - path: /share
+            pathType: Prefix
+            backend:
+              service:
+                name: navidrome
+                port:
+                  number: 4533

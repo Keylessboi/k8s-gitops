@@ -1,0 +1,56 @@
+---
+# The Authentik outpost's own endpoints, routed under this app's hostname.
+#
+# Forward auth is only half the flow. After login, Authentik redirects the
+# browser back to
+# https://navidrome.sandstorm.chat/outpost.goauthentik.io/callback, and that
+# path has to reach the OUTPOST, not this application - otherwise the callback
+# 404s and the login never completes. The Authentik docs require this route for
+# every single-application forward-auth setup.
+#
+# Identical to the books/lidarr/qui/prowlarr copies of this file; it is
+# duplicated per namespace because an Ingress cannot name a Service in another
+# namespace, hence the ExternalName alias below. Traefik is configured with
+# allowExternalNameServices: true.
+apiVersion: v1
+kind: Service
+metadata:
+  name: authentik-outpost
+spec:
+  type: ExternalName
+  externalName: ak-outpost-authentik-embedded-outpost.authentik.svc.cluster.local
+  ports:
+    - name: http
+      port: 9000
+---
+# A SEPARATE Ingress, deliberately: middleware annotations apply to every rule
+# in an Ingress, so putting this path on the app's own Ingress would send the
+# callback through forward auth as well - an endless redirect loop. Rate
+# limiting and CrowdSec still apply; only the auth check is omitted.
+#
+# No cert-manager annotation here - it would race the app's own Ingress over
+# the same secret. This just reuses the certificate that one obtains.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: navidrome-outpost
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - navidrome.sandstorm.chat
+      secretName: navidrome-tls
+  rules:
+    - host: navidrome.sandstorm.chat
+      http:
+        paths:
+          - path: /outpost.goauthentik.io
+            pathType: Prefix
+            backend:
+              service:
+                name: authentik-outpost
+                port:
+                  number: 9000

@@ -10,7 +10,7 @@
 | Vaultwarden | https://vaultwarden.sandstorm.chat | Password Manager |
 | Nextcloud | https://nextcloud.sandstorm.chat | File Storage |
 | Immich | https://immich.sandstorm.chat | Photo Management |
-| Navidrome | https://navidrome.sandstorm.chat | Music Streaming |
+| Navidrome | https://navidrome.sandstorm.chat | Music Streaming (Authentik forward-auth; `/rest` + `/share` exempt for Subsonic clients) |
 | Lidarr | https://lidarr.sandstorm.chat | Music acquisition (Authentik forward-auth) |
 | Kiwix | https://kiwix.sandstorm.chat | Offline Content |
 | Calibre-Web Automated | https://books.sandstorm.chat | Ebooks (Authentik forward-auth) |

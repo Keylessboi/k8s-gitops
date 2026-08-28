@@ -1,0 +1,46 @@
+---
+# Deletes client-supplied Authentik identity headers.
+#
+# This is the counterweight to ND_REVERSEPROXYWHITELIST. Navidrome trusts
+# X-authentik-username from any address inside the whitelisted CIDR, and Traefik
+# is inside it - so on any route where the request reaches Navidrome without
+# passing through the forward-auth middleware, a header the CLIENT sent would
+# arrive looking exactly like one Authentik issued. `curl -H
+# 'X-authentik-username: admin' https://navidrome.sandstorm.chat/rest/...` would
+# be a full authentication bypass, and on a database with no users yet it would
+# mint an admin account.
+#
+# The forward-auth routes are already safe: Traefik's forwardAuth does
+# `req.Header.Del(headerKey)` on every name in authResponseHeaders before
+# copying the outpost's value in, so a forged header there is overwritten. Only
+# the deliberately unauthenticated routes need this, i.e. the /rest and /share
+# carve-out in subsonic-ingress.yaml.
+#
+# Upstream asks for exactly this - the Caddy example in Navidrome's
+# externalized-authentication docs opens with `request_header -Remote-User`,
+# and the security section warns that a trusted source must "not let untrusted
+# clients set the user header themselves".
+#
+# An empty value is Traefik's delete verb: pkg/middlewares/headers matches
+# `value == ""` and calls req.Header.Del. Setting it to some placeholder string
+# instead would SET the header to that value, which is the opposite of the
+# intent.
+#
+# Local to this namespace rather than kube-system with the shared middlewares:
+# Navidrome is the only app here that authenticates from a header, so nothing
+# else has a reason to reference it.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-auth-headers
+  namespace: navidrome
+spec:
+  headers:
+    customRequestHeaders:
+      # The only header Navidrome actually trusts (ND_REVERSEPROXYUSERHEADER).
+      X-authentik-username: ""
+      # Not consulted by this version, but dropped anyway so that turning on
+      # any group- or mail-based rule later cannot inherit a spoofable value.
+      X-authentik-groups: ""
+      X-authentik-email: ""
+      X-authentik-uid: ""

@@ -2,6 +2,11 @@
 # Navidrome: lightweight music server, Subsonic API for Symfonium.
 # Streams from the NFS music share.
 #
+# SSO: this version has no OIDC of its own, so Authentik is enforced by the
+# forward-auth middleware on the Ingress and the identity arrives in a header
+# (deployment.yaml). /rest and /share are carved out for Subsonic clients and
+# share links, which cannot follow a redirect (subsonic-ingress.yaml).
+#
 # NOTE: Navidrome is SQLite-only. It has no PostgreSQL support at all, so the
 # CNPG Cluster that used to live here was architecturally wrong — and ND_DBURL
 # was being fed the raw password value from the CNPG secret rather than a DSN.
@@ -33,4 +38,10 @@ resources:
   - pvc-data.yaml
   - networkpolicy.yaml
   - deployment.yaml
+  - strip-auth-headers-middleware.yaml
   - ingress.yaml
+  - authentik-outpost.yaml
+  # After ingress.yaml only for readability - Traefik picks the longest
+  # matching rule regardless of declaration order, so /rest and /share reach
+  # this carve-out even though the navidrome Ingress also matches /.
+  - subsonic-ingress.yaml

@@ -41,6 +41,42 @@ spec:
               value: /music
             - name: ND_DATAFOLDER
               value: /data
+            # --- Authentik SSO ---
+            #
+            # This image has NO native OIDC. The 0.58.0 binary contains
+            # ReverseProxyWhitelist/ReverseProxyUserHeader and no openid or
+            # OIDC symbol at all, and server/auth.go's only externally
+            # authenticated login path is handleLoginFromHeaders(), which reads
+            # a username out of a header. So Authentik has to be terminated in
+            # front of Navidrome, by the forward-auth middleware on the Ingress,
+            # and the identity handed over in this header.
+            #
+            # Upstream RENAMED these options to ExtAuth.TrustedSources and
+            # ExtAuth.UserHeader after this release. navidrome.org documents the
+            # new names, which this build does not recognise - and an
+            # unrecognised ND_ variable is ignored silently, leaving the app
+            # unauthenticated. Do not "correct" them without bumping the image.
+            #
+            # The whitelist is checked against the connection's ORIGINAL
+            # RemoteAddr (realIPMiddleware stashes it before X-Forwarded-For is
+            # honoured), so it must contain the address TRAEFIK'S POD dials
+            # from, never the browser's. The pod CIDR rather than Traefik's
+            # current pod IP: that IP changes on every restart, and a stale /32
+            # does not fail loudly - it just stops trusting the header and
+            # drops every user back to a login form they have no password for.
+            #
+            # A /16 means any pod in the cluster could assert a username. That
+            # is bounded by networkpolicy.yaml, which only admits port 4533
+            # from kube-system (Traefik) and from this namespace.
+            - name: ND_REVERSEPROXYWHITELIST
+              value: 10.42.0.0/16
+            # The header the shared authentik-forward-auth middleware copies
+            # out of the Authentik outpost's response. A request carrying this
+            # header from a whitelisted address is logged in WITHOUT a
+            # password, so every route that does not run forward-auth must
+            # delete it first - see strip-auth-headers-middleware.yaml.
+            - name: ND_REVERSEPROXYUSERHEADER
+              value: X-authentik-username
           ports:
             - name: http
               containerPort: 4533
