@@ -62,13 +62,16 @@ spec:
 # has to survive pod rolls, which is the whole reason this is a PVC and not an
 # emptyDir.
 #
-# MyAnonaMouse rotates mam_id on EVERY request and invalidates the previous
-# value. The MAM_ID in Doppler is therefore a one-shot seed: seedboxapi spends
-# it on its first call, saves the rotated cookie to /config/MAM.cookies, and
-# authenticates from that jar forever after. On an emptyDir the jar would be
-# lost on every restart and the container would re-present the already-spent
-# seed, which MAM rejects - the pod would need a hand-generated new MAM_ID
-# after every roll. Persisting the jar is what makes this survivable.
+# MAM returns a refreshed session cookie on its responses, and wrapper.sh
+# saves it here with `curl -c`. The jar - not MAM_ID - is the authoritative
+# credential after the first successful call: wrapper.sh only falls back to
+# the MAM_ID seed when this file has no mam_id line in it.
+#
+# Sources disagree on how often MAM rotates the value (per-request vs
+# periodically), so this does not depend on knowing: treating the jar as
+# authoritative is correct either way, and an emptyDir would throw it away on
+# every pod roll and force a re-seed from a MAM_ID that may since have been
+# superseded.
 #
 # 100Mi is nominal: nfs-csi provisions a directory and does not enforce the
 # request, and the real content is a single Netscape cookie file.

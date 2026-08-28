@@ -311,6 +311,14 @@ spec:
               # Seed only. wrapper.sh uses it exclusively when
               # /config/MAM.cookies has no mam_id line; once the jar exists it
               # authenticates from the jar and this value is never read again.
+              #
+              # If this container CrashLoopBackOffs on "mam_id passed on
+              # command line is invalid", the session is being refused, not the
+              # plumbing: MAM wants a session that is ASN-locked to the ASN the
+              # request arrives from AND has "allow session to set dynamic
+              # seedbox IP" enabled. Because it runs behind gluetun, that is
+              # the AirVPN exit's ASN, not the home connection's. See the `mam`
+              # DopplerSecret for the full re-seed procedure.
               valueFrom:
                 secretKeyRef:
                   name: mam
