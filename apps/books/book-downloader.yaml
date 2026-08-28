@@ -199,9 +199,18 @@ spec:
             # the single mistake that has broken the most things in this cluster.
             - name: PROWLARR_URL
               value: http://prowlarr.prowlarr.svc.cluster.local:9696
+            # NOT from bookdl-extras/Doppler. The Prowlarr API key was rotated
+            # out-of-band after it was exposed, and the Doppler credential this
+            # cluster holds is a read-only serviceToken, so the new value could
+            # not be written back to Doppler. It therefore lives in a
+            # namespace-local secret created directly from Prowlarr's own
+            # config, and PROWLARR_API_KEY was removed from the bookdl-extras
+            # DopplerSecret so the stale Doppler value cannot overwrite it.
+            # To return this to Doppler: set PROWLARR_API_KEY there, re-add it
+            # to the bookdl-extras DopplerSecret, and point this back at it.
             - name: PROWLARR_API_KEY
               valueFrom:
-                secretKeyRef: {name: bookdl-extras, key: prowlarr-api-key}
+                secretKeyRef: {name: prowlarr-api, key: api-key}
             # PROWLARR_INDEXERS is deliberately unset: empty means search every
             # indexer, which is what Prowlarr is for. Pinning a list here would
             # have to be re-edited every time an indexer is added or dies.
