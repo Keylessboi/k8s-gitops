@@ -22,6 +22,15 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+        # Without this the pod runs seccomp Unconfined: this node's kubelet has
+        # seccompDefault=false, so nothing applies a profile unless a manifest
+        # asks. RuntimeDefault blocks the syscalls the container runtime
+        # considers dangerous (mount, unshare, kexec, bpf, keyctl, ...). This
+        # is the pod holding every password in the house, so it gets the
+        # narrowest kernel surface the runtime offers; oidcwarden is a Rust
+        # HTTP server and uses none of the denied calls.
+        seccompProfile:
+          type: RuntimeDefault
       nodeSelector:
         homelab/node-class: compute
       containers:

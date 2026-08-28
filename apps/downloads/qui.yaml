@@ -26,6 +26,13 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+        # Without this the pod runs seccomp Unconfined: this node's kubelet has
+        # seccompDefault=false, so nothing applies a profile unless a manifest
+        # asks. RuntimeDefault blocks the syscalls the container runtime
+        # considers dangerous (mount, unshare, kexec, bpf, keyctl, ...). qui is
+        # an ordinary Go web service and touches none of them.
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: qui
           image: ghcr.io/autobrr/qui:v1.26.0

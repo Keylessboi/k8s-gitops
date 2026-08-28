@@ -25,6 +25,14 @@ spec:
         runAsUser: 999
         runAsGroup: 999
         fsGroup: 999
+        # Without this the pod runs seccomp Unconfined: this node's kubelet has
+        # seccompDefault=false, so nothing applies a profile unless a manifest
+        # asks. RuntimeDefault blocks the syscalls the container runtime
+        # considers dangerous (mount, unshare, kexec, bpf, keyctl, ...). Redis
+        # needs none of them - it never even calls madvise(MADV_HUGEPAGE),
+        # which is allowed anyway.
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: redis
           image: redis:7.4-alpine

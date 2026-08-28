@@ -19,6 +19,22 @@ spec:
       labels:
         app.kubernetes.io/name: flaresolverr
     spec:
+      # Pod-level, so it also covers anything added later. Without it the pod
+      # runs seccomp Unconfined: this node's kubelet has seccompDefault=false,
+      # so nothing applies a profile unless a manifest asks.
+      #
+      # A headless-Chromium workload is the ONE place RuntimeDefault normally
+      # breaks things: Chromium's namespace sandbox calls clone() with
+      # CLONE_NEWUSER|CLONE_NEWPID|CLONE_NEWNET, and the runtime's default
+      # profile denies clone() with any namespace flag set. It is safe here
+      # only because FlareSolverr already launches Chromium with --no-sandbox
+      # and --disable-setuid-sandbox, so no namespace is ever created.
+      # Verified against the running pod: every chromium process (browser, gpu,
+      # renderer, utility) carries --no-sandbox. If FlareSolverr ever stops
+      # passing that flag, this line has to come back out.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: flaresolverr
           image: ghcr.io/flaresolverr/flaresolverr:v3.5.0

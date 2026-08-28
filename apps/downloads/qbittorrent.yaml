@@ -27,6 +27,27 @@ spec:
       labels:
         app.kubernetes.io/name: qbittorrent
     spec:
+      # Pod-level, so it covers the init container and all three containers.
+      # Without it the pod runs seccomp Unconfined: this node's kubelet has
+      # seccompDefault=false, so nothing applies a profile unless a manifest
+      # asks.
+      #
+      # This is the pod where RuntimeDefault most plausibly breaks something -
+      # gluetun holds NET_ADMIN and a passed-in /dev/net/tun - so it was
+      # measured rather than assumed. Two throwaway pods ran the same probe on
+      # the qmcgaw/gluetun:v3.41.3 image, one Unconfined and one
+      # RuntimeDefault, and produced byte-identical results: `ip tuntap add`,
+      # link up, address, route, `iptables -L`, a nat MASQUERADE rule and
+      # `ip6tables -L` all succeeded under both. Nothing gluetun does needs a
+      # denied syscall: the denied set is namespace and kernel-management calls
+      # (mount, unshare, setns, pivot_root, kexec, bpf, keyctl), while tunnel
+      # setup is ioctl(TUNSETIFF) plus netlink, both allowed.
+      #
+      # seccomp is orthogonal to capabilities: NET_ADMIN on the gluetun
+      # container below is unaffected by this.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         # slskd's API key cannot be set by environment variable. Its documented
         # mapping (SLSKD_WEB_AUTHENTICATION_API_KEYS_<NAME>_KEY) is silently

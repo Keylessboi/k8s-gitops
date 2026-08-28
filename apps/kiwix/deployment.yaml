@@ -18,6 +18,14 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+        # Without this the pod runs seccomp Unconfined: this node's kubelet has
+        # seccompDefault=false, so nothing applies a profile unless a manifest
+        # asks. RuntimeDefault blocks the syscalls the container runtime
+        # considers dangerous (mount, unshare, kexec, bpf, keyctl, ...). It
+        # covers the curl init container as well as kiwix-serve; neither needs
+        # anything the default profile denies.
+        seccompProfile:
+          type: RuntimeDefault
       nodeSelector:
         kubernetes.io/os: linux
         homelab/node-class: compute

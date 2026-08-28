@@ -18,6 +18,15 @@ spec:
       labels:
         app.kubernetes.io/name: octo-fiesta
     spec:
+      # Pod-level, so it also covers anything added later. Without it the pod
+      # runs seccomp Unconfined: this node's kubelet has seccompDefault=false,
+      # so nothing applies a profile unless a manifest asks. RuntimeDefault
+      # blocks the syscalls the container runtime considers dangerous (mount,
+      # unshare, kexec, bpf, keyctl, ...); this is a small web frontend and
+      # uses none of them.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: octo-fiesta
           image: ghcr.io/v1ck3s/octo-fiesta:latest

@@ -25,6 +25,14 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+        # Without this the pod runs seccomp Unconfined: this node's kubelet has
+        # seccompDefault=false, so nothing applies a profile unless a manifest
+        # asks. RuntimeDefault blocks the syscalls the container runtime
+        # considers dangerous (mount, unshare, kexec, bpf, keyctl, ...).
+        # Navidrome is a Go server plus ffmpeg for transcoding; neither uses
+        # them.
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: navidrome
           image: deluan/navidrome:0.58.0

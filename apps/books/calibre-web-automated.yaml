@@ -19,6 +19,17 @@ spec:
       labels:
         app.kubernetes.io/name: calibre-web-automated
     spec:
+      # Pod-level, so it also covers anything added later. Without it the pod
+      # runs seccomp Unconfined: this node's kubelet has seccompDefault=false,
+      # so nothing applies a profile unless a manifest asks. RuntimeDefault
+      # blocks the syscalls the container runtime considers dangerous (mount,
+      # unshare, kexec, bpf, keyctl, ...). Deliberately NOT paired with
+      # runAsUser here - CWA's s6-overlay init starts as root to chown /config
+      # and the Calibre library before dropping to PUID/PGID, and that only
+      # needs setuid/setgid, which the default profile allows.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: cwa
           image: crocodilestick/calibre-web-automated:V3.1.4

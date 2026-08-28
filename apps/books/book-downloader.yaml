@@ -24,6 +24,18 @@ spec:
       labels:
         app.kubernetes.io/name: book-downloader
     spec:
+      # Pod-level, so it also covers anything added later. Without it the pod
+      # runs seccomp Unconfined: this node's kubelet has seccompDefault=false,
+      # so nothing applies a profile unless a manifest asks. RuntimeDefault
+      # blocks the syscalls the container runtime considers dangerous (mount,
+      # unshare, kexec, bpf, keyctl, ...). Deliberately NOT paired with
+      # runAsUser - the image's entrypoint starts as root and drops to the
+      # UID/GID env vars above itself, which needs only setuid/setgid. Note
+      # this app never drives a browser of its own; Cloudflare challenges go to
+      # FlareSolverr over HTTP, so there is no Chromium sandbox to worry about.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: downloader
           image: ghcr.io/calibrain/calibre-web-automated-book-downloader:latest

@@ -23,6 +23,16 @@ spec:
       labels:
         app.kubernetes.io/name: beets
     spec:
+      # Pod-level, so it also covers anything added later. Without it the pod
+      # runs seccomp Unconfined: this node's kubelet has seccompDefault=false,
+      # so nothing applies a profile unless a manifest asks. RuntimeDefault
+      # blocks the syscalls the container runtime considers dangerous (mount,
+      # unshare, kexec, bpf, keyctl, ...). Deliberately NOT paired with
+      # runAsUser - this is a linuxserver.io image whose s6-overlay init starts
+      # as root and drops to PUID/PGID itself, which needs only setuid/setgid.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: beets
           image: lscr.io/linuxserver/beets:2.2.0
