@@ -117,6 +117,18 @@ jobs:
           helm version --short
           kustomize version
 
+      # Charts are pulled by `kustomize build --enable-helm` into
+      # apps/*/charts/, which .gitignore keeps out of the repo. Caching them
+      # means a normal run makes no chart-registry requests at all, which is
+      # both faster and the main defence against the flakiness handled below.
+      # Keyed on the kustomization files, so any chart or version change misses
+      # the cache and re-pulls.
+      - uses: actions/cache@v4
+        with:
+          path: apps/*/charts
+          key: helm-charts-${{ hashFiles('apps/*/kustomization.yaml') }}
+          restore-keys: helm-charts-
+
       - name: Every apps/* directory must be a kustomization
         run: |
           set -euo pipefail
@@ -145,18 +157,40 @@ jobs:
           #   "must specify --enable-helm"
           # This repo has shipped that mistake before; the flag lives here so
           # there is exactly one place to get it right.
+          #
+          # Retried up to 3 times per app, because a chart pull is a network
+          # call and GitHub Pages / release-assets reset connections often
+          # enough to matter: the very first run of this workflow failed on
+          # cnpg, immich and nextcloud with three separate
+          # "read: connection reset by peer" errors while the same tree built
+          # clean locally and on the next push. A CI check that goes red for
+          # reasons unrelated to the commit teaches everyone to re-run it
+          # without reading it, which is the same as having no check. A genuine
+          # error is deterministic and still fails all 3 attempts.
+          #
+          # The partial charts/ directory is removed between attempts so a
+          # half-downloaded chart cannot poison the retry.
           rc=0
           for dir in apps/*/; do
             name="$(basename "$dir")"
             [ -f "${dir}kustomization.yaml" ] || continue
-            if out="$(kustomize build --enable-helm "$dir" 2>&1)"; then
-              printf 'OK    %-14s %6s documents\n' \
-                "$name" "$(printf '%s' "$out" | grep -c '^kind:' || true)"
-            else
-              echo "::error file=${dir}kustomization.yaml::kustomize build failed"
-              printf 'FAIL  %s\n%s\n' "$name" "$out"
-              rc=1
-            fi
+            for attempt in 1 2 3; do
+              if out="$(kustomize build --enable-helm "$dir" 2>&1)"; then
+                printf 'OK    %-14s %6s documents%s\n' \
+                  "$name" "$(printf '%s' "$out" | grep -c '^kind:' || true)" \
+                  "$([ "$attempt" -gt 1 ] && echo "  (attempt $attempt)")"
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "::error file=${dir}kustomization.yaml::kustomize build failed after 3 attempts"
+                printf 'FAIL  %s\n%s\n' "$name" "$out"
+                rc=1
+                break
+              fi
+              printf 'RETRY %s (attempt %s failed)\n' "$name" "$attempt"
+              rm -rf "${dir}charts"
+              sleep $((attempt * 10))
+            done
           done
           exit "$rc"
 
