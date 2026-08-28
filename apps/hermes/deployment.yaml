@@ -35,6 +35,16 @@ spec:
         # privileges. 1000:1000 matches the NFS export's anonuid/anongid, so
         # files it creates on /opt/data stay owned correctly.
         fsGroup: 1000
+        # OnRootMismatch, not the default Always. fsGroup makes the kubelet
+        # recursively chown the whole volume before the container starts, and
+        # /opt/data holds ~17,600 files on NFS - that walk took 8m19s on the
+        # last roll, with the pod stuck in ContainerCreating and a bare
+        # "unmounted volumes=[data]: context deadline exceeded" as the only
+        # clue (the NFS mount itself completes in ~28ms). The volume root is
+        # already 1000:1000, so OnRootMismatch skips the walk entirely and the
+        # pod starts immediately. Same failure mode bit a one-off Job on the
+        # lidarr config volume.
+        fsGroupChangePolicy: OnRootMismatch
         # Without this the pod runs seccomp Unconfined: this node's kubelet has
         # seccompDefault=false, so nothing applies a profile unless a manifest
         # asks. RuntimeDefault blocks the syscalls the container runtime
