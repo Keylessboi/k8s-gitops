@@ -296,6 +296,45 @@ spec:
           # identical digest :latest currently points at, so this pins today's
           # behaviour without changing it.
           image: myanonamouse/seedboxapi:20250413-0519
+          # Supervise the image's own entrypoint instead of running it directly,
+          # because wrapper.sh calls `exit 1` on any MAM refusal - an invalid
+          # session, an unreachable tracker - and an exiting container here is
+          # not a contained failure.
+          #
+          # This was measured, not theorised: the first deploy of this sidecar
+          # took torrenting OFF THE AIR. A container in CrashLoopBackOff is
+          # never Ready, a pod is Ready only when ALL of its containers are, and
+          # an unready pod is removed from its Services' endpoints - so both
+          # `qbittorrent` and `slskd` Services went to zero endpoints and
+          # Prowlarr, Lidarr, Readarr and qui all lost their download client,
+          # while qBittorrent itself was serving happily on localhost:8080. A
+          # cookie refresher must not be able to do that, which is the same
+          # reason there is no readinessProbe below.
+          #
+          # Keeping the process alive across failures is what decouples them.
+          # It also throttles the retry: a crashlooping container retries on
+          # kubelet's backoff (capped at 5 minutes, so ~12 rejected calls an
+          # hour at the exact endpoint MAM asks you not to hammer), whereas this
+          # retries hourly.
+          #
+          # Correct under both of wrapper.sh's modes, which is why it is written
+          # as a plain retry loop rather than something cleverer. wrapper.sh
+          # guards its polling loop with `while [ $PPID -ne 1 ]`, so:
+          #   - if it keeps that loop, it never returns and this wrapper simply
+          #     never iterates - its own interval=60 change detection is in
+          #     charge;
+          #   - if PPID is 1 and it skips the loop, it still performs the
+          #     startup session refresh, then returns here and is re-run in an
+          #     hour - which is MAM's documented once-an-hour cadence anyway.
+          # The trade-off: failures no longer show up as a restart count, so
+          # `kubectl logs -c seedboxapi` is the place to look.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              while true; do
+                /wrapper.sh || echo "seedboxapi exited $? - retrying in 1h"
+                sleep 3600
+              done
           securityContext:
             # A curl loop needs no capabilities at all. Runs as root only
             # because /config below is an NFS volume and this pod deliberately
@@ -364,14 +403,15 @@ spec:
             limits:
               cpu: 100m
               memory: 64Mi
-          # No readinessProbe, and not just because there is no endpoint to
-          # probe - adding one would be actively harmful. Container readiness
-          # is ANDed into pod readiness, and the qbittorrent Service selects
-          # this pod, so a probe that failed because MAM was down or
-          # rate-limiting would drop qBittorrent's WebUI out of its own Service
-          # and break Prowlarr, Lidarr and Readarr. A cookie refresher must
-          # never be able to gate the torrent client. Failure here is visible
-          # in the log and, if the script exits, in the restart count.
+          # No readinessProbe, and not merely because a sidecar loop has no
+          # endpoint to probe - adding one would be actively harmful, and this
+          # is not hypothetical. Container readiness is ANDed into pod
+          # readiness and the qbittorrent and slskd Services select this pod,
+          # so anything that marks this container unready empties those
+          # Services' endpoints and cuts off Prowlarr, Lidarr, Readarr and qui.
+          # The crashloop described above did exactly that. A readinessProbe
+          # would reproduce it on any MAM outage or rate-limit reply.
+          # Failure is surfaced in the container log instead.
           volumeMounts:
             # Holds MAM.cookies, the rotated session. See the PVC comment in
             # pvc.yaml for why this cannot be an emptyDir.
