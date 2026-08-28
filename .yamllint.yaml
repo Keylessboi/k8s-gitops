@@ -1,0 +1,59 @@
+---
+# yamllint config for CI (.github/workflows/validate.yaml).
+#
+# Deliberately tuned to the style this repo ALREADY uses, so the lint step is a
+# regression guard rather than a 900-finding backlog that everyone learns to
+# ignore. Rules are only relaxed where the existing tree disagrees with
+# yamllint's defaults for a reason; anything that would catch a real mistake
+# stays on at error level.
+extends: default
+
+# Vendored Helm charts are Go templates, not YAML - `{{ .Values.x }}` at the
+# start of a line is not parseable and must never be linted. They are
+# gitignored (apps/*/charts/), but CI runs on a clean checkout where a previous
+# `kustomize build --enable-helm` may have left them behind.
+ignore: |
+  apps/*/charts/
+
+rules:
+  # Off. The repo's comment style is long prose paragraphs explaining WHY a
+  # setting exists, and several manifests carry unavoidably long values
+  # (OIDC discovery URLs, Anna's Archive mirror lists, PromQL in dashboards).
+  # Reflowing all of that to 80 columns would be a huge diff that improves
+  # nothing.
+  line-length: disable
+
+  # Warning, and `whatever` for sequences. This repo writes NetworkPolicy
+  # peers both ways within one file - `- to:` indented under the key and flush
+  # with it - because the flush form keeps long ipBlock/namespaceSelector
+  # rules readable. Both are valid YAML. A real indentation MISTAKE does not
+  # produce a style warning here, it produces a parse failure, which the
+  # yaml-parse job already fails on.
+  indentation:
+    level: warning
+    indent-sequences: whatever
+
+  # Warning. `on:` in a GitHub Actions workflow is the truthy value `on`, and
+  # quoting it to satisfy yamllint is the confusing option.
+  truthy:
+    level: warning
+    allowed-values: ["true", "false"]
+
+  # Warning. A stray blank line is not worth failing a pipeline over.
+  empty-lines:
+    level: warning
+  comments:
+    level: warning
+  comments-indentation:
+    level: warning
+
+  # Left at error (the default). A duplicated key silently discards one of the
+  # two values - exactly the class of mistake that produces a manifest which
+  # parses fine and does the wrong thing.
+  key-duplicates: enable
+
+  # Off. Roughly a third of the manifests here open with `---` and the rest do
+  # not, and neither ArgoCD nor kustomize cares. Leaving this on produced ~60
+  # warnings of pure noise on the day the workflow landed, which is how a lint
+  # step stops being read.
+  document-start: disable

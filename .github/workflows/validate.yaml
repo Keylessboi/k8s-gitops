@@ -1,0 +1,187 @@
+---
+# Pre-merge validation for the GitOps tree.
+#
+# WHY this exists: ArgoCD is the only thing that renders this repo, and when a
+# manifest is malformed it does not fail loudly - the Application parks at
+# ComparisonError and simply stops syncing. Auto-sync keeps reporting the last
+# good state, so a broken push looks like a successful one until somebody
+# notices an app is weeks stale. These jobs turn that silent failure into a red
+# check on the commit that caused it.
+#
+# Three checks, cheapest first:
+#   1. every YAML file parses          - catches the ComparisonError class
+#   2. every apps/* kustomization renders - catches bad refs, missing files,
+#                                        chart/version mistakes
+#   3. yamllint                        - style regression guard (see
+#                                        .yamllint.yaml for why it is tuned
+#                                        rather than left at defaults)
+name: validate
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+  # Manual runs, for testing the workflow itself without pushing a commit.
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run's answer worthless.
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Pinned to EXACTLY what this cluster's ArgoCD repo-server ships
+  # (argocd v2.12.3 -> kustomize v5.4.2, helm v3.15.2). CI that renders with a
+  # different kustomize than the cluster can pass on a manifest ArgoCD then
+  # refuses, or fail on one it would have accepted - which is worse than no CI,
+  # because it trains people to ignore the check. Bump these together with the
+  # ArgoCD version in apps/argocd.
+  KUSTOMIZE_VERSION: "5.4.2"
+  HELM_VERSION: "3.15.2"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Does every YAML file parse?
+  #
+  # The highest-value check in this repo by a wide margin. One bad indent in one
+  # manifest takes the whole Application offline silently.
+  # ---------------------------------------------------------------------------
+  yaml-parse:
+    name: YAML parses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: pip install --disable-pip-version-check "PyYAML==6.0.2"
+
+      - name: Parse every tracked YAML file
+        run: |
+          set -euo pipefail
+          # git ls-files, not `find`: it respects .gitignore, which keeps the
+          # Helm charts under apps/*/charts/ out of scope. Those are Go
+          # templates ({{ .Values.x }} at column 0) and are not parseable YAML.
+          mapfile -t files < <(git ls-files '*.yaml' '*.yml')
+          echo "checking ${#files[@]} files"
+          python3 - "${files[@]}" <<'PY'
+          import sys
+          import yaml
+
+          failed = []
+          for path in sys.argv[1:]:
+              try:
+                  with open(path, encoding="utf-8") as fh:
+                      list(yaml.safe_load_all(fh))
+              except Exception as exc:            # noqa: BLE001 - report all
+                  failed.append((path, exc))
+                  print(f"::error file={path}::{type(exc).__name__}: {exc}")
+
+          if failed:
+              print(f"\n{len(failed)} file(s) failed to parse")
+              sys.exit(1)
+          print("all files parsed")
+          PY
+
+  # ---------------------------------------------------------------------------
+  # 2. Does every apps/* kustomization render?
+  # ---------------------------------------------------------------------------
+  kustomize-build:
+    name: kustomize build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned helm and kustomize
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          curl -sSfL -o /tmp/helm.tgz \
+            "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz"
+          tar -xzf /tmp/helm.tgz -C /tmp
+          install -m 0755 /tmp/linux-amd64/helm "$HOME/bin/helm"
+          curl -sSfL -o /tmp/kustomize.tgz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          tar -xzf /tmp/kustomize.tgz -C /tmp
+          install -m 0755 /tmp/kustomize "$HOME/bin/kustomize"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Report tool versions
+        run: |
+          helm version --short
+          kustomize version
+
+      - name: Every apps/* directory must be a kustomization
+        run: |
+          set -euo pipefail
+          # The root ApplicationSet (apps/argocd/root-applicationset.yaml)
+          # creates one Application per apps/* directory and excludes only
+          # apps/argocd. A directory without a kustomization.yaml therefore
+          # becomes an Application that deploys whatever loose YAML it finds -
+          # or nothing at all. Catch the typo'd filename here.
+          rc=0
+          for dir in apps/*/; do
+            name="$(basename "$dir")"
+            [ "$name" = "argocd" ] && continue
+            if [ ! -f "${dir}kustomization.yaml" ]; then
+              echo "::error::${dir} has no kustomization.yaml"
+              rc=1
+            fi
+          done
+          exit "$rc"
+
+      - name: kustomize build every app
+        run: |
+          set -uo pipefail
+          # --enable-helm is REQUIRED and easy to forget. Twelve of these
+          # kustomizations inflate a chart with a `helmCharts:` block, and
+          # without the flag kustomize fails with
+          #   "must specify --enable-helm"
+          # This repo has shipped that mistake before; the flag lives here so
+          # there is exactly one place to get it right.
+          rc=0
+          for dir in apps/*/; do
+            name="$(basename "$dir")"
+            [ -f "${dir}kustomization.yaml" ] || continue
+            if out="$(kustomize build --enable-helm "$dir" 2>&1)"; then
+              printf 'OK    %-14s %6s documents\n' \
+                "$name" "$(printf '%s' "$out" | grep -c '^kind:' || true)"
+            else
+              echo "::error file=${dir}kustomization.yaml::kustomize build failed"
+              printf 'FAIL  %s\n%s\n' "$name" "$out"
+              rc=1
+            fi
+          done
+          exit "$rc"
+
+  # ---------------------------------------------------------------------------
+  # 3. Style. Advisory rules are warnings; only genuine mistakes fail.
+  # ---------------------------------------------------------------------------
+  yamllint:
+    name: yamllint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install yamllint
+        run: pip install --disable-pip-version-check "yamllint==1.38.0"
+
+      - name: Lint
+        run: |
+          set -euo pipefail
+          # No --strict: warnings are informational. .yamllint.yaml decides
+          # which rules are errors, and it was tuned so the tree passed on the
+          # day this workflow landed - a linter that is red from commit one is
+          # a linter nobody reads.
+          mapfile -t files < <(git ls-files '*.yaml' '*.yml')
+          yamllint -c .yamllint.yaml -f github "${files[@]}"
