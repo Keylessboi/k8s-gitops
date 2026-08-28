@@ -328,11 +328,39 @@ spec:
           #     hour - which is MAM's documented once-an-hour cadence anyway.
           # The trade-off: failures no longer show up as a restart count, so
           # `kubectl logs -c seedboxapi` is the place to look.
+          #
+          # The seed is read from the mounted file on EVERY iteration rather
+          # than injected once as an env var, which breaks an otherwise fatal
+          # catch-22. MAM binds the session to the IP it is created against, so
+          # re-seeding means "put the new mam_id somewhere this container will
+          # read it" - and if that place is an env var, the only way to reload
+          # it is to recreate the container, which recreates the pod, which
+          # reconnects gluetun, which lands on a DIFFERENT AirVPN exit and
+          # invalidates the session that was just minted for the old one. Every
+          # re-seed would destroy the thing it was seeding. Reading the file
+          # each pass means a new MAM_ID in Doppler propagates
+          # (operator -> Secret -> kubelet refreshes this volume) and is picked
+          # up by the next hourly pass with the tunnel, and therefore the
+          # egress IP, left completely undisturbed.
+          #
+          # To apply a re-seed immediately instead of waiting up to an hour,
+          # end the sleep rather than restarting anything:
+          #   kubectl exec -n downloads <pod> -c seedboxapi -- pkill sleep
+          # That makes the loop iterate at once and re-read the file. Do NOT
+          # delete the pod to hurry it along - that changes the exit IP and is
+          # precisely the failure above.
+          # Backticks, not $(...), for the substitution below: Kubernetes runs
+          # its own $(VAR) expansion over args before the shell ever sees them.
+          # It happens to pass an unresolvable name through untouched, so
+          # $(cat ...) would work by luck rather than by rule - and would break
+          # the day something defines a matching env var. Backticks are outside
+          # that syntax entirely, and are what wrapper.sh itself uses.
           command: ["/bin/sh", "-c"]
           args:
             - |
               while true; do
-                /wrapper.sh || echo "seedboxapi exited $? - retrying in 1h"
+                mam_id=`cat /run/secrets/mam/mam-id 2>/dev/null` /wrapper.sh \
+                  || echo "seedboxapi exited $? - retrying in 1h"
                 sleep 3600
               done
           securityContext:
@@ -343,25 +371,22 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+          # No mam_id env var by design - the command above supplies it from
+          # the mounted secret per iteration. wrapper.sh reads the lowercase
+          # $mam_id, which is why the command spells it that way, and it is a
+          # SEED: wrapper.sh consults it only while /config/MAM.cookies holds
+          # no session, and works from the jar afterwards.
+          #
+          # If the log says "mam_id passed on command line is invalid", the
+          # session is being refused and the plumbing is fine. MAM answers
+          # {"Success":false,"msg":"Invalid session - Other","ASN":<caller ASN>}
+          # when the session was not created against the network the call
+          # arrives from - and that is the ASN to compare against. Note the
+          # distinct reply "Incorrect session type", which is what a session
+          # missing the dynamic-seedbox permission returns; the two failures
+          # are worth telling apart before regenerating anything. See the `mam`
+          # DopplerSecret for the re-seed procedure.
           env:
-            - name: mam_id
-              # Lowercase name is not a typo - wrapper.sh reads $mam_id.
-              #
-              # Seed only. wrapper.sh uses it exclusively when
-              # /config/MAM.cookies has no mam_id line; once the jar exists it
-              # authenticates from the jar and this value is never read again.
-              #
-              # If this container CrashLoopBackOffs on "mam_id passed on
-              # command line is invalid", the session is being refused, not the
-              # plumbing: MAM wants a session that is ASN-locked to the ASN the
-              # request arrives from AND has "allow session to set dynamic
-              # seedbox IP" enabled. Because it runs behind gluetun, that is
-              # the AirVPN exit's ASN, not the home connection's. See the `mam`
-              # DopplerSecret for the full re-seed procedure.
-              valueFrom:
-                secretKeyRef:
-                  name: mam
-                  key: mam-id
             - name: interval
               # Minutes between IP checks - NOT between MAM calls. Each tick
               # only fetches the current egress IP from ip4.me and compares its
@@ -417,6 +442,12 @@ spec:
             # pvc.yaml for why this cannot be an emptyDir.
             - name: seedboxapi-config
               mountPath: /config
+            # The seed, as a file rather than an env var so it can be replaced
+            # without recreating the pod. kubelet refreshes secret volumes in
+            # place, so a new MAM_ID in Doppler reaches this path on its own.
+            - name: mam-seed
+              mountPath: /run/secrets/mam
+              readOnly: true
       volumes:
         - name: config
           persistentVolumeClaim:
@@ -424,6 +455,12 @@ spec:
         - name: seedboxapi-config
           persistentVolumeClaim:
             claimName: seedboxapi-config
+        # Mounted rather than injected as env so the MAM seed can be rotated
+        # without a pod roll - see the seedboxapi container for why a roll is
+        # self-defeating here.
+        - name: mam-seed
+          secret:
+            secretName: mam
         - name: slskd-config
           persistentVolumeClaim:
             claimName: slskd-config
