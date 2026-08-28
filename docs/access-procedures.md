@@ -145,11 +145,18 @@ kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manif
 
 ## Contacts
 
+This is a single-operator homelab: every role below is the same person. The
+table is kept because the escalation *paths* differ even when the contact does
+not — knowing which layer a fault belongs to is the useful part.
+
 | Role | Contact | When to Escalate |
 |------|---------|------------------|
-| Infrastructure | - | Proxmox/NAS issues |
-| Kubernetes | - | Cluster/pod issues |
-| Networking | - | DNS/Ingress issues |
+| Infrastructure | Travis (owner) | Proxmox host or NAS: disks, ZFS pools, NFS exports, LXC 200 itself |
+| Kubernetes | Travis (owner) | Cluster, pods, ArgoCD sync failures, PVC/CSI problems |
+| Networking | Travis (owner) | DNS, Traefik/Ingress, MetalLB, Authentik forward-auth, CrowdSec bans |
+
+If a second operator is ever added, replace the relevant row rather than adding
+a column — the escalation path should stay unambiguous.
 
 ## Not published
 
