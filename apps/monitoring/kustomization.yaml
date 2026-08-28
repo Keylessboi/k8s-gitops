@@ -353,7 +353,12 @@ helmCharts:
                 target_label  = "container"
               }
               rule {
-                source_labels = ["__meta_kubernetes_node_name"]
+                # pod_node_name, not node_name: the `pod` discovery role emits
+                # __meta_kubernetes_pod_node_name, and a relabel rule whose
+                # source label does not exist is skipped in silence. Loki's
+                # label list had no `node` at all as a result - the rule looked
+                # right and had never once fired.
+                source_labels = ["__meta_kubernetes_pod_node_name"]
                 target_label  = "node"
               }
               rule {
