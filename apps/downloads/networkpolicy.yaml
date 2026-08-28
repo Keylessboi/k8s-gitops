@@ -81,6 +81,18 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: downloads
+    # qui -> Prowlarr, for the torznab "1-click" indexer sync (Settings ->
+    # Indexers) and for cross-seed searches. qui keeps the indexer list and its
+    # API key in its own DB, not env - this egress is the only GitOps-side
+    # change the integration needs. Prowlarr's ingress must allow downloads too;
+    # this cluster evaluates NetworkPolicy at both ends.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: prowlarr
+      ports:
+        - port: 9696
+          protocol: TCP
     # gluetun needs to reach the VPN endpoint and, once up, the internet.
     # Peer traffic is confined to the tunnel by gluetun's own firewall; this
     # rule only has to let the tunnel itself be established.
