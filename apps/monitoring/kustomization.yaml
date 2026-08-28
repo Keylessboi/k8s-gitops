@@ -163,7 +163,61 @@ helmCharts:
             role_attribute_path: contains(groups[*], 'Admin') && 'Admin' || 'Viewer'
             allow_sign_up: true
       alertmanager:
+        # Alertmanager routing + SMTP, so disk failures actually reach an inbox.
+        # This replaces the chart's default config, but reproduces its two load-
+        # bearing pieces - the 'null' receiver and the Watchdog route into it -
+        # and only ADDS an email path for the SMART alerts on top.
+        config:
+          global:
+            resolve_timeout: 5m
+            # Gmail relay. Host/port/from are connection parameters, not the
+            # credential; the password is the credential and stays in the
+            # Doppler-synced `smtp` secret, read from a file at send time.
+            # Alertmanager only supports a *_file indirection for the password,
+            # so the smarthost/from/username are necessarily inline here (they
+            # are the same values Grafana's SMTP block already uses).
+            smtp_smarthost: "smtp.gmail.com:587"
+            smtp_from: "gamingko587@gmail.com"
+            smtp_auth_username: "gamingko587@gmail.com"
+            # Mounted from the `smtp` secret via alertmanagerSpec.secrets below,
+            # at /etc/alertmanager/secrets/<secret>/<key>.
+            smtp_auth_password_file: /etc/alertmanager/secrets/smtp/password
+            smtp_require_tls: true
+          route:
+            # Group per disk so a host or drive going bad is one email, not one
+            # per attribute that trips.
+            group_by: ["alertname", "host", "device"]
+            group_wait: 30s
+            group_interval: 5m
+            repeat_interval: 12h
+            # Everything unmatched still goes nowhere, exactly as the chart
+            # default did - this change does not start emailing other apps.
+            receiver: "null"
+            routes:
+              # The dead-man's-switch alert must stay muted, or it emails every
+              # repeat_interval forever.
+              - receiver: "null"
+                matchers:
+                  - alertname = "Watchdog"
+              # Every rule in smartctl-alerts.yaml is named Smart*.
+              - receiver: "smart-email"
+                matchers:
+                  - alertname =~ "Smart.*"
+                # Disk problems are slow-moving; a daily nag is plenty.
+                repeat_interval: 24h
+          receivers:
+            - name: "null"
+            - name: "smart-email"
+              email_configs:
+                - to: "travis.fiorito@tuta.com"
+                  send_resolved: true
+          templates:
+            - /etc/alertmanager/config/*.tmpl
         alertmanagerSpec:
+          # Mounts the `smtp` secret at /etc/alertmanager/secrets/smtp/ so the
+          # password_file above resolves. Same Doppler secret Grafana mounts.
+          secrets:
+            - smtp
           nodeSelector:
             homelab/node-class: compute
           resources:
