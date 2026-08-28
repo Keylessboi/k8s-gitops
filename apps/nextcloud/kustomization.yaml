@@ -66,6 +66,33 @@ helmCharts:
           # X-Forwarded-* headers at all.
           - name: TRUSTED_PROXIES
             value: 10.42.0.0/16
+          # SMTP, from the Doppler-synced `smtp` secret in this namespace.
+          # Nextcloud's image reads these directly into config.php on startup,
+          # so mail works without touching the admin UI - share notices,
+          # password resets and activity digests all need a working sender.
+          # MAIL_FROM_ADDRESS and MAIL_DOMAIN are the two halves of the from
+          # address: Nextcloud joins them as <MAIL_FROM_ADDRESS>@<MAIL_DOMAIN>,
+          # so the full address is NOT taken from the secret's `from` key.
+          - name: MAIL_FROM_ADDRESS
+            value: nextcloud
+          - name: MAIL_DOMAIN
+            value: sandstorm.chat
+          - name: SMTP_SECURE
+            value: tls
+          - name: SMTP_AUTHTYPE
+            value: LOGIN
+          - name: SMTP_HOST
+            valueFrom:
+              secretKeyRef: {name: smtp, key: host}
+          - name: SMTP_PORT
+            valueFrom:
+              secretKeyRef: {name: smtp, key: port}
+          - name: SMTP_NAME
+            valueFrom:
+              secretKeyRef: {name: smtp, key: username}
+          - name: SMTP_PASSWORD
+            valueFrom:
+              secretKeyRef: {name: smtp, key: password}
         configs:
           # Nextcloud refuses outbound HTTP to private addresses by default, and
           # CoreDNS now resolves authentik.sandstorm.chat to the load balancer
