@@ -23,3 +23,4 @@ the tripwires that tell a future reader the decision is being violated.
 | [0002](0002-direct-download-disabled.md) | Book direct-download is disabled; torrents only | Accepted |
 | [0003](0003-navidrome-header-auth.md) | Navidrome uses reverse-proxy header auth, not OIDC | Accepted |
 | [0004](0004-lidarr-is-the-tag-writer.md) | Lidarr writes audio tags; beets is read-only | Accepted |
+| [0005](0005-pterodactyl-needs-mysql-and-kvm.md) | Pterodactyl waits for a MySQL host and a KVM node | Accepted |
