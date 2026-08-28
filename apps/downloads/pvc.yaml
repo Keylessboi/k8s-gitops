@@ -57,3 +57,30 @@ spec:
   resources:
     requests:
       storage: 5Gi
+---
+# The MAM dynamic-seedbox cookie jar. One file, a few hundred bytes - but it
+# has to survive pod rolls, which is the whole reason this is a PVC and not an
+# emptyDir.
+#
+# MyAnonaMouse rotates mam_id on EVERY request and invalidates the previous
+# value. The MAM_ID in Doppler is therefore a one-shot seed: seedboxapi spends
+# it on its first call, saves the rotated cookie to /config/MAM.cookies, and
+# authenticates from that jar forever after. On an emptyDir the jar would be
+# lost on every restart and the container would re-present the already-spent
+# seed, which MAM rejects - the pod would need a hand-generated new MAM_ID
+# after every roll. Persisting the jar is what makes this survivable.
+#
+# 100Mi is nominal: nfs-csi provisions a directory and does not enforce the
+# request, and the real content is a single Netscape cookie file.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: seedboxapi-config
+  namespace: downloads
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 100Mi

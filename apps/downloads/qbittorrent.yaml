@@ -272,10 +272,110 @@ spec:
             # like separate filesystems to the arr apps and loses hardlinks.
             - name: data
               mountPath: /data
+        # MyAnonaMouse dynamic-seedbox IP updater, in this pod for the same
+        # reason everything else here is: it MUST reach MAM from the VPN's
+        # egress IP.
+        #
+        # MAM pins a session cookie to one IP. When AirVPN hands out a
+        # different address the session breaks until dynamicSeedbox.php is
+        # called to re-point it - and MAM records whatever source IP that call
+        # arrives from. A separate Deployment would get its own network
+        # namespace, call MAM from the node's WAN address, and cheerfully
+        # register the wrong IP: the session would still "work" from MAM's
+        # point of view while qBittorrent, announcing from the tunnel, stayed
+        # locked out. Sharing gluetun's namespace is the only correct place
+        # for this.
+        - name: seedboxapi
+          # MAM's own image, and the same one that ran in the old compose
+          # stack. It is alpine + curl + a 100-line wrapper.sh (7MB), so there
+          # is very little to trust beyond the tracker itself, which already
+          # holds the credential.
+          #
+          # Pinned to the dated tag rather than :latest, which the compose
+          # stack used. 20250413-0519 is the newest published tag and is the
+          # identical digest :latest currently points at, so this pins today's
+          # behaviour without changing it.
+          image: myanonamouse/seedboxapi:20250413-0519
+          securityContext:
+            # A curl loop needs no capabilities at all. Runs as root only
+            # because /config below is an NFS volume and this pod deliberately
+            # sets no fsGroup (see the init container), so there is no uid to
+            # hand it that would own the mount.
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: mam_id
+              # Lowercase name is not a typo - wrapper.sh reads $mam_id.
+              #
+              # Seed only. wrapper.sh uses it exclusively when
+              # /config/MAM.cookies has no mam_id line; once the jar exists it
+              # authenticates from the jar and this value is never read again.
+              valueFrom:
+                secretKeyRef:
+                  name: mam
+                  key: mam-id
+            - name: interval
+              # Minutes between IP checks - NOT between MAM calls. Each tick
+              # only fetches the current egress IP from ip4.me and compares its
+              # hash to the cached one; MAM is contacted solely when that
+              # changes.
+              #
+              # 60 rather than the 1 the compose stack ran, because of a retry
+              # path in wrapper.sh: a MAM reply of "Last change too recent"
+              # leaves the IP cache un-updated, so the next tick tries again.
+              # At interval=1 a rate-limited update becomes 60 requests an hour
+              # against the exact endpoint MAM asks you not to hammer - MAM
+              # documents one call per hour and returns "Last change too
+              # recent" past that, and flagging the account is a real outcome.
+              # At 60 even the pathological retry loop stays at one call per
+              # hour.
+              #
+              # The latency this appears to cost is mostly illusory: wrapper.sh
+              # calls dynamicSeedbox.php once at startup to validate the
+              # session, which itself re-registers the IP. Since the tunnel's
+              # address only changes when gluetun reconnects, and a gluetun
+              # restart restarts this container's pod too, the common case is
+              # already covered at t=0. The hourly poll is the backstop for an
+              # IP that moves underneath a live tunnel.
+              value: "60"
+            # DEBUG is deliberately NOT set, though the compose stack had
+            # DEBUG=1. wrapper.sh implements DEBUG as `set -x`, and the very
+            # first traced command is
+            # `curl -s -b mam_id=${mam_id} -c ${COOKIEFILE} ...` - so enabling
+            # it prints the full MAM_ID into the pod log, where anyone with
+            # `kubectl logs` on this namespace can read it. The undebugged
+            # output ("Session is valid", "No IP change detected", "New IP
+            # detected") is enough to tell whether it is working.
+            - name: TZ
+              value: UTC
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          # No readinessProbe, and not just because there is no endpoint to
+          # probe - adding one would be actively harmful. Container readiness
+          # is ANDed into pod readiness, and the qbittorrent Service selects
+          # this pod, so a probe that failed because MAM was down or
+          # rate-limiting would drop qBittorrent's WebUI out of its own Service
+          # and break Prowlarr, Lidarr and Readarr. A cookie refresher must
+          # never be able to gate the torrent client. Failure here is visible
+          # in the log and, if the script exits, in the restart count.
+          volumeMounts:
+            # Holds MAM.cookies, the rotated session. See the PVC comment in
+            # pvc.yaml for why this cannot be an emptyDir.
+            - name: seedboxapi-config
+              mountPath: /config
       volumes:
         - name: config
           persistentVolumeClaim:
             claimName: qbittorrent-config
+        - name: seedboxapi-config
+          persistentVolumeClaim:
+            claimName: seedboxapi-config
         - name: slskd-config
           persistentVolumeClaim:
             claimName: slskd-config
