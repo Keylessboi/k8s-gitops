@@ -25,6 +25,13 @@ spec:
         runAsUser: 999
         runAsGroup: 999
         fsGroup: 999
+        # OnRootMismatch, not the default Always. fsGroup makes the kubelet
+        # recursively chown every mounted volume before the container starts.
+        # Over NFS that walk is O(files) and shows up as the pod sitting in
+        # ContainerCreating with only a 'context deadline exceeded' to go on.
+        # The volume roots already carry the right ownership, so this skips the
+        # walk; if a root ever genuinely mismatches, the full chown still runs.
+        fsGroupChangePolicy: OnRootMismatch
         # Without this the pod runs seccomp Unconfined: this node's kubelet has
         # seccompDefault=false, so nothing applies a profile unless a manifest
         # asks. RuntimeDefault blocks the syscalls the container runtime
