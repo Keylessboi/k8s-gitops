@@ -2,3 +2,52 @@
 # Helm charts pulled locally by `kustomize build --enable-helm` during testing.
 # ArgoCD pulls these itself at render time; they must never be committed.
 apps/*/charts/
+
+# --- Credentials -------------------------------------------------------------
+#
+# Nothing sensitive belongs in this repo at all: every secret is a DopplerSecret
+# in apps/doppler/dopplersecrets.yaml and the operator syncs the real values
+# into namespace-local k8s Secrets. These patterns are the safety net for the
+# usual accidents - a key dropped in the working tree while debugging TLS, or
+# an .env scratch file written next to a manifest.
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.csr
+.env
+.env.*
+*.tfvars
+*.tfvars.json
+
+# Kubeconfigs. Copying /etc/rancher/k3s/k3s.yaml off the server (see
+# docs/access-procedures.md) lands a file with full cluster-admin credentials.
+kubeconfig
+kubeconfig*.yaml
+*.kubeconfig
+.kube/
+
+# --- Editors and OS ----------------------------------------------------------
+.vscode/
+.idea/
+*.iml
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# Editor swap and backup files. vim writes .manifest.yaml.swp beside the file it
+# is editing, which kustomize then tries to parse as a resource.
+*.swp
+*.swo
+*.swn
+*~
+.*.sw[a-p]
+*.bak
+*.orig
+*.rej
