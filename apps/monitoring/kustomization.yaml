@@ -39,6 +39,13 @@ resources:
   - smartctl-alerts.yaml
   - dashboard-disk-health.yaml
   - dashboard-app-detail.yaml
+  - dashboard-cluster-health.yaml
+  - dashboard-namespaces.yaml
+  - dashboard-traefik.yaml
+  - dashboard-postgres.yaml
+  - dashboard-logs.yaml
+  - podmonitors-platform.yaml
+  - servicemonitors-apps.yaml
 
 helmCharts:
   # Stack: Prometheus, Grafana, Alertmanager, node-exporter.

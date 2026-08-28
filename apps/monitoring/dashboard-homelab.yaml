@@ -48,8 +48,8 @@ data:
           },
           "targets": [
             {
-              "expr": "sum by (service) (rate(traefik_service_requests_total[5m]))",
-              "legendFormat": "{{service}}",
+              "expr": "sum by (exported_service) (rate(traefik_service_requests_total[5m]))",
+              "legendFormat": "{{exported_service}}",
               "refId": "A"
             }
           ],
@@ -119,8 +119,8 @@ data:
           },
           "targets": [
             {
-              "expr": "histogram_quantile(0.95, sum by (service, le) (rate(traefik_service_request_duration_seconds_bucket[5m])))",
-              "legendFormat": "{{service}}",
+              "expr": "histogram_quantile(0.95, sum by (exported_service, le) (rate(traefik_service_request_duration_seconds_bucket[5m])))",
+              "legendFormat": "{{exported_service}}",
               "refId": "A"
             }
           ],
@@ -147,7 +147,7 @@ data:
           },
           "targets": [
             {
-              "expr": "sum by (entrypoint) (traefik_entrypoint_open_connections)",
+              "expr": "sum by (entrypoint) (traefik_open_connections)",
               "legendFormat": "{{entrypoint}}",
               "refId": "A"
             }

@@ -1,0 +1,704 @@
+---
+# Log explorer over Loki.
+#
+# Alloy tails every pod on the node and relabels the Kubernetes __meta_*
+# labels onto each stream (namespace/pod/container/node/app) - see the
+# alloy config in kustomization.yaml. Those labels are what the variables
+# and the `sum by` clauses here depend on.
+#
+# The datasource is a template variable rather than a hardcoded uid so the
+# dashboard still binds if the Loki datasource is ever reprovisioned under
+# a different uid.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-logs
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  logs-explorer.json: |
+    {
+      "uid": "logs-explorer",
+      "title": "Logs (Loki)",
+      "tags": [
+        "homelab",
+        "logs",
+        "loki"
+      ],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "templating": {
+        "list": [
+          {
+            "name": "logs",
+            "label": "Logs source",
+            "type": "datasource",
+            "query": "loki",
+            "refresh": 1,
+            "hide": 0,
+            "current": {
+              "text": "Loki",
+              "value": "loki"
+            }
+          },
+          {
+            "name": "namespace",
+            "label": "Namespace",
+            "type": "query",
+            "datasource": {
+              "type": "loki",
+              "uid": "${logs}"
+            },
+            "query": "label_values(namespace)",
+            "refresh": 1,
+            "sort": 1,
+            "includeAll": true,
+            "multi": true,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          },
+          {
+            "name": "pod",
+            "label": "Pod",
+            "type": "query",
+            "datasource": {
+              "type": "loki",
+              "uid": "${logs}"
+            },
+            "query": "label_values({namespace=~\"$namespace\"}, pod)",
+            "refresh": 2,
+            "sort": 1,
+            "includeAll": true,
+            "multi": true,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          },
+          {
+            "name": "search",
+            "label": "Search",
+            "type": "textbox",
+            "query": "",
+            "current": {
+              "text": "",
+              "value": ""
+            },
+            "hide": 0,
+            "description": "Case-insensitive regex applied to the log line. Leave empty for everything."
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Volume",
+          "type": "row",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 2,
+          "title": "Lines/sec",
+          "type": "stat",
+          "datasource": {
+            "type": "loki",
+            "uid": "${logs}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "H",
+              "expr": "sum(rate({namespace=~\"$namespace\"}[5m]))",
+              "datasource": {
+                "type": "loki",
+                "uid": "${logs}"
+              },
+              "legendFormat": "lines"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          }
+        },
+        {
+          "id": 3,
+          "title": "Error lines/sec",
+          "type": "stat",
+          "datasource": {
+            "type": "loki",
+            "uid": "${logs}"
+          },
+          "gridPos": {
+            "x": 4,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "I",
+              "expr": "sum(rate({namespace=~\"$namespace\"} |~ \"(?i)(error|fatal|panic|exception|traceback)\" [5m]))",
+              "datasource": {
+                "type": "loki",
+                "uid": "${logs}"
+              },
+              "legendFormat": "errors"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.1
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              },
+              "decimals": 2
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          }
+        },
+        {
+          "id": 4,
+          "title": "Namespaces logging",
+          "type": "stat",
+          "datasource": {
+            "type": "loki",
+            "uid": "${logs}"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "J",
+              "expr": "count(sum by (namespace) (count_over_time({namespace=~\"$namespace\"}[5m])))",
+              "datasource": {
+                "type": "loki",
+                "uid": "${logs}"
+              },
+              "legendFormat": "ns"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "description": "How many namespaces produced a log line in the last 5 minutes. A sudden drop means Alloy stopped shipping."
+        },
+        {
+          "id": 5,
+          "title": "Pods logging",
+          "type": "stat",
+          "datasource": {
+            "type": "loki",
+            "uid": "${logs}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "K",
+              "expr": "count(sum by (pod) (count_over_time({namespace=~\"$namespace\"}[5m])))",
+              "datasource": {
+                "type": "loki",
+                "uid": "${logs}"
+              },
+              "legendFormat": "pods"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          }
+        },
+        {
+          "id": 6,
+          "title": "Bytes/sec",
+          "type": "stat",
+          "datasource": {
+            "type": "loki",
+            "uid": "${logs}"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 1,
+            "w": 8,
+            "h": 4
+          },
+          "targets": [
+            {
+              "refId": "L",
+              "expr": "sum(bytes_rate({namespace=~\"$namespace\"}[5m]))",
+              "datasource": {
+                "type": "loki",
+                "uid": "${logs}"
+              },
+              "legendFormat": "bytes"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          }
+        },
+        {
+          "id": 7,
+          "title": "Log volume by namespace",
+          "type": "timeseries",
+          "datasource": {
+            "type": "loki",
+            "uid": "${logs}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 5,
+            "w": 12,
+            "h": 9
+          },
+          "targets": [
+            {
+              "refId": "M",
+              "expr": "sum by (namespace) (rate({namespace=~\"$namespace\"}[5m]))",
+              "datasource": {
+                "type": "loki",
+                "uid": "${logs}"
+              },
+              "legendFormat": "{{namespace}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 40,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 8,
+          "title": "Error lines by namespace",
+          "type": "timeseries",
+          "datasource": {
+            "type": "loki",
+            "uid": "${logs}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 5,
+            "w": 12,
+            "h": 9
+          },
+          "targets": [
+            {
+              "refId": "N",
+              "expr": "sum by (namespace) (rate({namespace=~\"$namespace\"} |~ \"(?i)(error|fatal|panic|exception|traceback)\" [5m]))",
+              "datasource": {
+                "type": "loki",
+                "uid": "${logs}"
+              },
+              "legendFormat": "{{namespace}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 40,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "description": "Lines matching error/fatal/panic/exception/traceback, case-insensitive."
+        },
+        {
+          "id": 9,
+          "title": "Top pods by volume",
+          "type": "timeseries",
+          "datasource": {
+            "type": "loki",
+            "uid": "${logs}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 14,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "O",
+              "expr": "topk(10, sum by (pod) (rate({namespace=~\"$namespace\", pod=~\"$pod\"}[5m])))",
+              "datasource": {
+                "type": "loki",
+                "uid": "${logs}"
+              },
+              "legendFormat": "{{pod}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 15,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "none"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 10,
+          "title": "Log volume by container",
+          "type": "timeseries",
+          "datasource": {
+            "type": "loki",
+            "uid": "${logs}"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 14,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "refId": "P",
+              "expr": "sum by (container) (rate({namespace=~\"$namespace\", pod=~\"$pod\"}[5m]))",
+              "datasource": {
+                "type": "loki",
+                "uid": "${logs}"
+              },
+              "legendFormat": "{{container}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 15,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "none"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 11,
+          "title": "Lines",
+          "type": "row",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 22,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 12,
+          "title": "Recent errors",
+          "type": "logs",
+          "datasource": {
+            "type": "loki",
+            "uid": "${logs}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 23,
+            "w": 24,
+            "h": 11
+          },
+          "targets": [
+            {
+              "refId": "Q",
+              "expr": "{namespace=~\"$namespace\", pod=~\"$pod\"} |~ \"(?i)(error|fatal|panic|exception|traceback)\"",
+              "datasource": {
+                "type": "loki",
+                "uid": "${logs}"
+              },
+              "legendFormat": ""
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "enableLogDetails": true,
+            "dedupStrategy": "none",
+            "sortOrder": "Descending"
+          },
+          "description": "Everything matching the error pattern across the selected namespaces, newest first."
+        },
+        {
+          "id": 13,
+          "title": "Search",
+          "type": "logs",
+          "datasource": {
+            "type": "loki",
+            "uid": "${logs}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 34,
+            "w": 24,
+            "h": 12
+          },
+          "targets": [
+            {
+              "refId": "R",
+              "expr": "{namespace=~\"$namespace\", pod=~\"$pod\"} |~ \"(?i)$search\"",
+              "datasource": {
+                "type": "loki",
+                "uid": "${logs}"
+              },
+              "legendFormat": ""
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "enableLogDetails": true,
+            "dedupStrategy": "none",
+            "sortOrder": "Descending"
+          },
+          "description": "Free-text search over the selected namespaces and pods. The Search variable is a case-insensitive regex; empty matches every line."
+        }
+      ],
+      "editable": true,
+      "graphTooltip": 1
+    }

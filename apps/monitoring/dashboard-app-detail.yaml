@@ -6,7 +6,14 @@
 # scope resources, restarts, volumes, HTTP and logs to one application - and a
 # new app appears in the dropdown by itself, with nothing to maintain. The
 # metrics come from kube-state-metrics and cAdvisor (universal), Traefik's
-# router metrics (apps/traefik/servicemonitor.yaml) and Loki.
+# service metrics (apps/traefik/servicemonitor.yaml) and Loki.
+#
+# The HTTP panels were written against traefik_router_* filtered on a `router`
+# label. This Traefik has no router metrics - only entrypoint and service ones
+# are enabled - so those three panels had always been empty. They now use
+# traefik_service_* matched on `exported_service`, which Traefik names
+# <namespace>-<service>-<port>@kubernetes; `exported_` is the prefix Prometheus
+# adds because the ServiceMonitor already attaches a `service` label of its own.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -825,7 +832,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum by (code) (rate(traefik_router_requests_total{router=~\".*$namespace.*\"}[5m]))",
+              "expr": "sum by (code) (rate(traefik_service_requests_total{exported_service=~\"$namespace-.*\"}[5m]))",
               "legendFormat": "{{code}}",
               "refId": "A"
             }
@@ -882,7 +889,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(rate(traefik_router_requests_total{router=~\".*$namespace.*\",code=~\"5..\"}[5m])) / clamp_min(sum(rate(traefik_router_requests_total{router=~\".*$namespace.*\"}[5m])), 0.001)",
+              "expr": "sum(rate(traefik_service_requests_total{exported_service=~\"$namespace-.*\",code=~\"5..\"}[5m])) / clamp_min(sum(rate(traefik_service_requests_total{exported_service=~\"$namespace-.*\"}[5m])), 0.001)",
               "legendFormat": "5xx",
               "refId": "A"
             },
@@ -891,7 +898,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(rate(traefik_router_requests_total{router=~\".*$namespace.*\",code=~\"4..\"}[5m])) / clamp_min(sum(rate(traefik_router_requests_total{router=~\".*$namespace.*\"}[5m])), 0.001)",
+              "expr": "sum(rate(traefik_service_requests_total{exported_service=~\"$namespace-.*\",code=~\"4..\"}[5m])) / clamp_min(sum(rate(traefik_service_requests_total{exported_service=~\"$namespace-.*\"}[5m])), 0.001)",
               "legendFormat": "4xx",
               "refId": "B"
             }
@@ -947,7 +954,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.95, sum by (le) (rate(traefik_router_request_duration_seconds_bucket{router=~\".*$namespace.*\"}[5m])))",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(traefik_service_request_duration_seconds_bucket{exported_service=~\"$namespace-.*\"}[5m])))",
               "legendFormat": "p95",
               "refId": "A"
             },
@@ -956,7 +963,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "histogram_quantile(0.50, sum by (le) (rate(traefik_router_request_duration_seconds_bucket{router=~\".*$namespace.*\"}[5m])))",
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(traefik_service_request_duration_seconds_bucket{exported_service=~\"$namespace-.*\"}[5m])))",
               "legendFormat": "p50",
               "refId": "B"
             }

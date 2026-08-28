@@ -1,0 +1,167 @@
+---
+# Re-attaches Prometheus to the kube-prometheus-stack components it ships with
+# but was no longer scraping.
+#
+# The chart's own ServiceMonitors select their Services by
+# `app.kubernetes.io/name` + `app.kubernetes.io/instance`, and both of those
+# labels get overwritten on the Service before it ever reaches the cluster:
+#
+#   * kustomization.yaml stamps `app.kubernetes.io/name: monitoring` on every
+#     resource in this directory (the `labels` block), and
+#   * ArgoCD stamps `app.kubernetes.io/instance: <application name>` as its
+#     resource-tracking label, which for this app is also `monitoring`.
+#
+# `includeSelectors: false` correctly leaves selectors and pod templates alone,
+# so the Services still find their pods and the pods still carry the chart's
+# original labels - it is only the Service *metadata* that is rewritten. The
+# ServiceMonitors therefore matched nothing at all, and
+# `count(up{job="kube-state-metrics"})` and the node-exporter equivalent were
+# empty: no kube-state-metrics, no node-exporter, no Grafana, no CoreDNS. Every
+# cluster/node/namespace dashboard was drawing from nothing.
+#
+# Fixed with PodMonitors rather than by unpicking the labels. The pod labels are
+# untouched, so they are a selector that actually holds; the alternative is
+# either editing a cluster-wide ArgoCD tracking setting or dropping a label the
+# rest of this directory relies on. `release: kps` is what the operator's own
+# podMonitorSelector looks for - without it these are silently ignored, exactly
+# like the ServiceMonitors they replace.
+#
+# `job` is relabelled to a fixed string on each one. Community dashboards match
+# on job="kube-state-metrics" / job="node-exporter"; a PodMonitor otherwise
+# names the job after itself and the panels come back empty.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: kube-state-metrics
+  namespace: monitoring
+  labels:
+    release: kps
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kube-state-metrics
+      app.kubernetes.io/instance: kps
+  namespaceSelector:
+    matchNames: [monitoring]
+  podMetricsEndpoints:
+    - port: http
+      interval: 30s
+      relabelings:
+        - targetLabel: job
+          replacement: kube-state-metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: node-exporter
+  namespace: monitoring
+  labels:
+    release: kps
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus-node-exporter
+      app.kubernetes.io/instance: kps
+  namespaceSelector:
+    matchNames: [monitoring]
+  podMetricsEndpoints:
+    - port: http-metrics
+      interval: 30s
+      relabelings:
+        - targetLabel: job
+          replacement: node-exporter
+        # node-exporter runs with hostNetwork, so the pod IP is the node IP.
+        # Dashboards group by `instance`; without this it is host:9100 on some
+        # panels and the pod name on others, and the series do not line up.
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: instance
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    release: kps
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+      app.kubernetes.io/instance: kps
+  namespaceSelector:
+    matchNames: [monitoring]
+  podMetricsEndpoints:
+    - port: grafana
+      interval: 30s
+      relabelings:
+        - targetLabel: job
+          replacement: grafana
+---
+# Loki and Alloy ship metrics about the log pipeline itself - ingestion rate,
+# dropped lines, WAL state. Neither had a scrape target, so a log pipeline
+# silently falling behind looked identical to one with nothing to do.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: loki
+  namespace: monitoring
+  labels:
+    release: kps
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/instance: loki
+  namespaceSelector:
+    matchNames: [monitoring]
+  podMetricsEndpoints:
+    - port: http-metrics
+      interval: 30s
+      relabelings:
+        - targetLabel: job
+          replacement: loki
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: alloy
+  namespace: monitoring
+  labels:
+    release: kps
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alloy
+      app.kubernetes.io/instance: alloy
+  namespaceSelector:
+    matchNames: [monitoring]
+  podMetricsEndpoints:
+    - port: http-metrics
+      interval: 30s
+      relabelings:
+        - targetLabel: job
+          replacement: alloy
+---
+# CoreDNS is reached through the k3s-managed kube-dns Service rather than a
+# PodMonitor: its `k8s-app` label is stable and outside this directory, so
+# nothing rewrites it. The chart's own coredns ServiceMonitor points at a
+# Service in *this* namespace, whose labels were rewritten like the rest.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: coredns
+  namespace: monitoring
+  labels:
+    release: kps
+spec:
+  selector:
+    matchLabels:
+      k8s-app: kube-dns
+  namespaceSelector:
+    matchNames: [kube-system]
+  endpoints:
+    - port: metrics
+      interval: 30s
+      relabelings:
+        - targetLabel: job
+          replacement: coredns

@@ -30,6 +30,16 @@ spec:
       protocol: TCP
     - port: 9443
       protocol: TCP
+  # Prometheus scraping authentik's own metrics on 9300. Only 9000/9443 were
+  # open to kube-system, so nothing outside this namespace could reach the
+  # metrics port and the login/request series never existed.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+    ports:
+    - port: 9300
+      protocol: TCP
   - from:
     - namespaceSelector:
         matchLabels:

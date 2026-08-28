@@ -21,6 +21,16 @@ spec:
       ports:
         - {port: 8080, protocol: TCP}
         - {port: 6060, protocol: TCP}
+    # Prometheus scraping the agent and LAPI metrics on 6060. The rule above
+    # opens that port to kube-system and crowdsec only, so a ServiceMonitor
+    # pointed here reports the target permanently down and the decision and
+    # parser counters read as zero rather than as unavailable.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - {port: 6060, protocol: TCP}
   egress:
     # The apiserver, by BOTH the Service address and the node address.
     # k3s DNATs 10.43.0.1:443 to the node endpoint before NetworkPolicy egress
