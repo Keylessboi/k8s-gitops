@@ -41,3 +41,6 @@ resources:
   - extensions-job.yaml
   # Logical backups: the ones that actually protect the vault.
   - pgdump-cronjob.yaml
+  # Physical backups: barman base backup daily, which is what makes the
+  # continuously archived WALs restorable.
+  - scheduledbackup.yaml

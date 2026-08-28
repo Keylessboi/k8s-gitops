@@ -1,0 +1,60 @@
+---
+# Recurring barman base backups.
+#
+# cluster.yaml has configured `backup.barmanObjectStore` since the beginning,
+# but nothing ever ASKED for a base backup on a schedule. CNPG does not infer
+# one from the object-store config: without a ScheduledBackup, the only base
+# backups that exist are the ones somebody creates a Backup CR for by hand.
+#
+# What that looked like in the object store before this file existed:
+#
+#   base/  20260826T033117/   \_ both taken by hand on the day the operator's
+#          20260826T033516/   /  apiserver egress was fixed - and nothing since
+#   wals/  649 objects, 143MiB, still arriving every 5 minutes
+#
+# That is the worst shape a backup can be in, because it looks healthy.
+# Continuous archiving reports success, the Cluster shows
+# LastBackupSucceeded=True from the manual run, and the WAL chain grows
+# without bound behind a base backup that keeps getting older - so recovery
+# time grows every day, and `retentionPolicy: 7d` never runs at all, since
+# CNPG applies retention at backup time.
+#
+# The pg_dump CronJob next to this file is not a substitute: it is a logical
+# dump, so it cannot do point-in-time recovery and it cannot use the WALs.
+# The two are complementary - pg_dump for "restore this database", barman for
+# "restore the cluster to 14:03 last Tuesday".
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: app-databases-daily
+  namespace: databases
+  labels:
+    app.kubernetes.io/name: app-databases
+    app.kubernetes.io/part-of: homelab
+spec:
+  # SIX fields, not five. CNPG uses robfig/cron with seconds enabled, so the
+  # leading 0 is SECONDS - this is 03:15:00 daily. A five-field expression
+  # copied from a Kubernetes CronJob is not rejected; it is reinterpreted, and
+  # "0 3 * * *" would silently mean 03:00 every minute-zero-second of every
+  # hour... i.e. hourly backups. Verified against `kubectl explain`: this CRD
+  # is ScheduledBackup, not batch/v1 CronJob.
+  #
+  # 03:15 keeps it clear of everything else that touches this data: the
+  # pg_dump CronJob runs at :40 past every sixth hour, the Vaultwarden dump at
+  # :20, and Lidarr maintenance at 02:00.
+  schedule: "0 15 3 * * *"
+  # Run one as soon as this resource is created, rather than waiting until the
+  # next 03:15. Without it, the first proof that scheduled backups work would
+  # arrive up to a day after the change was pushed.
+  immediate: true
+  # Backups are owned by the Cluster, not by this ScheduledBackup. `self`
+  # would garbage-collect every Backup CR the moment this file is renamed or
+  # temporarily removed, which would throw away the record of what exists in
+  # the object store. `cluster` keeps them for as long as the database does.
+  backupOwnerReference: cluster
+  cluster:
+    name: app-databases
+  # Explicit even though it is the default: the alternative (volumeSnapshot)
+  # needs a CSI driver with snapshot support, and this cluster's storage is
+  # local-path, which has none.
+  method: barmanObjectStore

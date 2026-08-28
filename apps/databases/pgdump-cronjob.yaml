@@ -5,15 +5,19 @@
 # MinIO"), and it is the one that actually protects the Vaultwarden vault -
 # passwords, logins, notes and TOTP seeds all live in PostgreSQL.
 #
-# It exists alongside barman WAL archiving rather than replacing it, because
-# barman BASE backups are currently failing: the CNPG operator cannot POST to
-# the pods/exec subresource ("dial tcp 10.43.0.1:443: connect: connection
-# refused") even though plain connectivity to the apiserver from that
-# namespace tests fine. WAL segments ship correctly, but WALs alone cannot
-# restore anything without a base backup - so trusting barman today would mean
-# believing in a backup that cannot actually be restored.
+# It exists alongside barman rather than replacing it. When this file was
+# written barman base backups were broken - the CNPG operator could not POST
+# to the pods/exec subresource ("dial tcp 10.43.0.1:443: connect: connection
+# refused") because its NetworkPolicy named only the apiserver's Service IP,
+# which k3s DNATs to the node address before egress is evaluated. That was
+# fixed in fe0eac7 (apps/cnpg/networkpolicy.yaml), and base backups have
+# completed since; scheduledbackup.yaml now takes one daily.
 #
-# pg_dump depends on nothing but PostgreSQL and the S3 endpoint.
+# The two are still complementary, not redundant. pg_dump is LOGICAL: it can
+# restore one database into any PostgreSQL, and it depends on nothing but
+# PostgreSQL and the S3 endpoint - no operator, no exec, no WAL chain. barman
+# is PHYSICAL: it is the only one of the two that can do point-in-time
+# recovery, and the only one that makes the archived WALs worth anything.
 #
 # Two stages, because no single image carries both pg_dump and restic:
 #   initContainer  postgres image -> dumps into a shared emptyDir
