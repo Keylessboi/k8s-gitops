@@ -44,6 +44,26 @@ spec:
           # pod stays Running and `kubectl exec` works, rather than crash-looping
           # out of reach of the setup wizard.
           args: ["gateway", "run"]
+          # Hardening, cut to exactly what s6-overlay can survive.
+          #
+          # runAsNonRoot is deliberately NOT set. s6-svscan is PID 1 and must
+          # start as root: /etc/cont-init.d/01-hermes-setup remaps the image's
+          # hermes user to HERMES_UID/HERMES_GID and chowns /opt/data before
+          # s6-setuidgid drops each supervised service to it. That is also why
+          # the namespace enforces `baseline` rather than `restricted`.
+          #
+          # `drop: [ALL]` alone was verified to break the container outright -
+          # it exits with `s6-applyuidgid: fatal: unable to set supplementary
+          # group list: Operation not permitted` and `chown /opt/data failed`
+          # before the gateway ever starts. These five are the privilege-drop
+          # and ownership-fixing capabilities that init actually uses; NET_RAW,
+          # SYS_ADMIN, MKNOD and the rest stay dropped. All five are inside the
+          # PSA baseline default set, so the namespace policy is unaffected.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
           env:
             - name: HERMES_UID
               value: "1000"
@@ -75,6 +95,33 @@ spec:
             - secretRef:
                 name: hermes-llm
                 optional: true
+          # exec, not httpGet. Everything this container listens on is bound to
+          # container loopback - the dashboard on 127.0.0.1:9119 by the env vars
+          # above, and the gateway's own HTTP server on 127.0.0.1:8642 - so a
+          # kubelet probe, which dials the pod IP, can never reach either. An
+          # exec probe runs inside the container's network namespace, where
+          # loopback is exactly what is wanted.
+          #
+          # 8642/health is the gateway itself, not the dashboard: it answers
+          # {"status": "ok", "platform": "hermes-agent", ...}. 9119 only ever
+          # returns the dashboard SPA shell, including for /health, so it would
+          # report healthy while the gateway was down. Measured at 0.5ms.
+          #
+          # Generous timings on purpose. An over-tight probe on Lidarr in this
+          # cluster emptied a Service's endpoints and cost hours of
+          # misdiagnosis. Nothing selects these pods - hermes has no Service -
+          # so readiness here is a signal, not a traffic gate, and it should
+          # never flap on a slow moment during an agent run.
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - curl -fsS --max-time 10 -o /dev/null http://127.0.0.1:8642/health
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 15
+            failureThreshold: 6
           volumeMounts:
             - name: data
               mountPath: /opt/data

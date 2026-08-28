@@ -457,6 +457,28 @@ spec:
           ports:
             - name: http
               containerPort: 8084
+          # No probe at all until now, so a Flask worker wedged on a stalled
+          # Anna's Archive fetch still counted as ready and still received
+          # requests from bookdl.sandstorm.chat.
+          #
+          # GET / is the search page shell, served straight from Flask without
+          # touching an upstream mirror - measured at 77-186ms in-container,
+          # returning 200 even before OIDC login. /api/status is the obvious
+          # alternative but takes 518ms because it polls the download queue,
+          # and it is the queue that gets slow when something is wrong.
+          #
+          # Generous on purpose. An over-tight probe on Lidarr in this cluster
+          # emptied a Service's endpoints and cost hours of misdiagnosis, and
+          # this pod does long blocking downloads: 10s and six failures means
+          # two full minutes of unresponsiveness before the endpoint is pulled.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
           resources:
             requests:
               cpu: 25m

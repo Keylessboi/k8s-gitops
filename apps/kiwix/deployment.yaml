@@ -89,6 +89,26 @@ spec:
           ports:
             - containerPort: 8080
               name: http
+          # kiwix-serve either has a ZIM open and serves, or it has already
+          # exited - but "exited" here means the shell wrapper above dies and
+          # the pod restarts, and without a probe the Service kept the endpoint
+          # for the whole restart window. GET / is the library index, which
+          # kiwix-serve renders from memory: measured at 0.5-0.7ms in-cluster,
+          # returning 200.
+          #
+          # Deliberately generous anyway. An over-tight probe on Lidarr in this
+          # cluster emptied a Service's endpoints and cost hours of
+          # misdiagnosis, and a large ZIM corpus makes the first index build
+          # slower than the steady state - 30s of grace, then two minutes of
+          # genuine unresponsiveness before the endpoint is pulled.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
           resources:
             requests:
               cpu: 50m

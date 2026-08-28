@@ -26,6 +26,20 @@ spec:
               value: UTC
             - name: PORT
               value: "3000"
+            # PORT is not what this image reads. It is an ASP.NET Core app and
+            # its Dockerfile bakes in ASPNETCORE_URLS=http://+:8080, which wins
+            # over both PORT and ASPNETCORE_HTTP_PORTS - so the container has
+            # been listening on 8080 while the Service, the containerPort and
+            # the NetworkPolicy all pointed at 3000. Nothing could reach it.
+            # Verified by /proc/net/tcp6 in the running pod (:1F90 = 8080) and
+            # by a throwaway pod: with ASPNETCORE_HTTP_PORTS=3000 it still bound
+            # 8080; with this variable it binds :0BB8 = 3000.
+            #
+            # Set here rather than moving everything else to 8080: this is the
+            # one-line change that makes the port already declared everywhere
+            # else true, and it is what makes the readiness probe below valid.
+            - name: ASPNETCORE_URLS
+              value: http://+:3000
           ports:
             - name: http
               containerPort: 3000
@@ -36,6 +50,25 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          # GET / is this app's own health endpoint - it returns
+          # {"status":"ok"} with a 200, measured at 71ms against a pod bound to
+          # 3000, with no upstream catalogue call behind it. /rest/ping.view is
+          # the Subsonic ping but answers 401 without credentials, so it is
+          # unusable as a probe.
+          #
+          # Generous on purpose. An over-tight probe on Lidarr in this cluster
+          # emptied a Service's endpoints and cost hours of misdiagnosis. This
+          # is a stateless protocol shim with no warm-up, but the same rule
+          # applies: two minutes of real unresponsiveness before the endpoint
+          # is pulled.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
 ---
 apiVersion: v1
 kind: Service
