@@ -25,6 +25,11 @@
 # env. (A shared ConfigMap would not help: a Job's pod template is
 # frozen at creation, so every script change means recreating the Jobs
 # either way.)
+#
+# While these Jobs run (measured: ~40 days for ~30k albums), the lidarr
+# Application shows Synced/Progressing rather than Healthy — ArgoCD
+# counts a running Job as Progressing. That is expected for the whole
+# catalog build, not a fault to chase.
 apiVersion: batch/v1
 kind: Job
 metadata:
