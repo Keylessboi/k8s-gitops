@@ -1,0 +1,37 @@
+---
+# Pelican Panel, published at pelican.sandstorm.chat.
+#
+# NO Authentik forward-auth middleware here, deliberately — unlike prowlarr.
+# Pelican has NATIVE OIDC (the "Authentik" button on its own login page), so the
+# edge gate would be redundant and would actively break two things:
+#   - the client/application REST API (`/api/*`, bearer-token auth) would get an
+#     HTML login redirect instead of JSON, and
+#   - the Wings daemon callbacks (`/api/remote/*`) — Wings is not a browser and
+#     cannot complete an Authentik redirect.
+# So the panel guards itself; the Ingress only adds CrowdSec + rate limiting.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pelican
+  namespace: pelican
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - pelican.sandstorm.chat
+      secretName: pelican-tls
+  rules:
+    - host: pelican.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: pelican
+                port:
+                  number: 80

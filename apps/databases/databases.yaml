@@ -144,3 +144,17 @@ spec:
   cluster:
     name: app-databases
 
+---
+# Pelican Panel's single database. Laravel keeps everything (users, nodes,
+# servers, sessions/queue overflow) in one schema; no separate log db.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: pelican
+  namespace: databases
+spec:
+  name: pelican
+  owner: pelican
+  cluster:
+    name: app-databases
+

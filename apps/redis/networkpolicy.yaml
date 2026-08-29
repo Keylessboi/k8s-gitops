@@ -18,6 +18,11 @@ spec:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: nextcloud
+    # Pelican uses Redis for cache (db 1), sessions (db 1) and its queue
+    # (default db 0). Separate logical DBs keep it off the other tenants' keys.
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: pelican
   egress:
   # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
   # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so

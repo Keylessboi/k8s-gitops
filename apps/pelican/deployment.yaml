@@ -1,0 +1,232 @@
+---
+# Pelican Panel — game-server management, the successor to Pterodactyl.
+#
+# Chosen over Pterodactyl because Pterodactyl v1.15.1 physically cannot run
+# here (no pdo_pgsql, no OIDC — see docs/adr/0005). Pelican clears both, and it
+# was VERIFIED against the exact image below before this was written:
+#   - `php -m` in ghcr.io/pelican/panel:v1.0.0-beta38 lists pdo_pgsql, and
+#   - a PDO connect from that image to app-databases-rw returned
+#     "PostgreSQL 16.9" — where Pterodactyl returned "could not find driver".
+#   - composer.json pulls laravel/socialite + socialiteproviders/authentik, and
+#     app/Extensions/OAuth/Schemas/AuthentikSchema.php is a first-class provider.
+#
+# ONE container does everything. The image's supervisord runs php-fpm, Caddy,
+# `queue:work` AND supercronic (`schedule:run` every minute) together — so
+# unlike Pterodactyl there is no need for separate queue-worker/scheduler
+# Deployments. Confirmed in docker/supervisord.conf + docker/crontab at this tag.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pelican
+  namespace: pelican
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate: a single RWO PVC cannot attach to two pods,
+  # and two panels running migrate/queue against one DB is asking for trouble.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pelican
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pelican
+    spec:
+      securityContext:
+        # The image's USER is www-data (82:82), verified with `id` in the image.
+        runAsUser: 82
+        runAsGroup: 82
+        # fsGroup so the kubelet hands /pelican-data to the www-data group;
+        # without it the root-owned fresh PVC is unwritable and the entrypoint
+        # cannot create its .env / storage dirs.
+        fsGroup: 82
+        # OnRootMismatch, not the default Always: skips the recursive chown when
+        # the volume root already has the right ownership (same reasoning as the
+        # redis and *arr manifests). local-path here, so cheap either way, but
+        # kept consistent with the repo rule.
+        fsGroupChangePolicy: OnRootMismatch
+        # This node's kubelet has seccompDefault=false, so nothing applies a
+        # profile unless a manifest asks. RuntimeDefault blocks the syscalls the
+        # runtime considers dangerous; the panel needs none of them.
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: panel
+          # Pinned to the tag AND the multi-arch index digest so a re-pull can
+          # never silently change what runs. beta38 released 2026-08-16.
+          image: ghcr.io/pelican/panel:v1.0.0-beta38@sha256:46f356f3fda423b1d43f0dc3c71efc056cd8b9bec365d1d7817306a17ee5694a
+          env:
+            # --- Core Laravel ---
+            - name: APP_ENV
+              value: production
+            - name: APP_DEBUG
+              value: "false"
+            # APP_NAME becomes the Redis key prefix (slug + "_database_"), which
+            # is what keeps Pelican's cache/session/queue keys off the other
+            # tenants sharing redis-master (immich, authentik, nextcloud).
+            - name: APP_NAME
+              value: Pelican
+            - name: APP_URL
+              value: https://pelican.sandstorm.chat
+            # APP_INSTALLED=true tells the entrypoint to run `migrate --force` on
+            # start, which bypasses the web installer entirely — the whole point
+            # of a declarative deploy. All settings the installer would collect
+            # are supplied as env below.
+            - name: APP_INSTALLED
+              value: "true"
+            # Persistent APP_KEY. It encrypts Wings node tokens, so it is
+            # generated ONCE, stored in Doppler, and never rotated — rotating it
+            # would force re-registration of every node. (docs/pterodactyl-wings.md)
+            - name: APP_KEY
+              valueFrom:
+                secretKeyRef: {name: pelican-app, key: app-key}
+            # Behind Traefik, which terminates TLS. The entrypoint then makes
+            # Caddy listen on :80 internally and turns auto-HTTPS off, so no
+            # Let's Encrypt email is needed on the pod (cert is at the Ingress).
+            - name: BEHIND_PROXY
+              value: "true"
+            # Trust X-Forwarded-* only from the in-cluster pod network (Traefik),
+            # never arbitrary clients. Ingress is netpol-restricted to kube-system.
+            - name: TRUSTED_PROXIES
+              value: 10.42.0.0/16
+            # --- Database: native PostgreSQL on the shared CNPG cluster ---
+            - name: DB_CONNECTION
+              value: pgsql
+            - name: DB_HOST
+              value: app-databases-rw.databases.svc.cluster.local
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_DATABASE
+              value: pelican
+            - name: DB_USERNAME
+              value: pelican
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: pelican-app, key: db-password}
+            # --- Redis: the ONE shared redis-master, predis client ---
+            # The image has the predis composer lib, NOT the phpredis extension
+            # (`php -m` has no "redis"), so REDIS_CLIENT must be predis (it is the
+            # config default, set explicitly to make it a decision).
+            - name: REDIS_CLIENT
+              value: predis
+            - name: CACHE_STORE
+              value: redis
+            - name: SESSION_DRIVER
+              value: redis
+            - name: QUEUE_CONNECTION
+              value: redis
+            - name: REDIS_HOST
+              value: redis-master.redis.svc.cluster.local
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: pelican-app, key: redis-password}
+            # --- S3 backups: reuse the pre-provisioned MinIO bucket ---
+            # These env vars are read by the create_backup_hosts migration on
+            # first migrate, which seeds a "Remote" S3 backup host row from them
+            # (verified in database/migrations/*_create_backup_hosts_table.php).
+            # Wings signs nothing here — the Panel signs presigned URLs and Wings
+            # (on the phones) does the upload, so the phone also needs a route to
+            # 192.168.1.67:9000 (docs/pterodactyl-wings.md).
+            - name: APP_BACKUP_DRIVER
+              value: s3
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            - name: AWS_BACKUPS_BUCKET
+              value: pterodactyl-backups
+            - name: AWS_ENDPOINT
+              value: http://192.168.1.67:9000
+            - name: AWS_USE_PATH_STYLE_ENDPOINT
+              value: "true"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef: {name: pelican-app, key: s3-access-key}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: pelican-app, key: s3-secret-key}
+            # --- OIDC against Authentik (Laravel Socialite) ---
+            # The Authentik provider "Pelican" (slug `pelican`) was created via
+            # ak shell. The socialite authentik driver derives its authorize/
+            # token/userinfo URLs from OAUTH_AUTHENTIK_BASE_URL; there is no
+            # discovery-URL fetch. isEnabled()/getServiceConfig() read these env
+            # vars at runtime (the entrypoint deliberately does NOT cache config,
+            # so env() works live).
+            - name: OAUTH_AUTHENTIK_ENABLED
+              value: "true"
+            - name: OAUTH_AUTHENTIK_BASE_URL
+              value: https://authentik.sandstorm.chat
+            - name: OAUTH_AUTHENTIK_DISPLAY_NAME
+              value: Authentik
+            # Auto-provision a panel user on first OIDC login, and link to an
+            # existing local account by verified email — which is how the
+            # CLI-made admin (same email) becomes SSO-linked on first login.
+            - name: OAUTH_AUTHENTIK_SHOULD_CREATE_MISSING_USERS
+              value: "true"
+            - name: OAUTH_AUTHENTIK_SHOULD_LINK_MISSING_USERS
+              value: "true"
+            - name: OAUTH_AUTHENTIK_CLIENT_ID
+              valueFrom:
+                secretKeyRef: {name: pelican-app, key: oidc-client-id}
+            - name: OAUTH_AUTHENTIK_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: pelican-app, key: oidc-client-secret}
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              # The node is memory-tight (ADR-0005). php-fpm + caddy + a queue
+              # worker + supercronic fit comfortably in 768Mi at idle.
+              cpu: "1"
+              memory: 768Mi
+          # First boot runs migrate + filament:optimize + view:cache before Caddy
+          # serves, which can exceed a normal readiness budget — so a startup
+          # probe guards the slow start (up to 5 min) and readiness/liveness take
+          # over once /up answers. /up is Laravel's health endpoint and is what
+          # the image's own healthcheck.sh hits, so it is verified to answer.
+          startupProbe:
+            httpGet:
+              path: /up
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /up
+              port: http
+            timeoutSeconds: 5
+            periodSeconds: 15
+            failureThreshold: 4
+          livenessProbe:
+            httpGet:
+              path: /up
+              port: http
+            timeoutSeconds: 5
+            periodSeconds: 30
+            failureThreshold: 5
+          volumeMounts:
+            - name: data
+              mountPath: /pelican-data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: pelican-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pelican
+  namespace: pelican
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: pelican
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

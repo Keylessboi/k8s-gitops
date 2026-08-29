@@ -1,0 +1,18 @@
+---
+# Pelican's data volume. The image mounts /pelican-data and keeps its .env,
+# the SQLite stub (unused here — we run Postgres), storage/ (avatars, fonts,
+# icons, egg cache) and installed plugins there. It is NOT the source of record
+# for anything that matters: users/servers/nodes live in Postgres and the
+# APP_KEY lives in Doppler, so this PVC is convenience state, not the backup
+# target. local-path (node-local) is fine and avoids the NFS chown walk.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pelican-data
+  namespace: pelican
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi

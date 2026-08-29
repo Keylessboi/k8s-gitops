@@ -1,0 +1,88 @@
+---
+# First admin account. Pelican has no first-run web wizard once APP_INSTALLED is
+# true (we bypass the installer), so the first admin is made on the CLI with
+# `p:user:make` — exactly as docs/pterodactyl-wings.md notes for the panel.
+#
+# Runs as an ArgoCD PostSync hook so it fires AFTER the Deployment is healthy,
+# i.e. after the entrypoint's `migrate --force` has created the schema. The
+# script is idempotent: it creates the admin on first run and treats a
+# "already taken" collision as success on every resync, so selfHeal re-runs are
+# harmless. The password is read from Doppler via secretKeyRef — never inlined.
+#
+# The email is the owner's, on purpose: OIDC sub_mode is user_email and the
+# panel links an OIDC login to an existing local account by verified email, so
+# signing in through Authentik with this same address lands on THIS admin
+# account rather than creating a second, unprivileged one.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pelican-admin
+  namespace: pelican
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded,BeforeHookCreation
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pelican
+        app.kubernetes.io/component: admin-bootstrap
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsUser: 82
+        runAsGroup: 82
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: make-admin
+          image: ghcr.io/pelican/panel:v1.0.0-beta38@sha256:46f356f3fda423b1d43f0dc3c71efc056cd8b9bec365d1d7817306a17ee5694a
+          # Override the image entrypoint (which would start migrate + Caddy);
+          # this pod only needs artisan against the already-migrated DB.
+          command:
+            - /bin/ash
+            - -c
+            - |
+              set -u
+              OUT=$(php artisan p:user:make \
+                --email="$ADMIN_EMAIL" \
+                --username="$ADMIN_USERNAME" \
+                --password="$ADMIN_PASSWORD" \
+                --admin=1 2>&1) && RC=0 || RC=$?
+              echo "$OUT"
+              if [ "$RC" -eq 0 ]; then
+                echo "admin created."
+                exit 0
+              fi
+              if echo "$OUT" | grep -qiE "already been taken|already exists|unique|duplicate"; then
+                echo "admin already exists — treating as success."
+                exit 0
+              fi
+              exit "$RC"
+          env:
+            - name: ADMIN_EMAIL
+              value: travis.fiorito@tuta.com
+            - name: ADMIN_USERNAME
+              value: travis
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: pelican-app, key: admin-password}
+            # Framework + DB access, same values as the Deployment.
+            - name: APP_KEY
+              valueFrom:
+                secretKeyRef: {name: pelican-app, key: app-key}
+            - name: DB_CONNECTION
+              value: pgsql
+            - name: DB_HOST
+              value: app-databases-rw.databases.svc.cluster.local
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_DATABASE
+              value: pelican
+            - name: DB_USERNAME
+              value: pelican
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: pelican-app, key: db-password}

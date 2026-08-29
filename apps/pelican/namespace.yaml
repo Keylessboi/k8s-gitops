@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pelican
+  labels:
+    app.kubernetes.io/name: pelican
+    app.kubernetes.io/part-of: homelab
+    # Baseline enforced (not restricted): the panel image starts nothing
+    # privileged, but it does run supervisord + php-fpm + caddy as www-data,
+    # which the restricted profile's defaults would not block anyway. Matches
+    # every other app namespace in this repo.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

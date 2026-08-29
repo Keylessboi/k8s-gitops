@@ -1,0 +1,97 @@
+---
+# NetworkPolicy is evaluated at BOTH ends in this cluster, so every egress here
+# has a matching ingress at its destination (databases, redis, authentik) added
+# in the same commit.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: pelican
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Traefik reaches the panel on :80 (TLS terminates at the Ingress).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 80, protocol: TCP}
+    # cert-manager creates HTTP-01 solver pods in THIS namespace on demand and
+    # Traefik must reach them on 8089, or the ACME challenge 502s and no cert is
+    # ever issued for pelican.sandstorm.chat.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 8089, protocol: TCP}
+  egress:
+    # DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    # Postgres on the shared CNPG cluster (matching ingress added to
+    # apps/databases/networkpolicy.yaml).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: databases
+      ports:
+        - {port: 5432, protocol: TCP}
+    # Redis (matching ingress added to apps/redis/networkpolicy.yaml).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: redis
+      ports:
+        - {port: 6379, protocol: TCP}
+    # Authentik, for the server-side OIDC token + userinfo exchange. CoreDNS
+    # resolves authentik.sandstorm.chat to the load balancer (192.168.1.240),
+    # and the catch-all internet rule below excludes 192.168.0.0/16, so without
+    # this the lookup succeeds and the connection is then dropped.
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.240/32
+      ports:
+        - {port: 443, protocol: TCP}
+    # ...and the SAME authentik rule again in post-DNAT terms. k3s rewrites
+    # 192.168.1.240:443 to the Traefik pod on :8443 BEFORE NetworkPolicy egress
+    # is evaluated, so the ipBlock rule above matches nothing on a new
+    # connection — the trap that broke Forgejo's and Vaultwarden's OIDC.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 8443, protocol: TCP}
+        - {port: 8000, protocol: TCP}
+    # MinIO on the NAS: the Panel talks to S3 directly to seed the backup host,
+    # sign presigned URLs, and delete backups.
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.67/32
+      ports:
+        - {port: 9000, protocol: TCP}
+    # Outbound HTTPS/HTTP to the internet, minus the private ranges: the
+    # entrypoint's `p:plugin:composer` step and the panel's egg imports /
+    # `p:egg:check-updates` cron fetch from GitHub and packagist. Private ranges
+    # are excluded so this rule never becomes a backdoor to in-cluster or LAN
+    # services (those are opened explicitly above).
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 192.168.0.0/16
+              - 172.16.0.0/12
+      ports:
+        - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 80}
