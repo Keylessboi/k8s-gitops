@@ -1,0 +1,50 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: convertx
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # cert-manager creates HTTP-01 solver pods in this namespace on demand and
+  # Traefik must reach them on 8089. Without this the ACME challenge 502s and
+  # no certificate is ever issued for this host.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 8089
+      protocol: TCP
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: pangolin
+  # Traefik, which fronts the app. Nothing else ever needs in - and nothing
+  # else should get in: ConvertX shells out to converter binaries, so it stays
+  # reachable only through the forward-auth'd ingress.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: TCP
+      port: 3000
+  egress:
+  # DNS only. ConvertX converts locally - every converter binary is in the
+  # image - so unlike most apps here there is no internet egress rule at all,
+  # and none for the API server either: nothing in the pod talks to k8s. A
+  # converter that phones home is a converter that gets its egress reviewed
+  # first.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53

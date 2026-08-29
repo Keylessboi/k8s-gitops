@@ -1,0 +1,122 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: convertx
+  namespace: convertx
+spec:
+  replicas: 1
+  # Recreate, not the default RollingUpdate: ConvertX keeps accounts and
+  # conversion history in a sqlite database on the NFS claim, and two pods
+  # writing one sqlite file concurrently is corruption, not a migration.
+  # Same reasoning as vaultwarden.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: convertx
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: convertx
+        app.kubernetes.io/part-of: homelab
+    spec:
+      securityContext:
+        fsGroup: 1000
+        # OnRootMismatch, not the default Always. fsGroup makes the kubelet
+        # recursively chown every mounted volume before the container starts.
+        # Over NFS that walk is O(files) and shows up as the pod sitting in
+        # ContainerCreating with only a 'context deadline exceeded' to go on.
+        # The volume root already carries the right ownership, so this skips
+        # the walk; if a root ever genuinely mismatches, the full chown still
+        # runs.
+        fsGroupChangePolicy: OnRootMismatch
+        # Without this the pod runs seccomp Unconfined: this node's kubelet has
+        # seccompDefault=false, so nothing applies a profile unless a manifest
+        # asks. RuntimeDefault blocks the syscalls the container runtime
+        # considers dangerous (mount, unshare, kexec, bpf, keyctl, ...).
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        homelab/node-class: compute
+      containers:
+        - name: convertx
+          # Pinned: :latest gives no way to reason about what is running.
+          image: ghcr.io/c4illin/convertx:v0.18.0
+          # Deliberately NO runAsNonRoot/runAsUser here. The upstream image has
+          # no USER directive: it installs the pipx-based markitdown converter
+          # into /root/.local/bin (which is on the image's PATH) and creates
+          # /app/data root-owned. Forcing a non-root UID broke writes to the
+          # data directory and silently dropped the markitdown converter.
+          # The container runs as root by upstream design; the containment is
+          # the NetworkPolicy below plus Authentik forward-auth in front.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # Synced from Doppler by the convertx DopplerSecret (declared in
+            # apps/doppler/dopplersecrets.yaml). optional:true per repo
+            # convention, so the pod still starts and can be debugged on the
+            # sync where the namespace exists before the operator has written
+            # the secret. Unset, ConvertX falls back to a random per-boot
+            # secret - sessions then die on every restart until the secret
+            # lands, which is visible, not fatal.
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: convertx
+                  key: jwt-secret
+                  optional: true
+            # Registration closed, and upstream has no allow-list to narrow it
+            # further: REGISTER_ALLOW_LIST does not exist in ConvertX (verified
+            # against src/helpers/env.ts - the only gates are ACCOUNT_REGISTRATION
+            # and a FIRST_RUN bypass). Setting a nonexistent variable would look
+            # like a restriction that is not there, the exact trap the
+            # vaultwarden deployment documents. What actually happens: on an
+            # empty database /login redirects to /setup and the FIRST account
+            # can be created regardless of this flag; afterwards /register is
+            # closed while this stays "false". So the owner registers first and
+            # nobody else ever can. If a second account is ever needed, flip
+            # this to "true" via a commit, register, flip it back.
+            - name: ACCOUNT_REGISTRATION
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 3000
+          # /login renders a plain form and returns 200 (on a fresh database it
+          # 302s to /setup instead - both pass the probe). Verified from inside
+          # the pod with curl before these timings were committed.
+          #
+          # Deliberately generous anyway. An over-tight probe on Lidarr in this
+          # cluster emptied a Service's endpoints and cost hours of
+          # misdiagnosis, and kube-router programs egress rules a second or two
+          # after pod start - a tight probe makes that look like a networking
+          # fault. 30s of grace, then two minutes of genuine unresponsiveness
+          # before the endpoint is pulled.
+          readinessProbe:
+            httpGet:
+              path: /login
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          # Conversions are short but bursty: ffmpeg or LibreOffice on a large
+          # file will happily pin a core and a few hundred MB. The limits cap
+          # the blast radius without making a normal conversion OOM.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: convertx-data

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: convertx-data
+  namespace: convertx
+  labels:
+    app.kubernetes.io/name: convertx
+    app.kubernetes.io/part-of: homelab
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 5Gi

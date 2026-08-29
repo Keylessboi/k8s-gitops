@@ -1,0 +1,35 @@
+---
+# Behind Authentik forward-auth, no exceptions. ConvertX runs converter
+# binaries as subprocesses on uploaded files; an unauthenticated converter is
+# free compute and a malware-staging hop for anyone who finds the URL.
+#
+# The previous Ingress pattern in this repo (lidarr) was published without
+# auth and withdrawn; this one never ships that way.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: convertx
+  namespace: convertx
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # <namespace>-<name>@kubernetescrd is how a middleware in another
+    # namespace is referenced.
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - convertx.sandstorm.chat
+      secretName: convertx-tls
+  rules:
+    - host: convertx.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: convertx
+                port:
+                  number: 80
