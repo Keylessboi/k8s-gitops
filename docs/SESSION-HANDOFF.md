@@ -41,8 +41,6 @@ workload at 3.5 GB RAM.
 
 ## Background tasks that were running
 
-## Background tasks that were running
-
 - **Temp monitor** (Monitor task): watches Proxmox host CPU/NVMe/dell_smm and
   NAS disk temps via the smartctl exporter. Silent unless host ≥60°C or a NAS
   disk ≥50°C; heartbeat ~every 30 min. Filters out the phantom
@@ -93,26 +91,6 @@ LXC blocker, and Docker is packaged for Alpine aarch64). Reality check:
 Rust, Palworld). Don't double up k3s-agent + Docker + a game server on 3.5 GB
 RAM — pick one role per phone.
 
-## Pelican Panel (game server) — in progress
-
-Chosen over Pterodactyl after a subagent proved (against the real `v1.15.1`
-image) that Pterodactyl has no `pdo_pgsql` and no OIDC, and its Wings needs
-Docker + KVM (this node is an unprivileged LXC with containerd only). Evidence:
-`docs/adr/0005-pterodactyl-needs-mysql-and-kvm.md`; Wings build sheet:
-`docs/pterodactyl-wings.md`.
-
-- **Owner decisions:** deploy on the k3s node (explicit override of the plan's
-  "no Wings on control plane" — recorded, dated); **OIDC auth required**; S3
-  backups; Wings to run on the phones.
-- **Already done:** S3 bucket `pterodactyl-backups` on MinIO
-  `http://192.168.1.67:9000`, service account scoped to that bucket only
-  (negative-tested), creds in Doppler `kubernetes/prd`
-  (`MINIO_PTERODACTYL_ACCESS_KEY` / `_SECRET_KEY`). Satisfies plan item F5.
-- **In flight:** the agent is deploying Pelican with CNPG Postgres, `redis-master`,
-  the S3 bucket, and native Authentik OIDC (created via `ak shell`; the Authentik
-  bootstrap API token returns 403). Verify web UI + OIDC redirect before calling
-  it done. Blocked while the NAS/CNPG is down.
-
 ## MAM seedbox + Prowlarr — DONE this session
 
 - Seedbox dynamic-IP updater runs as a 4th container in the gluetun pod
@@ -129,7 +107,7 @@ Docker + KVM (this node is an unprivileged LXC with containerd only). Evidence:
 
 ## Outstanding owner action items
 
-1. **NAS** — confirm it's powered/cabled after the move (blocks everything).
+1. **NAS** — recovered. If any pod is still wedged ContainerCreating/Terminating, force-delete it (stale NFS mount).
 2. **`pixel3a3` password** — fix `PIXEL3A3_PASS` in Doppler, or run on the phone:
    `echo "travis ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/travis`.
 3. **Navidrome first login** (creates the admin account) then
