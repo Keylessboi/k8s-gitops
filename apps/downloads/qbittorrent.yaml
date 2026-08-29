@@ -75,10 +75,13 @@ spec:
                   - /data/media/music
                 # Lidarr imports into the library continuously and the share
                 # cache is in-memory, so new music stays unshared until a
-                # rescan. Rescan every 6h so imports become shareable without
-                # a pod restart.
+                # rescan. A full-library scan takes ~2h, so the rescan
+                # interval is weekly - anything shorter would have slskd
+                # scanning nearly continuously. A pod restart rescans
+                # immediately, and a scan can be forced from the web UI or
+                # API when the library has grown a lot.
                 cache:
-                  retention: 360
+                  retention: 10080
               # Owner's connection timeouts from their pre-k8s slskd.yml.
               # inactivity: 150000 is 10x the default 15000 - keeps slow peers
               # and dnet parent connections from being dropped early.
