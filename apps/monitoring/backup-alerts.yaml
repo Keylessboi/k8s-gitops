@@ -1,0 +1,86 @@
+---
+# Backup pipeline alerts -> email the owner when backups stop happening.
+#
+# Why this file exists: on 2026-08-29 MinIO lost its drive (drives-online: 0)
+# and served 503 on /minio/health/cluster for ~20h while live/ready stayed
+# 200. CNPG WAL archiving refused (SlowDownWrite), the pgdump CronJob failed
+# 3x with BackoffLimitExceeded, and nothing emailed anyone - the outage was
+# discovered by hand while taking an unrelated backup. These rules close that
+# gap: a repeat pages within ~30 minutes.
+#
+# Every metric below was verified against what the cnpg exporter actually
+# exposes on this cluster (scraped as job="cnpg" by the PodMonitor in
+# servicemonitors-apps.yaml; queried live in Prometheus 2026-08-29), NOT
+# against documentation:
+#
+#   * cnpg_collector_last_available_backup_timestamp    epoch of the newest
+#     restorable backup (barman base backup). Real value today: 1787973328.
+#     The series carries job="cnpg", namespace="databases", pod="app-databases-1"
+#     and NO cluster label - so the rules select on job/namespace, which is
+#     what the pods actually expose.
+#   * cnpg_pg_stat_archiver_failed_count                COUNTER of failed WAL
+#     archive attempts (211 total today - most of them from the outage).
+#   * cnpg_pg_stat_archiver_seconds_since_last_archival GAUGE, -1 = never.
+#     archive_timeout=5min forces a segment out at least every 5 minutes, so
+#     a healthy archiver keeps this far below the 30m threshold used here.
+#
+# Thresholds: base backups run daily at 03:15 (ScheduledBackup
+# app-databases-daily), so 26h means "a full cycle missed plus 2h of grace"
+# before anyone is woken up.
+#
+# Alert names are prefixed Backup / WALArchiver so the Alertmanager route in
+# kustomization.yaml (alertname =~ "Backup.*|WALArchiver.*") delivers them
+# through the EXISTING Gmail SMTP path to travis.fiorito@tuta.com - the
+# smart-email receiver is reused, no second SMTP config.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: backup
+  namespace: monitoring
+  labels:
+    # kube-prometheus-stack's Prometheus selects rules by this label.
+    release: kps
+spec:
+  groups:
+    - name: backup-pipeline
+      rules:
+        # The headline signal: no restorable backup for over a day. Every
+        # failure mode downstream of the database - MinIO down, WAL archiving
+        # stuck, base backup failing - ends up visible here, which is why this
+        # is the critical one. for:15m rides out an exporter scrape blip.
+        - alert: BackupTooOld
+          expr: time() - cnpg_collector_last_available_backup_timestamp{job="cnpg", namespace="databases"} > 26 * 3600
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Newest restorable backup is {{ $value | humanizeDuration }} old"
+            description: >-
+              No restorable CNPG backup for {{ $value | humanizeDuration }} -
+              the daily 03:15 cycle has been missed. Check MinIO on the NAS
+              (http://192.168.1.67:9000/minio/health/cluster must return 200),
+              then the Backup CRs and the pgdump CronJob in the databases
+              namespace. Until this clears, WAL and dumps are not landing.
+
+        # WAL shipping is the first domino: when MinIO goes away the archiver
+        # fails (or silently stops advancing) long before the daily base
+        # backup is due, so this is the early warning. Two verified signals
+        # ORed together: the failure counter rising, or no successful archive
+        # for 30m (the counter alone misses a stuck-but-not-failing archiver;
+        # the staleness gauge alone misses a flapping one).
+        - alert: WALArchiverFailing
+          expr: >-
+            increase(cnpg_pg_stat_archiver_failed_count{job="cnpg", namespace="databases"}[30m]) > 0
+            or
+            cnpg_pg_stat_archiver_seconds_since_last_archival{job="cnpg", namespace="databases"} > 1800
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CNPG WAL archiving is failing or stalled"
+            description: >-
+              pg_stat_archiver reports failed-count growth or no successful
+              archive for over 30m (value: {{ $value }}). Postgres holds WAL
+              and will eventually refuse writes (SlowDownWrite). Check MinIO
+              on the NAS first - /minio/health/cluster must return 200 - then
+              the archiver process on the database pod.

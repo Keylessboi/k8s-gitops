@@ -38,6 +38,7 @@ resources:
   - dashboard-homelab.yaml
   - smartctl-alerts.yaml
   - temperature-alerts.yaml
+  - backup-alerts.yaml
   - dashboard-disk-health.yaml
   - dashboard-app-detail.yaml
   - dashboard-cluster-health.yaml
@@ -221,6 +222,39 @@ helmCharts:
                   - alertname =~ "Temp.*"
                 # Heat is slow-moving too; a daily nag is plenty.
                 repeat_interval: 24h
+              # Backup-pipeline rules (backup-alerts.yaml): BackupTooOld is
+              # named Backup*, but the WAL archiver rule is WALArchiverFailing
+              # - it watches WAL shipping, not backups as such - so the regex
+              # unions both prefixes instead of bending the alert name to fit
+              # the route.
+              - receiver: "smart-email"
+                matchers:
+                  - alertname =~ "Backup.*|WALArchiver.*"
+                # Unlike disks, a backup gap compounds: every hour without a
+                # backup widens the recovery-point loss, so nag every 4h until
+                # it clears rather than once a day.
+                repeat_interval: 4h
+              # Blackbox probe rules for MinIO (minio-probe.yaml) are all
+              # named MinIO*. Same receiver; a 503 on /minio/health/cluster is
+              # the exact signature of the 2026-08-29 outage.
+              - receiver: "smart-email"
+                matchers:
+                  - alertname =~ "MinIO.*"
+                repeat_interval: 4h
+              # The chart's default KubeJobFailed rule already fires
+              # cluster-wide - during the 2026-08-29 outage it was firing for
+              # pgdump and silently landing in the null receiver below. Route
+              # it, but only for the databases namespace so unrelated apps'
+              # job failures do not start emailing. The label is
+              # exported_namespace, NOT namespace: kube-state-metrics' own
+              # namespace label is renamed on scrape, so the alert carries the
+              # kube-state-metrics pod's namespace in `namespace` and the job's
+              # namespace in `exported_namespace`.
+              - receiver: "smart-email"
+                matchers:
+                  - alertname = "KubeJobFailed"
+                  - exported_namespace = "databases"
+                repeat_interval: 12h
           receivers:
             - name: "null"
             - name: "smart-email"
