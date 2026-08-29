@@ -1,0 +1,89 @@
+---
+# NetworkPolicy is evaluated at BOTH ends in this cluster, so every egress here
+# has a matching ingress at its destination (databases, prowlarr) added in the
+# same commit.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: bitmagnet
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Traefik reaches the web UI on :3333 (TLS terminates at the Ingress).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 3333, protocol: TCP}
+    # Prowlarr queries the Torznab endpoint on :3333 directly, in-cluster —
+    # never through the Ingress, which sits behind Authentik forward-auth and
+    # would answer an indexer API call with an HTML login redirect. Lidarr and
+    # Readarr do NOT need a rule here: their synced copies of the indexer point
+    # back at Prowlarr, which proxies the search (verified in the Lidarr logs:
+    # http://prowlarr.prowlarr.svc.cluster.local:9696/<N>/api?t=caps).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: prowlarr
+      ports:
+        - {port: 3333, protocol: TCP}
+    # cert-manager creates HTTP-01 solver pods in THIS namespace on demand and
+    # Traefik must reach them on 8089, or the ACME challenge 502s and no cert
+    # is ever issued for bitmagnet.sandstorm.chat.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 8089, protocol: TCP}
+  egress:
+    # DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    # Postgres on the shared CNPG cluster (matching ingress added to
+    # apps/databases/networkpolicy.yaml). All state — torrents, files, the
+    # job queue — lives there.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: databases
+      ports:
+        - {port: 5432, protocol: TCP}
+    # DHT crawling: UDP to the internet with NO port restriction. The crawler
+    # sends KRPC queries from its :3334 socket to other DHT nodes, whose listen
+    # ports are arbitrary — a destination-port rule would match almost nothing
+    # and the crawler would sit idle. Replies come back via conntrack, so no
+    # ingress rule is needed. Private ranges are excluded so this rule can
+    # never become a backdoor to in-cluster or LAN services.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 192.168.0.0/16
+              - 172.16.0.0/12
+      ports:
+        - {protocol: UDP}
+    # ...and TCP to the internet, same shape: once the crawler learns an
+    # infohash it fetches the torrent metadata from peers over the BitTorrent
+    # peer protocol on arbitrary remote TCP ports. Also covers TMDB (443) for
+    # when the owner adds a personal API key.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 192.168.0.0/16
+              - 172.16.0.0/12
+      ports:
+        - {protocol: TCP}

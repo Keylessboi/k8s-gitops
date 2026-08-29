@@ -1,0 +1,74 @@
+---
+# bitmagnet, published behind Authentik.
+#
+# Forward-auth is not optional here: bitmagnet v0.10.0 has NO authentication
+# of its own — "Authentication, API keys, access levels" is on upstream's
+# not-yet-implemented list (bitmagnet.io home page), and the Torznab endpoint
+# ignores the apikey parameter entirely. The Authentik gate is the ONLY thing
+# between the internet and the web UI / GraphQL / import endpoints. Prowlarr
+# is unaffected: it talks to the pod in-cluster, not through this Ingress.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bitmagnet
+  namespace: bitmagnet
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - bitmagnet.sandstorm.chat
+      secretName: bitmagnet-tls
+  rules:
+    - host: bitmagnet.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: bitmagnet
+                port:
+                  number: 3333
+---
+# Outpost callback for this host, without forward-auth on the callback itself.
+apiVersion: v1
+kind: Service
+metadata:
+  name: authentik-outpost
+  namespace: bitmagnet
+spec:
+  type: ExternalName
+  externalName: ak-outpost-authentik-embedded-outpost.authentik.svc.cluster.local
+  ports:
+    - name: http
+      port: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bitmagnet-outpost
+  namespace: bitmagnet
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - bitmagnet.sandstorm.chat
+      secretName: bitmagnet-tls
+  rules:
+    - host: bitmagnet.sandstorm.chat
+      http:
+        paths:
+          - path: /outpost.goauthentik.io
+            pathType: Prefix
+            backend:
+              service:
+                name: authentik-outpost
+                port:
+                  number: 9000

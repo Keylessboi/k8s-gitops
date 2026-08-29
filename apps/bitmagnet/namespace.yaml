@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bitmagnet
+  labels:
+    app.kubernetes.io/name: bitmagnet
+    app.kubernetes.io/part-of: homelab
+    # Baseline enforced (not restricted): the image runs as root (no USER in
+    # the upstream Dockerfile), which the restricted profile would reject.
+    # Matches every other app namespace in this repo.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

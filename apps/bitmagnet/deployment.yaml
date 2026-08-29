@@ -1,0 +1,137 @@
+---
+# bitmagnet — ONE container does everything: web UI, GraphQL, Torznab
+# endpoint, queue server and the DHT crawler, selected by the worker keys in
+# `command` (the upstream docker-compose invocation, verbatim). There is no
+# separate worker Deployment to write: the crawler runs in-process.
+#
+# All state lives in Postgres (torrents, files, classifier results, the
+# queue) — the container itself is stateless, so there is no PVC. The
+# upstream compose only mounts ./config for an optional config.yml; every
+# setting we need is expressible as an env var (docs: bitmagnet.io/setup/
+# configuration.html — upper-case the dotted path, dots become underscores).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bitmagnet
+  namespace: bitmagnet
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bitmagnet
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bitmagnet
+    spec:
+      securityContext:
+        # This node's kubelet has seccompDefault=false, so nothing applies a
+        # profile unless a manifest asks. RuntimeDefault blocks the syscalls
+        # the runtime considers dangerous; the crawler needs none of them.
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bitmagnet
+          # v0.10.0 is the newest release (2025-03-02, GitHub releases API).
+          # Pinned to the tag AND the multi-arch index digest so a re-pull can
+          # never silently change what runs.
+          image: ghcr.io/bitmagnet-io/bitmagnet:v0.10.0@sha256:cf2c16fac5b51f1c18e630b4710175d35d7e44b83012cfd05a2b43712feec05e
+          # The upstream compose command: http_server (UI + Torznab + GraphQL
+          # on :3333), queue_server (postgres-backed job queue) and the DHT
+          # crawler. Omitting a key silently disables that component — e.g.
+          # without dht_crawler the whole point of this app is gone.
+          command:
+            - worker
+            - run
+            - --keys=http_server
+            - --keys=queue_server
+            - --keys=dht_crawler
+          env:
+            # --- Postgres: the shared CNPG cluster, pelican pattern ---
+            # bitmagnet reads POSTGRES_HOST/NAME/USER/PASSWORD (or a full
+            # POSTGRES_DSN, which would override all four). Port defaults to
+            # 5432 and is not configurable as its own env var.
+            - name: POSTGRES_HOST
+              value: app-databases-rw.databases.svc.cluster.local
+            - name: POSTGRES_NAME
+              value: bitmagnet
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: {name: bitmagnet-db, key: user, optional: true}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: bitmagnet-db, key: password, optional: true}
+            # TMDB_API_KEY deliberately unset: none exists in Doppler, and the
+            # docs say the built-in shared key (1 req/s) is "just about enough
+            # for running the DHT crawler". Getting a personal key is an owner
+            # step — see docs/RUNDOWN.md.
+          ports:
+            # HTTP: web UI, GraphQL, Torznab, /status, /metrics.
+            - name: http
+              containerPort: 3333
+            # DHT crawler listen port (dht_crawler default 3334, UDP). Outbound
+            # only for crawling — replies to our KRPC queries come back via
+            # conntrack, so no ingress rule is needed for it.
+            - name: dht-udp
+              containerPort: 3334
+              protocol: UDP
+            # BitTorrent peer port on the same number (TCP). The crawler also
+            # fetches torrent metadata from peers over TCP on arbitrary remote
+            # ports; this local port is what the compose file publishes.
+            - name: bt-tcp
+              containerPort: 3334
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              # The node is memory-tight (ADR-0005). The Go crawler with the
+              # default dht_crawler.scaling_factor=10 fits well under 1Gi.
+              memory: 1Gi
+          # First boot runs the full schema migration before the HTTP server
+          # binds, so a tight probe would empty the Service's endpoints — the
+          # exact failure mode documented in the README. A startup probe
+          # guards the slow start (up to 5 min); readiness/liveness take over
+          # once /status answers. /status is bitmagnet's own health endpoint
+          # (bitmagnet.io/guides/endpoints.html).
+          startupProbe:
+            httpGet:
+              path: /status
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            # Generous on purpose: kube-router programs egress ~1-2s after pod
+            # start and the first DB round-trip can be slow.
+            httpGet:
+              path: /status
+              port: http
+            timeoutSeconds: 5
+            periodSeconds: 15
+            failureThreshold: 4
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            timeoutSeconds: 5
+            periodSeconds: 30
+            failureThreshold: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bitmagnet
+  namespace: bitmagnet
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: bitmagnet
+  ports:
+    # Only 3333 is served. The DHT/BitTorrent ports are outbound-only for
+    # crawling; publishing them would imply inbound peer traffic we don't
+    # want or need (no seeding happens here).
+    - name: http
+      port: 3333
+      targetPort: http
