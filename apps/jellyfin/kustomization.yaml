@@ -1,0 +1,40 @@
+---
+# Jellyfin media server + Gelato (Stremio-addon search) + self-hosted AIOStreams,
+# all inside one gluetun-tunnelled pod so every public stream fetch exits AirVPN
+# with a killswitch. Local NFS library mounted read-only for direct-play.
+#
+# SSO is native OIDC via jellyfin-plugin-sso against Authentik (NOT forward-auth,
+# which would break native mobile/TV clients - see ingress.yaml).
+#
+# Two of the three components are configured in-browser on a fresh install
+# (plugin installs, AIOStreams filters, playback policies) - see
+# docs/jellyfin-gelato.md for the exact click-through. The GitOps side here
+# stands up the airtight infrastructure; the manifest URL, OIDC secret entry,
+# and quality filters are applied on top.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: jellyfin
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  labels:
+    app.kubernetes.io/name: jellyfin
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+
+namespace: jellyfin
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/component: media
+      homelab/tier: apps
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - media-data-pv.yaml
+  - pvc-config.yaml
+  - networkpolicy.yaml
+  - deployment.yaml
+  - ingress.yaml

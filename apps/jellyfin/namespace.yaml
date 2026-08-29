@@ -1,0 +1,18 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jellyfin
+  labels:
+    app.kubernetes.io/name: jellyfin
+    app.kubernetes.io/part-of: homelab
+    # privileged, like the downloads namespace and for the identical reason:
+    # this pod contains a gluetun sidecar that needs NET_ADMIN and a passed-in
+    # /dev/net/tun to bring up WireGuard. The baseline/restricted PodSecurity
+    # profiles forbid both, so gluetun cannot start under them. Jellyfin and
+    # AIOStreams still pin their own hardened securityContext (runAsUser 1000,
+    # seccomp RuntimeDefault) inside this looser namespace - privileged here is
+    # the floor the namespace allows, not what each container asks for.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged

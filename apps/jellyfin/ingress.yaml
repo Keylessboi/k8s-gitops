@@ -1,0 +1,45 @@
+---
+# Jellyfin's web UI and API, at jellyfin.sandstorm.chat.
+#
+# NO Authentik forward-auth middleware here, and that is deliberate. Jellyfin's
+# native client apps (Android, iOS, Android TV, Kodi) authenticate against
+# Jellyfin's OWN user API (POST /Users/AuthenticateByName, the /Items streaming
+# API, the /socket WebSocket) and cannot follow an OAuth redirect - a blanket
+# forward-auth on this Ingress would answer those requests with a 302 to
+# Authentik and break every native app, exactly the failure the OPDS/Subsonic
+# carve-outs elsewhere in this repo exist to avoid.
+#
+# Instead, SSO is done INSIDE Jellyfin by the jellyfin-plugin-sso (a native
+# "Sign in with Authentik" button on Jellyfin's own login page). That leaves the
+# browser and the native apps on the same Jellyfin auth surface, so no path here
+# needs special routing and there is nothing to carve out. Access control is
+# Jellyfin's own login (mandatory once the wizard creates the admin); Authentik
+# is an SSO convenience layer on top of it, not the gate.
+#
+# CrowdSec and the rate limiter still apply to every request.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jellyfin
+  namespace: jellyfin
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - jellyfin.sandstorm.chat
+      secretName: jellyfin-tls
+  rules:
+    - host: jellyfin.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: jellyfin
+                port:
+                  number: 8096
