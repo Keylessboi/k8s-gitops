@@ -40,7 +40,10 @@ spec:
           # on :3333), queue_server (postgres-backed job queue) and the DHT
           # crawler. Omitting a key silently disables that component — e.g.
           # without dht_crawler the whole point of this app is gone.
-          command:
+          # `args`, not `command`: the image's ENTRYPOINT is `bitmagnet`, and
+          # k8s `command` would REPLACE it (compose `command` appends) — the
+          # first deploy crashed with exec: "worker": executable not found.
+          args:
             - worker
             - run
             - --keys=http_server
