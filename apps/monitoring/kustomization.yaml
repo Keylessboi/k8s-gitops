@@ -39,6 +39,7 @@ resources:
   - smartctl-alerts.yaml
   - temperature-alerts.yaml
   - backup-alerts.yaml
+  - minio-probe.yaml
   - dashboard-disk-health.yaml
   - dashboard-backups.yaml
   - dashboard-app-detail.yaml
