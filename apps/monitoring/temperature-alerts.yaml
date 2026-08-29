@@ -1,0 +1,145 @@
+---
+# Temperature alerts -> email the owner when the homelab runs too hot.
+#
+# Scope is deliberately just *heat*: NAS pool disks, NAS/Proxmox NVMe, and the
+# Proxmox host CPU. The disk failure / wear / IO-error rules live next door in
+# smartctl-alerts.yaml and are a separate concern; this file only owns "it is
+# getting too hot in here".
+#
+# Everything here is verified against what the fleet actually exposes (queried
+# live 2026-08-29), NOT against assumptions:
+#
+#   * Disk temps come from smartctl_exporter as
+#       smartctl_device_temperature{temperature_type="current"}
+#     Real current readings today: SAS sd* 45-50C, NVMe 39-50C - all fine.
+#     Each SAS drive also carries a drive_trip series = 85C. That 85 is the
+#     drives' NORMAL manufacturer max/shutdown temp (SAS enterprise disks trip
+#     at 85), NOT a live reading - so it is pointless to alert trip-relative,
+#     and these rules use ABSOLUTE current-temp thresholds instead. drive_trip
+#     is never compared or alerted on.
+#
+#   * Host CPU comes from node-exporter as node_hwmon_temp_celsius. That metric
+#     is a minefield of phantom sensors on this Dell host: the dell_smm chip
+#     exposes an unused slot temp8 = 126C, and thermal_zone0 reads ~28C. We key
+#     STRICTLY off the coretemp package sensor and nothing else - see the join
+#     in the CPU rules below - so neither phantom can ever be alerted on.
+#
+# Thresholds are warning/critical BANDS (>=X and <Y) so exactly one severity is
+# active at a time - a disk at 62C pages critical only, not critical+warning.
+#
+# Alert names are all prefixed `Temp` so a single Alertmanager route
+# (alertname =~ "Temp.*", added in kustomization.yaml next to the Smart.* route)
+# delivers them through the EXISTING Gmail SMTP path to travis.fiorito@tuta.com.
+# No second SMTP config; the smart-email receiver is reused.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: temperature
+  namespace: monitoring
+  labels:
+    # kube-prometheus-stack's Prometheus selects rules by this label.
+    release: kps
+spec:
+  groups:
+    - name: temperature
+      rules:
+        # --- Proxmox host CPU ------------------------------------------------
+        # Key off the coretemp *package* sensor only. The join multiplies the
+        # temp (x1) by node_hwmon_sensor_label{label="Package id 0"}, which
+        # exists ONLY for chip=platform_coretemp_0 sensor=temp1 - so the
+        # dell_smm temp8=126C phantom, the per-core sensors, and thermal_zone0
+        # are all structurally excluded: they carry no "Package id 0" label to
+        # match, so they cannot contribute a sample. Self-documenting via the
+        # label it group_lefts in.
+        #
+        # 82C warning: these CPUs legitimately sit in the 70s under load (a
+        # recovery run today touched 72C and that is fine), so the warning line
+        # is set above normal-load territory. Verified real value now: ~52C.
+        - alert: TempHostCpuHigh
+          expr: >-
+            (
+              node_hwmon_temp_celsius
+              * on(chip, sensor) group_left(label)
+              node_hwmon_sensor_label{label="Package id 0"}
+            ) >= 82 < 90
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Host CPU package at {{ $value }}C ({{ $labels.chip }})"
+            description: >-
+              The Proxmox host CPU package has been at or above 82C for 5m.
+              Check cooling/airflow and whether a runaway workload is pinning
+              the cores before it starts to throttle.
+        - alert: TempHostCpuCritical
+          expr: >-
+            (
+              node_hwmon_temp_celsius
+              * on(chip, sensor) group_left(label)
+              node_hwmon_sensor_label{label="Package id 0"}
+            ) >= 90
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Host CPU package at {{ $value }}C ({{ $labels.chip }})"
+            description: >-
+              The Proxmox host CPU package has been at or above 90C for 5m -
+              near thermal-throttle territory. Investigate cooling now.
+
+        # --- NAS pool disks (spinning SAS) -----------------------------------
+        # Absolute current-temp band. 55C is genuinely warm for a 3.5" disk in
+        # this chassis (real readings sit at 45-50C); 60C is where drive vendors
+        # generally stop warranting the thing. device=~"sd.*" keeps this to the
+        # spinning pool disks - NVMe runs hotter and gets its own rule below.
+        # for:5m rides out any single-scrape blip.
+        - alert: TempNasDiskHigh
+          expr: >-
+            smartctl_device_temperature{temperature_type="current", device=~"sd.*"} >= 55 < 60
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.device }} ({{ $labels.host }}) at {{ $value }}C"
+            description: >-
+              Pool disk sustained at or above 55C for 5m. Check chassis airflow
+              before it climbs further.
+        - alert: TempNasDiskCritical
+          expr: >-
+            smartctl_device_temperature{temperature_type="current", device=~"sd.*"} >= 60
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.device }} ({{ $labels.host }}) at {{ $value }}C"
+            description: >-
+              Pool disk sustained at or above 60C for 5m - past the vendor
+              warranty temperature. Improve cooling now; expect throttling/wear.
+
+        # --- NVMe (NAS + Proxmox) --------------------------------------------
+        # NVMe legitimately runs hotter than spinning rust, so it gets a higher
+        # band. A Proxmox NVMe transiently spiked to ~84C in the last 2 days;
+        # for:5m means such a blip does NOT page, but a *sustained* 70C+ does.
+        # 80C is roughly where NVMe controllers begin self-throttling.
+        - alert: TempNasNvmeHigh
+          expr: >-
+            smartctl_device_temperature{temperature_type="current", device=~"nvme.*"} >= 70 < 80
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.device }} ({{ $labels.host }}) at {{ $value }}C"
+            description: >-
+              NVMe sustained at or above 70C for 5m. Warm but not yet throttling;
+              check airflow.
+        - alert: TempNasNvmeCritical
+          expr: >-
+            smartctl_device_temperature{temperature_type="current", device=~"nvme.*"} >= 80
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.device }} ({{ $labels.host }}) at {{ $value }}C"
+            description: >-
+              NVMe sustained at or above 80C for 5m - controller is likely
+              throttling. Investigate cooling now.

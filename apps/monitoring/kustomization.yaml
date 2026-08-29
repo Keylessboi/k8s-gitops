@@ -37,6 +37,7 @@ resources:
   - ingress.yaml
   - dashboard-homelab.yaml
   - smartctl-alerts.yaml
+  - temperature-alerts.yaml
   - dashboard-disk-health.yaml
   - dashboard-app-detail.yaml
   - dashboard-cluster-health.yaml
@@ -211,6 +212,14 @@ helmCharts:
                 matchers:
                   - alertname =~ "Smart.*"
                 # Disk problems are slow-moving; a daily nag is plenty.
+                repeat_interval: 24h
+              # Temperature rules (temperature-alerts.yaml) are all named Temp*.
+              # Reuse the same email receiver - no second SMTP config - so the
+              # owner is emailed when a disk, NVMe or the host CPU runs too hot.
+              - receiver: "smart-email"
+                matchers:
+                  - alertname =~ "Temp.*"
+                # Heat is slow-moving too; a daily nag is plenty.
                 repeat_interval: 24h
           receivers:
             - name: "null"
