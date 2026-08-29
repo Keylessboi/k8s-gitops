@@ -1,0 +1,405 @@
+---
+# Backups dashboard, provisioned as a ConfigMap for the Grafana sidecar.
+#
+# One screen for the whole backup pipeline: restorable-backup age, WAL
+# archiving, the MinIO cluster-health probe, and pgdump CronJob outcomes.
+# Built after the 2026-08-29 outage where all four failed silently for ~20h.
+#
+# Metric names verified against the live cluster (2026-08-29):
+#   * cnpg_collector_last_available_backup_timestamp - epoch of the newest
+#     restorable backup, scraped as job="cnpg" (PodMonitor in
+#     servicemonitors-apps.yaml). The series carries no cluster label.
+#   * cnpg_pg_stat_archiver_failed_count - COUNTER of failed WAL archives.
+#   * probe_success{job=~".*minio.*"} - from the Probe CR in minio-probe.yaml.
+#   * kube_job_status_succeeded/failed - kube-state-metrics; the job's
+#     namespace arrives as exported_namespace (ksm's own namespace label wins
+#     the name on scrape), and CronJob children are matched by the
+#     pgdump-backup-<unix-minute> job-name prefix rather than a join through
+#     kube_job_owner - the prefix is deterministic and the join buys nothing
+#     on a single-CronJob panel.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-backups
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  backups.json: |
+    {
+      "uid": "backups",
+      "title": "Backups",
+      "tags": [
+        "homelab",
+        "backups"
+      ],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "1m",
+      "time": {
+        "from": "now-7d",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Last restorable backup",
+          "type": "stat",
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 6,
+            "h": 4
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "time() - cnpg_collector_last_available_backup_timestamp{job=\"cnpg\"}",
+              "legendFormat": "age",
+              "refId": "A",
+              "instant": true,
+              "format": "table"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {},
+              "unit": "dtdurations",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 93600
+                  },
+                  {
+                    "color": "red",
+                    "value": 100800
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "description": "Age of the newest restorable CNPG backup. Base backups run daily at 03:15; orange is the BackupTooOld alert threshold (26h), red is 28h.",
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "id": 2,
+          "title": "WAL archive failures (24h)",
+          "type": "stat",
+          "gridPos": {
+            "x": 6,
+            "y": 0,
+            "w": 6,
+            "h": 4
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "increase(cnpg_pg_stat_archiver_failed_count{job=\"cnpg\"}[24h]) or on() vector(0)",
+              "legendFormat": "failed",
+              "refId": "A",
+              "instant": true,
+              "format": "table"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {},
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 10
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "description": "Failed WAL archive attempts in the last 24h. This is the first domino: when MinIO goes away, archiving fails long before the daily base backup is due.",
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "id": 3,
+          "title": "MinIO cluster health",
+          "type": "stat",
+          "gridPos": {
+            "x": 12,
+            "y": 0,
+            "w": 6,
+            "h": 4
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "probe_success{job=~\".*minio.*\"} or on() vector(0)",
+              "legendFormat": "probe",
+              "refId": "A",
+              "instant": true,
+              "format": "table"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {},
+              "min": 0,
+              "max": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "description": "Blackbox probe of http://192.168.1.67:9000/minio/health/cluster. 1 = 200. This endpoint returned 503 for ~20h on 2026-08-29 while live/ready stayed 200 - it is the only one that reports the real failure. The or-vector keeps the panel red instead of empty if the probe pipeline itself dies.",
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "id": 4,
+          "title": "pgdump jobs failed",
+          "type": "stat",
+          "gridPos": {
+            "x": 18,
+            "y": 0,
+            "w": 6,
+            "h": 4
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "count(kube_job_status_failed{exported_namespace=\"databases\", job_name=~\"pgdump-backup-.*\"} == 1) or on() vector(0)",
+              "legendFormat": "failed",
+              "refId": "A",
+              "instant": true,
+              "format": "table"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {},
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 2
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "description": "pgdump-backup Jobs currently in Failed state (k8s keeps the most recent ones by history limit). The chart's KubeJobFailed alert emails on these; this shows the standing count.",
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "id": 10,
+          "title": "WAL archive failures over time",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 4,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "increase(cnpg_pg_stat_archiver_failed_count{job=\"cnpg\"}[1h])",
+              "legendFormat": "failed/h",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 8,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": []
+          },
+          "description": "Failure bursts, not the standing total - the 2026-08-29 outage shows up as a wall here while the counter itself only ratchets.",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 20,
+          "title": "Recent pgdump jobs",
+          "type": "table",
+          "gridPos": {
+            "x": 12,
+            "y": 4,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "One row per retained pgdump-backup Job; Succeeded 1 = completed, 0 = failed.",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "kube_job_status_succeeded{exported_namespace=\"databases\", job_name=~\"pgdump-backup-.*\"}",
+              "instant": true,
+              "format": "table",
+              "refId": "A"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "job": true,
+                  "instance": true,
+                  "endpoint": true,
+                  "container": true,
+                  "exported_namespace": true
+                },
+                "renameByName": {
+                  "job_name": "Job",
+                  "Value": "Succeeded"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "left"
+              }
+            },
+            "overrides": []
+          }
+        }
+      ]
+    }
