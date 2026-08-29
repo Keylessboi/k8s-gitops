@@ -113,6 +113,18 @@ spec:
             # starttls on 587; "force_tls" would be port 465.
             - name: SMTP_SECURITY
               value: starttls
+            # Bitwarden push notifications (mobile/web clients via Bitwarden's
+            # push relay). The installation id/key come from bitwarden.com/host
+            # and are synced from Doppler; the identity/relay endpoints default
+            # to bitwarden.com, which is correct here. They live in the `smtp`
+            # Secret because that is the managed Secret of the vaultwarden
+            # DopplerSecret entry (see apps/doppler/dopplersecrets.yaml).
+            - name: PUSH_INSTALLATION_ID
+              valueFrom:
+                secretKeyRef: {name: smtp, key: push-installation-id}
+            - name: PUSH_INSTALLATION_KEY
+              valueFrom:
+                secretKeyRef: {name: smtp, key: push-installation-key}
             - name: SIGNUPS_ALLOWED
               value: "false"
             # /admin is disabled outright rather than left on a token. It is
