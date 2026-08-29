@@ -34,6 +34,45 @@ spec:
       template:
         spec:
           restartPolicy: Never
+          # kube-router programs a new pod's egress iptables chains ~1-2s after
+          # sandbox start. Until then, egress the NetworkPolicy *does* allow is
+          # REJECTed (RST -> "connection refused"), and the maintenance script
+          # connects on its first line of real work, so it lost that race every
+          # night. This init container retries /ping until Lidarr answers; by
+          # the time it exits, the policy window has long passed.
+          #
+          # Same python image on purpose: it is already cached on the node, and
+          # urllib walks every getaddrinfo result - which is how this cluster
+          # survives DNS that answers AAAA records with no IPv6 route (see the
+          # main container's comment below).
+          initContainers:
+            - name: wait-for-lidarr
+              image: python:3.12-slim
+              command: ["python3", "-c"]
+              args:
+                - |
+                  import sys, time, urllib.request
+                  url = "http://lidarr.lidarr.svc.cluster.local:8686/ping"
+                  for attempt in range(1, 31):
+                      try:
+                          with urllib.request.urlopen(url, timeout=5) as r:
+                              if r.status == 200:
+                                  print(f"Lidarr ready after {attempt} attempt(s)")
+                                  sys.exit(0)
+                      except Exception as e:
+                          print(f"attempt {attempt}/30: {e}", flush=True)
+                      time.sleep(2)
+                  # Proceed anyway: 60s of failures means Lidarr itself is down,
+                  # and the main container's own error output is the right place
+                  # to show that rather than masking it here.
+                  print("Lidarr not ready after 60s, proceeding anyway")
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
           containers:
             - name: maintenance
               image: python:3.12-slim
