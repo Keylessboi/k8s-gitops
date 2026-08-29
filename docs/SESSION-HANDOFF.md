@@ -1,55 +1,42 @@
 # Session handoff — 2026-08-29
 
-State at the point a weekly rate limit was about to interrupt work, so the next
-session (or the owner) can pick up without losing context. Newest concern first.
+State captured across a closet-move outage and its recovery. Newest first.
 
-## 🔴🔴 CRITICAL: LXC 200 root filesystem is CORRUPTED
+## Storage outage after the closet move — ROOT CAUSE + FIX (RESOLVED)
 
-Discovered 2026-08-29 after the closet move (unclean shutdown, power pulled
-mid-write). The Proxmox host dmesg shows **153 EXT4-fs errors this boot**:
+The move was an unclean shutdown. On reboot the NAS came up (ping/ssh/NFS
+daemon fine) but **the `tank` ZFS pool did not auto-import, and its datasets are
+encrypted** — so nothing behind `/extra/nfs-csi` existed. Every stateful pod
+hung in ContainerCreating with `mount.nfs: ... No such file or directory`.
 
+The fix, run on the NAS (`192.168.1.67`, via `doas`):
 ```
-EXT4-fs error (device dm-7): htree_dirblock_to_tree: inode #... Directory block failed checksum   comm containerd
+zpool import tank                    # pool was ONLINE, imported clean
+zfs load-key tank                    # key file: /etc/zfs/keys/tank.key (hex, present)
+zfs mount -a                         # tank/extra -> /extra, tank/media -> /tank/media
+exportfs -ra                         # re-share NFS
 ```
+After that `/extra/nfs-csi/data` was back (`cookies ingest media torrents`), the
+19 stuck pods were force-deleted to remount, and the cluster recovered.
 
-`dm-7` = `/dev/mapper/pve-vm--200--disk--0` = **LXC 200's root disk — the k3s
-control plane itself** (containerd image store, etcd data, /var/lib/rancher).
-This is why pods hang in ContainerCreating: containerd cannot cleanly read its
-layers. The fs has NOT remounted read-only yet, but the error count is not
-transient.
+**⚠️ THIS WILL RECUR ON EVERY NAS REBOOT** unless auto-import + auto-key-load +
+auto-mount are made persistent (systemd `zfs-import-cache` + `zfs-load-key@` +
+`zfs-mount`, or `zfs-mount-generator`). NOT yet done — a future task. Until then,
+after any NAS power event run the four commands above.
 
-**This needs `fsck`, which requires stopping the cluster. Do NOT run it blind.**
-Recommended safe procedure (get owner consent — it takes the whole cluster
-down and could surface etcd/data loss):
+## LXC 200 rootfs EXT4 errors — real but SECONDARY, and stable
 
-1. **Snapshot first** if the LV is thin-provisioned (pve-data is an LVM-thin
-   pool): `lvs -o name,pool_lv | grep vm-200` — if it has a pool, take
-   `lvcreate --snapshot` before fsck so it's revertible.
-2. `pct stop 200`  (unmounts the LV — cannot fsck it mounted)
-3. `e2fsck -fy /dev/pve/vm-200-disk-0`
-4. `pct start 200`, then confirm k3s + etcd come up and pods recover.
+Separately, `pve-vm--200--disk--0` (the k3s control-plane LXC root) logged 153
+EXT4 directory-checksum errors early this boot (`comm containerd`), from the same
+unclean shutdown. **These were NOT why pods were stuck** (that was the NFS/pool
+issue above). The errors STOPPED ~10 min into boot and did not resume; apiserver
++ etcd are healthy. A clean etcd snapshot was copied OFF the disk to
+`/root/etcd-safety/` on `pve-root` (36 MB, integrity-checked) as insurance.
 
-Recovery net if fsck damages etcd: `scripts/restore.sh` (etcd restore path) and
-CNPG has a working ScheduledBackup. Verify a recent etcd snapshot EXISTS before
-fsck.
-
-Everything below is lower priority than this.
-
-## Storage move — RECOVERED
-
-The owner moved the server into a closet on 2026-08-29. During that:
-- The NAS (`192.168.1.67`) went down, and **LXC 200 (the k3s control plane)
-  itself was found stopped** — a subagent restarted it with `pct start 200`.
-- With the NAS back (both exports serve: `/extra/nfs-csi`, `/tank/media`), ~18
-  pods were stuck `Unknown` (kubelet lost them during the outage). They were
-  force-deleted so their owners recreate on the live NFS. Host load fell 6.9 → ~1.
-- **Recovery still settling**: some pods sit in `ContainerCreating` for 10min+.
-  If any stay wedged, that is the stale-NFS-mount pattern — force-delete the
-  wedged pod (and any stale `Terminating` one holding the mount) and it comes
-  back. `monitoring` was briefly Degraded (Grafana/Prometheus recreating).
-
-Storage is on the `tank` mirror (ADR-0001); `df /extra/nfs-csi` must report
-`tank/extra`.
+An `e2fsck` on that LV is still worth doing as a maintenance step (stop LXC 200,
+`e2fsck -fy /dev/pve/vm-200-disk-0`, restart) — the LV is thin-provisioned so it
+can be LVM-snapshotted first for a revertible run, and `scripts/restore.sh` +
+CNPG backups are the deeper net. NOT urgent: corruption is stable, cluster works.
 
 ## Pelican Panel (game server) — DEPLOYED and verified
 
