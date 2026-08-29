@@ -46,21 +46,50 @@ spec:
             - -c
             - |
               set -u
-              OUT=$(php artisan p:user:make \
-                --email="$ADMIN_EMAIL" \
-                --username="$ADMIN_USERNAME" \
-                --password="$ADMIN_PASSWORD" \
-                --admin=1 2>&1) && RC=0 || RC=$?
-              echo "$OUT"
-              if [ "$RC" -eq 0 ]; then
-                echo "admin created."
-                exit 0
-              fi
-              if echo "$OUT" | grep -qiE "already been taken|already exists|unique|duplicate"; then
-                echo "admin already exists — treating as success."
-                exit 0
-              fi
-              exit "$RC"
+              # Wait for the CNPG primary to accept TCP before touching artisan.
+              # On a cold cluster rebuild CNPG can still be electing a primary
+              # when this hook fires, and its -rw Service briefly has no
+              # endpoints — which surfaces as "connection refused", not a
+              # timeout. Without this wait the hook exhausts its backoff before
+              # the database is ready (observed on first deploy).
+              i=0
+              until nc -z -w5 "$DB_HOST" "$DB_PORT"; do
+                i=$((i + 1))
+                if [ "$i" -ge 60 ]; then
+                  echo "database $DB_HOST:$DB_PORT never became reachable"
+                  exit 1
+                fi
+                echo "waiting for database... ($i)"
+                sleep 3
+              done
+              # Create the admin, retrying transient DB errors and treating an
+              # existing account as success (idempotent across resyncs).
+              n=0
+              while [ "$n" -lt 6 ]; do
+                OUT=$(php artisan p:user:make \
+                  --email="$ADMIN_EMAIL" \
+                  --username="$ADMIN_USERNAME" \
+                  --password="$ADMIN_PASSWORD" \
+                  --admin=1 2>&1) && RC=0 || RC=$?
+                echo "$OUT"
+                if [ "$RC" -eq 0 ]; then
+                  echo "admin created."
+                  exit 0
+                fi
+                if echo "$OUT" | grep -qiE "already been taken|already exists|unique|duplicate"; then
+                  echo "admin already exists — treating as success."
+                  exit 0
+                fi
+                if echo "$OUT" | grep -qiE "connection refused|could not connect|SQLSTATE\[08"; then
+                  n=$((n + 1))
+                  echo "database not ready, retry $n"
+                  sleep 5
+                  continue
+                fi
+                exit "$RC"
+              done
+              echo "gave up after transient DB errors"
+              exit 1
           env:
             - name: ADMIN_EMAIL
               value: travis.fiorito@tuta.com
