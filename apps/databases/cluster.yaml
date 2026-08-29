@@ -97,6 +97,14 @@ spec:
         login: true
         passwordSecret:
           name: pelican-db-credentials
+      # bitmagnet (DHT torrent indexer). One role, one database — like pelican
+      # it keeps everything (torrents, files, classifier results, job queue)
+      # in a single schema.
+      - name: bitmagnet
+        ensure: present
+        login: true
+        passwordSecret:
+          name: bitmagnet-db-credentials
   # Backups to MinIO on the NAS.
   #
   # This block previously authenticated with a `minio-creds` secret whose

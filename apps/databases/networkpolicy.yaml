@@ -44,6 +44,9 @@ spec:
               kubernetes.io/metadata.name: pelican
         - namespaceSelector:
             matchLabels:
+              kubernetes.io/metadata.name: bitmagnet
+        - namespaceSelector:
+            matchLabels:
               kubernetes.io/metadata.name: databases
       ports:
         - {port: 5432, protocol: TCP}

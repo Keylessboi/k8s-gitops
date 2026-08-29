@@ -158,3 +158,17 @@ spec:
   cluster:
     name: app-databases
 
+---
+# bitmagnet's single database. The DHT crawler, web UI, Torznab endpoint and
+# job queue all share one schema; no separate log db.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: bitmagnet
+  namespace: databases
+spec:
+  name: bitmagnet
+  owner: bitmagnet
+  cluster:
+    name: app-databases
+
