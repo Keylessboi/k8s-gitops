@@ -5,6 +5,20 @@ solved it, then what prevents a repeat. Newest first. If an incident
 repeats, link the entries — a repeated incident means the prevention
 failed and the entry needs revisiting.
 
+## 2026-08-29 — Manual CronJob run deleted itself in 2 seconds
+
+- **Symptom:** `kubectl create job --from=cronjob/pgdump-backup` for a
+  post-recovery backup check — the pod was created, started, and killed
+  within 2 s, followed by `BackoffLimitExceeded` with no container error.
+- **Root cause:** `--from=` jobs get an `ownerReference` to the CronJob.
+  Under `concurrencyPolicy: Forbid` the CronJob controller treats such a
+  job as unexpected (`Saw a job that the controller did not create or
+  forgot`) and garbage-collects it.
+- **Fix:** strip the ownerReference right after creating:
+  `kubectl -n databases patch job <name> --type=json -p '[{"op":"remove","path":"/metadata/ownerReferences"}]'`.
+- **Prevention:** the strip step is part of the manual-run procedure
+  (documented on issue #1).
+
 ## 2026-08-29 — MinIO saw zero drives; every backup failed silently for ~20 h
 
 - **Symptom:** CNPG WAL archiving refused (`SlowDownWrite`), pgdump CronJob
