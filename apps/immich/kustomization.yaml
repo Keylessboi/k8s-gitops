@@ -55,6 +55,12 @@ helmCharts:
         main:
           containers:
             main:
+              image:
+                # Pinned explicitly: chart 0.12.0 defaults to its appVersion
+                # (v2.6.3) and lags upstream releases. The tag is bumped ahead
+                # of the chart, one release step at a time - Immich does not
+                # support skipping versions safely (destructive DB migrations).
+                tag: v2.7.5
               env:
                 # Central Postgres, not a per-app cluster.
                 DB_HOSTNAME: app-databases-rw.databases.svc.cluster.local
@@ -102,6 +108,14 @@ helmCharts:
 
       machine-learning:
         enabled: true
+        controllers:
+          main:
+            containers:
+              main:
+                image:
+                  # Kept in lockstep with the server tag above: Immich requires
+                  # server and ML to run the exact same version.
+                  tag: v2.7.5
         nodeSelector:
           homelab/node-class: compute
         resources:
