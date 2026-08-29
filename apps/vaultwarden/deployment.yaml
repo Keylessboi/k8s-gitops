@@ -119,6 +119,10 @@ spec:
             # to bitwarden.com, which is correct here. They live in the `smtp`
             # Secret because that is the managed Secret of the vaultwarden
             # DopplerSecret entry (see apps/doppler/dopplersecrets.yaml).
+            # PUSH_ENABLED must be explicit: it defaults to false even when the
+            # installation id/key are set, and push then stays silently off.
+            - name: PUSH_ENABLED
+              value: "true"
             - name: PUSH_INSTALLATION_ID
               valueFrom:
                 secretKeyRef: {name: smtp, key: push-installation-id}
