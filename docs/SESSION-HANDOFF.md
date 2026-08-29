@@ -3,6 +3,38 @@
 State at the point a weekly rate limit was about to interrupt work, so the next
 session (or the owner) can pick up without losing context. Newest concern first.
 
+## 🔴🔴 CRITICAL: LXC 200 root filesystem is CORRUPTED
+
+Discovered 2026-08-29 after the closet move (unclean shutdown, power pulled
+mid-write). The Proxmox host dmesg shows **153 EXT4-fs errors this boot**:
+
+```
+EXT4-fs error (device dm-7): htree_dirblock_to_tree: inode #... Directory block failed checksum   comm containerd
+```
+
+`dm-7` = `/dev/mapper/pve-vm--200--disk--0` = **LXC 200's root disk — the k3s
+control plane itself** (containerd image store, etcd data, /var/lib/rancher).
+This is why pods hang in ContainerCreating: containerd cannot cleanly read its
+layers. The fs has NOT remounted read-only yet, but the error count is not
+transient.
+
+**This needs `fsck`, which requires stopping the cluster. Do NOT run it blind.**
+Recommended safe procedure (get owner consent — it takes the whole cluster
+down and could surface etcd/data loss):
+
+1. **Snapshot first** if the LV is thin-provisioned (pve-data is an LVM-thin
+   pool): `lvs -o name,pool_lv | grep vm-200` — if it has a pool, take
+   `lvcreate --snapshot` before fsck so it's revertible.
+2. `pct stop 200`  (unmounts the LV — cannot fsck it mounted)
+3. `e2fsck -fy /dev/pve/vm-200-disk-0`
+4. `pct start 200`, then confirm k3s + etcd come up and pods recover.
+
+Recovery net if fsck damages etcd: `scripts/restore.sh` (etcd restore path) and
+CNPG has a working ScheduledBackup. Verify a recent etcd snapshot EXISTS before
+fsck.
+
+Everything below is lower priority than this.
+
 ## Storage move — RECOVERED
 
 The owner moved the server into a closet on 2026-08-29. During that:
