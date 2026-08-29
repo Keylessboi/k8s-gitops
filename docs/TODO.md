@@ -1,6 +1,8 @@
 # Outstanding Work
 
-Status as of 2026-08-26. Everything not listed here is done and verified.
+Status as of 2026-08-29 (evening). Everything not listed here is done and verified.
+Failures and their fixes now live in `docs/doctor-log.md`; the open healing plan
+for the MinIO/backup failure class is issue #1.
 
 ## Mine — Done
 
@@ -69,6 +71,8 @@ Closing the verified plan gaps from `docs/PLAN-GAPS.md`, largest first.
           kubectl exec -it -n hermes deploy/hermes -- hermes setup
 
       It writes to the mounted volume, so it survives restarts and upgrades. After that, `hermes cron add` schedules the review of the maintenance script's `[AGENT_OVERSIGHT_NEEDED]` items.
+
+      **RESOLVED 2026-08-29:** Hermes is fully configured — it runs on OpenRouter (the `hermes-llm` Doppler secret carries the key) and the `lidarr-oversight` cron (03:00 nightly) has completed four runs. The offline `llm` box is now an optional cost optimisation, not a blocker.
 - [ ] **9. Vaultwarden push notifications** — optional; needs a free install id and key from bitwarden.com/host for mobile push.
 
 ## Fixed Along the Way
@@ -77,7 +81,9 @@ Closing the verified plan gaps from `docs/PLAN-GAPS.md`, largest first.
 
 ## Blocked on You
 
-- [ ] **Hermes needs your local AI box powered on.** Hermes is deployed and Running, but the Tailscale node named `llm` (100.112.201.48) has been **offline for 8 days** — no ping, and 11434/8000/1234/5000/8080 all refused. I could not find the setup documented in any of your 15 GitHub repos either, so I cannot tell which engine or model it serves.
+- [x] **RESOLVED: Hermes runs on OpenRouter instead.** The provider was configured and the oversight cron has completed four runs, so the offline box below is moot — kept for the record:
+
+      Hermes was deployed and Running, but the Tailscale node named `llm` (100.112.201.48) had been **offline for 8 days** — no ping, and 11434/8000/1234/5000/8080 all refused. I could not find the setup documented in any of your 15 GitHub repos either, so I cannot tell which engine or model it serves.
 
       Once it is on I need two things and can finish in one pass: its **LAN** address (not the Tailscale one — the pod would have to route 100.64/10 through the node, whereas a LAN IP is one NetworkPolicy rule) and which server it runs. Hermes takes an OpenAI-compatible endpoint with no real key, e.g. for Ollama:
 
@@ -96,7 +102,7 @@ Closing the verified plan gaps from `docs/PLAN-GAPS.md`, largest first.
 
 ## Yours
 
-- [ ] **15 dead indexers in Lidarr, left over from the backup restore.** They are named `... (Prowlarr)` and point at `http://prowlarr:9696/...` — a bare hostname, which cannot resolve from the lidarr namespace. Verified: that URL returns nothing from inside the Lidarr pod, while `prowlarr.prowlarr.svc.cluster.local:9696` returns 302.
+- [x] **RESOLVED 2026-08-29: the 15 dead indexers are gone.** Prowlarr now holds 26 indexers (including MyAnonamouse and bitmagnet) and a forced `ApplicationIndexerSync` re-stamped everything downstream; Lidarr passes 10/11 (Nyaa is a category mismatch, kept on purpose). Kept for the record: They are named `... (Prowlarr)` and point at `http://prowlarr:9696/...` — a bare hostname, which cannot resolve from the lidarr namespace. Verified: that URL returns nothing from inside the Lidarr pod, while `prowlarr.prowlarr.svc.cluster.local:9696` returns 302.
 
       I did not delete them, because this is your area — you said you would set the Prowlarr trackers. Prowlarr will not repair them either: it currently has **zero** indexers configured, so it does not own these and a forced `ApplicationIndexerSync` leaves them alone.
 
@@ -116,10 +122,32 @@ Closing the verified plan gaps from `docs/PLAN-GAPS.md`, largest first.
 
 - [ ] **Review the cluster against best practice, the docs, and the plan.** Requested as standing work: after changes, verify the running cluster still matches `docs/RUNDOWN.md`, the phase goals, and sane defaults — rather than assuming a green sync means correct.
 
-- [ ] **Add indexers to Prowlarr.** Only CrackingPatching and Internet Archive exist. Which trackers, and any accounts, are your call. Tag anything Cloudflare-protected with `flaresolverr` — the proxy is configured but stays disabled until at least one indexer carries that tag.
+- [ ] **Add more indexers to Prowlarr.** 26 exist now (CrackingPatching, Internet Archive, MyAnonamouse with the dynamic seed, bitmagnet, and the tracker set synced earlier). Which trackers to add, and any accounts, are your call. Tag anything Cloudflare-protected with `flaresolverr` — the proxy is configured but stays disabled until at least one indexer carries that tag.
 - [x] **DAB account password — deliberately not rotated.** It appeared in this session's log when the restored download clients were read. Owner's decision to leave it; noted here so it is not raised again. The qBittorrent password and slskd API key *were* rotated.
 
 - [ ] **YouTube `cookies.txt`** — skipped per your instruction. If you ever want it, drop the file at `/data/cookies/youtube.txt`; the path and the bgutil POT provider are already in place.
+
+## Session 2026-08-29 — Done
+
+Full detail in `docs/doctor-log.md` and the git log (`57ea951..cbb9554`).
+
+- **MinIO outage root-caused and recovered.** Its data had always lived on the boot disk; the tank import shadowed it and every backup failed silently for ~20 h. Data copied to the pool, health 200, WAL shipping live, hardening applied (`zfs-load-key.service`, `RequiresMountsFor` on minio, nfs-server ordering), `tank/appdata/personal` remounted. Healing checklist: issue #1.
+- **Immich upgraded v2.6.3 → v3.1.0** in three verified steps; breaking-change checklist passed (VectorChord already in place, CPU meets x86-64-v2). Ran on a local pg_dump because MinIO was down during the window.
+- **ConvertX deployed** (`convertx.sandstorm.chat`, Authentik-gated) and **bitmagnet deployed** (DHT crawler, Torznab into Prowlarr #26, synced to Lidarr).
+- **Lidarr nightly maintenance fixed** (kube-router policy race — see doctor's log) and **mass-search split into two workers** (~41 days, ban-safe pacing kept).
+- **Navidrome `[Unknown]` placeholders fixed** (`PurgeMissing=full`, 31 orphans purged).
+- **slskd hardened**: owner's connection timeouts, weekly share rescan (a full-library scan measures ~40 min), share completeness verified (24,963 files).
+- **Doctor's log started** (`docs/doctor-log.md`) — every incident with symptom, root cause, fix, prevention.
+- **Version drift audit** committed (`524fc3f`): Immich was the largest gap and is closed; Nextcloud, the Prometheus stack, Traefik and Authentik are the next-largest.
+
+## Blocked on You — new
+
+- [ ] **MAM re-seed.** The seedbox session died on an ASN mismatch after the tunnel reconnected. Mint a fresh session bound to the current exit (re-check the exit IP after any restart; it was `184.75.208.170` at the time of writing), then paste the new `mam_id` (or set `MAM_ID` in Doppler `kubernetes/prd`); the updater re-reads it on its next pass without a pod restart.
+- [ ] **Schedule the controlled NAS reboot test** (issue #1, first item) — the only real proof of the boot chain.
+- [ ] **Jellyfin browser steps** — exact click-list in `docs/jellyfin-gelato.md` (user transcode policies, SSO plugin config, Gelato manifest URL).
+- [ ] **Vaultwarden push notifications** — item 9 above, needs bitwarden.com/host.
+- [ ] **Renovate go/no-go** and the **Image Updater deploy key** (`scripts/setup-image-updater-key.sh`).
+- [ ] **slskd API key rotation decision** — the key appeared in an agent transcript on 2026-08-29 (same class as the DAB password entry above; your call, noted so it is not raised again).
 
 ## Done This Session
 
