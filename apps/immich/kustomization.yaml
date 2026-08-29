@@ -64,7 +64,7 @@ helmCharts:
                 # (vchord 0.4.1, pgvecto.rs drop is a no-op), node CPU meets
                 # x86-64-v2, none of the removed env vars are set here, OAuth
                 # issuer is a valid https URL.
-                tag: v3.0.3
+                tag: v3.1.0
               env:
                 # Central Postgres, not a per-app cluster.
                 DB_HOSTNAME: app-databases-rw.databases.svc.cluster.local
@@ -119,7 +119,7 @@ helmCharts:
                 image:
                   # Kept in lockstep with the server tag above: Immich requires
                   # server and ML to run the exact same version.
-                tag: v3.0.3
+                tag: v3.1.0
         nodeSelector:
           homelab/node-class: compute
         resources:
