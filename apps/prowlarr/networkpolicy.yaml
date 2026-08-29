@@ -72,6 +72,17 @@ spec:
     ports:
     - port: 8686
       protocol: TCP
+  # bitmagnet: Prowlarr queries its Torznab endpoint directly, in-cluster
+  # (indexer test, RSS, searches). NetworkPolicy is enforced at both ends in
+  # this cluster, so this rule only works because bitmagnet's own policy
+  # allows ingress from this namespace on 3333 — keep the two in step.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: bitmagnet
+    ports:
+    - port: 3333
+      protocol: TCP
   # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
   # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so
   # the old rule was a no-op. Every NetworkPolicy in this repo was missing real

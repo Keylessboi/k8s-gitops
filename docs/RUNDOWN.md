@@ -19,6 +19,7 @@ All of these sit behind Traefik with a Let's Encrypt certificate, and every one 
 | `bookdl.sandstorm.chat` | Anna's Archive downloader — the non-P2P book path | Authentik |
 | `lidarr.sandstorm.chat` | Music acquisition | Authentik, then Lidarr |
 | `prowlarr.sandstorm.chat` | Indexer management | Authentik, then Prowlarr |
+| `bitmagnet.sandstorm.chat` | DHT torrent indexer — crawls the BitTorrent DHT and serves the results as a Torznab indexer to Prowlarr | Authentik |
 | `qui.sandstorm.chat` | Torrent management | Authentik, then qui |
 | `convertx.sandstorm.chat` | File converter — 1000+ formats via ffmpeg, LibreOffice, ImageMagick and friends | Authentik, then ConvertX |
 | `argocd.sandstorm.chat` | GitOps control plane — **LAN and Tailscale only** | ArgoCD admin |
