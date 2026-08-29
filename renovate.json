@@ -1,0 +1,20 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "America/New_York",
+  "labels": ["renovate"],
+  "packageRules": [
+    {
+      "description": "Major bumps are never automated - the drift audit reviews majors by hand (Nextcloud/kps/Traefik/Authentik class)",
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "0.x images stay on their minor stream (0.23.2 -> 0.23.x only; minors in 0.x can break)",
+      "matchDatasources": ["docker"],
+      "matchCurrentVersion": "/^v?0\\./",
+      "matchUpdateTypes": ["minor"],
+      "enabled": false
+    }
+  ]
+}
