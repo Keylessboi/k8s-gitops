@@ -6,11 +6,11 @@
 # SSO is native OIDC via jellyfin-plugin-sso against Authentik (NOT forward-auth,
 # which would break native mobile/TV clients - see ingress.yaml).
 #
-# Two of the three components are configured in-browser on a fresh install
-# (plugin installs, AIOStreams filters, playback policies) - see
-# docs/jellyfin-gelato.md for the exact click-through. The GitOps side here
-# stands up the airtight infrastructure; the manifest URL, OIDC secret entry,
-# and quality filters are applied on top.
+# The GitOps side here stands up the airtight infrastructure. The plugin
+# installs, SSO provider config, Gelato wiring, playback policies and libraries
+# are all pre-seeded server-side on the config PVC (see docs/jellyfin-gelato.md
+# for what was automated and the shrunk owner click-list); only the real-client
+# OIDC login test remains manual.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 metadata:
