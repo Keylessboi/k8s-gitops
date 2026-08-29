@@ -60,7 +60,11 @@ helmCharts:
                 # (v2.6.3) and lags upstream releases. The tag is bumped ahead
                 # of the chart, one release step at a time - Immich does not
                 # support skipping versions safely (destructive DB migrations).
-                tag: v2.7.5
+                # v3.0.0 breaking changes checked: DB already on VectorChord
+                # (vchord 0.4.1, pgvecto.rs drop is a no-op), node CPU meets
+                # x86-64-v2, none of the removed env vars are set here, OAuth
+                # issuer is a valid https URL.
+                tag: v3.0.3
               env:
                 # Central Postgres, not a per-app cluster.
                 DB_HOSTNAME: app-databases-rw.databases.svc.cluster.local
@@ -115,7 +119,7 @@ helmCharts:
                 image:
                   # Kept in lockstep with the server tag above: Immich requires
                   # server and ML to run the exact same version.
-                  tag: v2.7.5
+                tag: v3.0.3
         nodeSelector:
           homelab/node-class: compute
         resources:
