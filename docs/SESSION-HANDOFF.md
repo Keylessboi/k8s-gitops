@@ -3,25 +3,43 @@
 State at the point a weekly rate limit was about to interrupt work, so the next
 session (or the owner) can pick up without losing context. Newest concern first.
 
-## ⚠️ ACTIVE: NAS is down after a physical move
+## Storage move — RECOVERED
 
-The owner moved the whole server into a closet. As of ~00:06 on 2026-08-29:
+The owner moved the server into a closet on 2026-08-29. During that:
+- The NAS (`192.168.1.67`) went down, and **LXC 200 (the k3s control plane)
+  itself was found stopped** — a subagent restarted it with `pct start 200`.
+- With the NAS back (both exports serve: `/extra/nfs-csi`, `/tank/media`), ~18
+  pods were stuck `Unknown` (kubelet lost them during the outage). They were
+  force-deleted so their owners recreate on the live NFS. Host load fell 6.9 → ~1.
+- **Recovery still settling**: some pods sit in `ContainerCreating` for 10min+.
+  If any stay wedged, that is the stale-NFS-mount pattern — force-delete the
+  wedged pod (and any stale `Terminating` one holding the mount) and it comes
+  back. `monitoring` was briefly Degraded (Grafana/Prometheus recreating).
 
-- **`192.168.1.67` (the NAS) does not respond to ping.** It holds *every* NFS
-  PVC in the cluster, so all stateful pods lose their storage until it returns.
-- The Proxmox host rebooted (`uptime` showed ~8 min). Load was 6.19 and rising
-  — **this is pods retrying against dead NFS mounts plus post-boot
-  reconciliation, not heat.** Host temps were fine (max ~55°C, threshold 60°C).
+Storage is on the `tank` mirror (ADR-0001); `df /extra/nfs-csi` must report
+`tank/extra`.
 
-**First thing to check next session:** is the NAS powered on and cabled? Once
-`ping 192.168.1.67` succeeds and its NFS exports are back
-(`showmount -e 192.168.1.67` should list `/extra/nfs-csi` and `/tank/media`),
-the stateful pods recover on their own. If a pod is wedged `Terminating` or
-`ContainerCreating` on a stale mount, force-delete it — that pattern recurred
-all session (see the fsGroup / stale-NFS notes below).
+## Pelican Panel (game server) — DEPLOYED and verified
 
-Storage lives on the `tank` mirror now (ADR-0001); `df /extra/nfs-csi` must
-report `tank/extra`.
+`https://pelican.sandstorm.chat` — Synced/Healthy, pod 1/1. Full detail in
+`docs/pelican.md`. Image `ghcr.io/pelican/panel:v1.0.0-beta38` (pinned digest,
+multi-arch). Native PostgreSQL (CNPG role+db `pelican`, 251 migrations ran),
+reuses `redis-master`, S3 backup host seeded against the `pterodactyl-backups`
+MinIO bucket, and **native Authentik OIDC** (provider "Pelican", slug `pelican`,
+created via `ak shell`) — the full server-side redirect path is verified
+(→ Authentik authorize → client accepted); interactive click-through not tested
+(no browser). Admin `travis` / `travis.fiorito@tuta.com` with Root Admin; OIDC
+links to it by verified email. All secrets in Doppler `kubernetes/prd`
+(`PELICAN_APP_KEY`, `PELICAN_DB_*`, `PELICAN_OIDC_*`, `PELICAN_ADMIN_PASSWORD`).
+Single container runs fpm+Caddy+queue+scheduler, so no separate worker Deployments.
+
+**Wings** is NOT installed. Pelican Wings publishes arm64 and will run on the
+phones. Game-server images are the limiter: Minecraft Java (`yolks:java_21`) is
+multi-arch and runs on aarch64; SteamCMD/x86 games (CS2, Valheim, Rust,
+Palworld) will NOT. One small Minecraft Java server per phone is the realistic
+workload at 3.5 GB RAM.
+
+## Background tasks that were running
 
 ## Background tasks that were running
 
