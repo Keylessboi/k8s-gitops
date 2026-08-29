@@ -1,19 +1,14 @@
 # Architecture Decision Records
 
-Referenced by `AGENTS.md` and `docs/agents/domain.md`: read the ADRs touching an
-area before you change it.
+Referenced by `AGENTS.md` and `docs/agents/domain.md`. Read the ADRs touching an area before you change it.
 
-An ADR records a decision that is **not obvious from the code** — especially one
-where the obvious choice is wrong. If someone could reasonably "fix" a setting
-back and break things, that belongs here.
+An ADR records a decision that is **not obvious from the code**. Especially one where the obvious choice is wrong. If someone could reasonably "fix" a setting back and break things, it belongs here.
 
 ## Format
 
-Copy [`0000-template.md`](0000-template.md), number it sequentially, and keep it
-short. Status is one of `Accepted`, `Superseded by ADR-NNNN`, or `Reversed`.
+Copy [`0000-template.md`](0000-template.md), number it sequentially, and keep it short. Status is one of `Accepted`, `Superseded by ADR-NNNN`, or `Reversed`.
 
-The **Consequences** section matters most — particularly the negative ones and
-the tripwires that tell a future reader the decision is being violated.
+The **Consequences** section matters most. Particularly the negative ones and the tripwires that tell a future reader the decision is being violated.
 
 ## Index
 

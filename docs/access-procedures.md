@@ -5,7 +5,7 @@
 ## Service URLs
 
 | Service | URL | Notes |
-|---------|-----|-------|
+|---|---|---|
 | Authentik | https://authentik.sandstorm.chat | SSO/Identity Provider |
 | Vaultwarden | https://vaultwarden.sandstorm.chat | Password Manager |
 | Nextcloud | https://nextcloud.sandstorm.chat | File Storage |
@@ -27,7 +27,7 @@ kubectl port-forward -n argocd svc/argocd-server 8080:443
 ### Infrastructure
 
 | Component | Location | Details |
-|-----------|----------|---------|
+|---|---|---|
 | k3s Server | 192.168.1.172 | LXC CT 200 on Proxmox |
 | Proxmox Host | 192.168.1.153 | Vostro server |
 | NAS | 192.168.1.67 | ZFS storage, NFS, MinIO |
@@ -65,7 +65,7 @@ kubectl get applications -n argocd
 ### Secrets Management (Doppler)
 
 | Secret | Doppler Project | Usage |
-|--------|-----------------|-------|
+|---|---|---|
 | ZFS key | proxmox | Disk encryption |
 | MinIO root | proxmox | S3 storage access |
 | Borg passphrase | proxmox | Backup encryption |
@@ -74,7 +74,7 @@ kubectl get applications -n argocd
 ### Manual Credential Locations
 
 | Secret | Location | Fallback |
-|--------|----------|----------|
+|---|---|---|
 | ZFS key | /etc/zfs/keys/tank.key (NAS) | Doppler (proxmox) |
 | Borg passphrase | /etc/borgmatic/passphrase (NAS) | Doppler (proxmox) |
 | ArgoCD admin | kubectl -n argocd get secret argocd-initial-admin-secret | - |
@@ -145,35 +145,27 @@ kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manif
 
 ## Contacts
 
-This is a single-operator homelab: every role below is the same person. The
-table is kept because the escalation *paths* differ even when the contact does
-not — knowing which layer a fault belongs to is the useful part.
+This is a single-operator homelab: every role below is the same person. The table is kept because the escalation *paths* differ even when the contact does not — knowing which layer a fault belongs to is the useful part.
 
 | Role | Contact | When to Escalate |
-|------|---------|------------------|
+|---|---|---|
 | Infrastructure | Travis (owner) | Proxmox host or NAS: disks, ZFS pools, NFS exports, LXC 200 itself |
 | Kubernetes | Travis (owner) | Cluster, pods, ArgoCD sync failures, PVC/CSI problems |
 | Networking | Travis (owner) | DNS, Traefik/Ingress, MetalLB, Authentik forward-auth, CrowdSec bans |
 
-If a second operator is ever added, replace the relevant row rather than adding
-a column — the escalation path should stay unambiguous.
+If a second operator is ever added, replace the relevant row rather than adding a column — the escalation path should stay unambiguous.
 
-## Not published
+## Not Published
 
-Prowlarr, FlareSolverr, Readarr, the book downloader, Beets, Octo-Fiesta and
-qBittorrent's WebUI have no Ingress by design. Reach them over Tailscale or
-port-forward, e.g.:
+Prowlarr, FlareSolverr, Readarr, the book downloader, Beets, Octo-Fiesta and qBittorrent's WebUI have no Ingress by design. Reach them over Tailscale or port-forward, e.g.:
 
 ```bash
 kubectl port-forward -n prowlarr svc/prowlarr 9696:9696
 ```
 
-Pangolin was removed - its routing lived in its own database rather than in
-this repo, and Traefik middlewares cover the same ground declaratively.
-Prometheus is reached through Grafana rather than published directly.
+Pangolin was removed — its routing lived in its own database rather than in this repo, and Traefik middlewares cover the same ground declaratively. Prometheus is reached through Grafana rather than published directly.
 
-ArgoCD has no Ingress either - it is the control plane for everything else,
-so it stays off the public internet:
+ArgoCD has no Ingress either — it is the control plane for everything else, so it stays off the public internet:
 
 ```bash
 kubectl port-forward -n argocd svc/argocd-server 8080:443

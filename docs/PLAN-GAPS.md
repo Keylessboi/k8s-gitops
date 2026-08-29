@@ -1,10 +1,8 @@
-# Phase 1 / Phase 2 verification
+# Phase 1 / Phase 2 Verification
 
-Checked against the real plans (`~/.omo/plans/kubernetes-gitops.md`,
-`~/.omo/drafts/kubernetes-phase2.md`) rather than a summary of them, and
-verified against the running cluster.
+Checked against the real plans (`~/.omo/plans/kubernetes-gitops.md`, `~/.omo/drafts/kubernetes-phase2.md`) rather than a summary of them, and verified against the running cluster.
 
-## Phase 1 — met
+## Phase 1 — Met
 
 | Requirement | Evidence |
 |---|---|
@@ -25,7 +23,7 @@ verified against the running cluster.
 | **Email via Gmail app password** | Authentik, Vaultwarden, Grafana — added this session |
 | Tailscale on NAS | in place |
 
-## Phase 1 — NOT met
+## Phase 1 — Not Met
 
 | Gap | Detail |
 |---|---|
@@ -35,25 +33,18 @@ verified against the running cluster.
 | **Navidrome SQLite → PostgreSQL** | Not done. Still `/data/navidrome.db`; no `navidrome` database in the CNPG cluster. The plan specifies a pgloader migration. |
 | Per-app Grafana dashboards | 29 dashboards exist but they are kube-prometheus-stack's generic set plus one homelab overview. No per-app dashboards (Lidarr, Immich, etc). |
 
-## Deliberately dropped (owner's decision, not gaps)
+## Deliberately Dropped (Owner's Decision, Not Gaps)
 
 - **Pangolin** — removed; Traefik middlewares do the same job declaratively in git.
 - **Geo-blocking** — explicitly not wanted.
 - **Extra k3s agents** (phones, Pi, DL360P) — owner handling separately.
 
-## Leftover to clean
+## Leftover to Clean
 
-- A `juicefs` database and role still exist in the CNPG cluster from the
-  rejected JuiceFS evaluation.
+- A `juicefs` database and role still exist in the CNPG cluster from the rejected JuiceFS evaluation.
 
-## Phase 2 — music scope only
+## Phase 2 — Music Scope Only
 
-Delivered: Tubifarry (C3, partial — MCP not deployed), Slskd (C4, on AirVPN
-rather than WARP, which the plan anticipated as the upgrade path), Beets (C5),
-Octo-Fiesta (C6), Calibre-Web Automated (C18), Prowlarr (C20).
+Delivered: Tubifarry (C3, partial — MCP not deployed), Slskd (C4, on AirVPN rather than WARP, which the plan anticipated as the upgrade path), Beets (C5), Octo-Fiesta (C6), Calibre-Web Automated (C18), Prowlarr (C20).
 
-Not started: Funkwhale (C1), ListenBrainz (C2), Lidarr MCP (C3), Real-Debrid
-/zurg (C7), Tor hidden services (C8), Vikunja (C9), Homarr (C10), Headscale
-(C11), Matrix (C12), XMPP (C13), Checkmate (C14), OpenTripPlanner (C15),
-Radicle (C16), librarr (C17 — a different book downloader was used), Forgejo
-(C19).
+Not started: Funkwhale (C1), ListenBrainz (C2), Lidarr MCP (C3), Real-Debrid/zurg (C7), Tor hidden services (C8), Vikunja (C9), Homarr (C10), Headscale (C11), Matrix (C12), XMPP (C13), Checkmate (C14), OpenTripPlanner (C15), Radicle (C16), librarr (C17 — a different book downloader was used), Forgejo (C19).
