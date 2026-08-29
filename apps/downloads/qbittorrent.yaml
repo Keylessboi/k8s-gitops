@@ -73,6 +73,28 @@ spec:
               shares:
                 directories:
                   - /data/media/music
+                # Lidarr imports into the library continuously and the share
+                # cache is in-memory, so new music stays unshared until a
+                # rescan. Rescan every 6h so imports become shareable without
+                # a pod restart.
+                cache:
+                  retention: 360
+              # Owner's connection timeouts from their pre-k8s slskd.yml.
+              # inactivity: 150000 is 10x the default 15000 - keeps slow peers
+              # and dnet parent connections from being dropped early.
+              # connect: 10000 equals the default, kept explicit for parity.
+              # connection.timeout.transfer from the old setup has no
+              # equivalent in slskd 0.23.2 (the only 'transfer' under
+              # soulseek.connection is a buffer size, not a timeout), so it is
+              # intentionally not carried over. The owner's startup flags
+              # (no_logo/no_start/no_config_watch/no_connect/no_share_scan/
+              # force_share_scan) are all explicitly false, which equals this
+              # version's defaults - no env overrides needed.
+              soulseek:
+                connection:
+                  timeout:
+                    connect: 10000
+                    inactivity: 150000
               EOF
               chown 1000:1000 /app/slskd.yml
               chmod 600 /app/slskd.yml
