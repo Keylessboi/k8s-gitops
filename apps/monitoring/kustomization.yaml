@@ -361,6 +361,38 @@ helmCharts:
             installOperator: false
       lokiCanary:
         enabled: true
+  # Blackbox exporter: probes endpoints from inside the cluster so Prometheus
+  # can watch services that have no exporter of their own. Here it exists for
+  # exactly one target - MinIO's /minio/health/cluster on the NAS, which
+  # returned 503 for ~20h on 2026-08-29 while live/ready stayed 200 and every
+  # backup failed silently. The Probe CR that drives it is minio-probe.yaml.
+  - name: prometheus-blackbox-exporter
+    repo: https://prometheus-community.github.io/helm-charts
+    # Pinned: floating chart versions make an ArgoCD app drift on every
+    # re-render, which is how silent staleness happens.
+    version: 11.17.2
+    releaseName: blackbox-exporter
+    namespace: monitoring
+    includeCRDs: true
+    valuesInline:
+      # The release name would otherwise prefix the chart fullname into
+      # blackbox-exporter-prometheus-blackbox-exporter; the Probe CR's prober
+      # URL reads much better against the short form.
+      fullnameOverride: blackbox-exporter
+      # The Probe CR is what drives scraping - Prometheus itself fetches
+      # /probe?target=... - so the exporter's own ServiceMonitor would only
+      # add a target nothing consumes.
+      serviceMonitor:
+        enabled: false
+      nodeSelector:
+        homelab/node-class: compute
+      resources:
+        requests:
+          cpu: 5m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
   # Alloy: collector agent on every node. Ships to Prometheus and Loki.
   - name: alloy
     repo: https://grafana.github.io/helm-charts

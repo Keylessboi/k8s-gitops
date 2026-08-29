@@ -1,0 +1,42 @@
+---
+# Blackbox probe of MinIO's CLUSTER health endpoint on the NAS.
+#
+# This is the probe that would have caught the 2026-08-29 outage in minutes
+# instead of 20 hours: when MinIO's drive vanished, /minio/health/cluster
+# returned 503 (write/read quorum gone) while /minio/health/live and /ready
+# kept returning 200 - so a liveness-style probe against the pod would have
+# stayed green straight through the outage. The cluster endpoint is the only
+# one that actually reports the failure.
+#
+# The probe runs from the blackbox exporter deployed in this directory (see
+# the helmCharts entry in kustomization.yaml); Prometheus fetches
+# /probe?target=... itself, so probe_success lands in Prometheus with
+# job="probe/monitoring/minio-health" and instance=<the URL below>.
+#
+# Egress to 192.168.1.67:9000 is granted by the matching rule in
+# networkpolicy.yaml - the catch-all egress rule deliberately excludes
+# 192.168.0.0/16, so without it the probe is dropped and MinIO looks
+# permanently healthy because nothing is ever collected.
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: minio-health
+  namespace: monitoring
+  labels:
+    # The Prometheus CR's probeSelector requires this label and silently
+    # ignores anything without it - the same trap as the ServiceMonitors
+    # (see servicemonitors-apps.yaml).
+    release: kps
+spec:
+  # 60s: the outage was a NAS boot-order failure, not a flap; a minute of
+  # resolution is plenty and keeps the probe load trivial.
+  interval: 60s
+  # The chart's default http_2xx module: HTTP probe, IPv4 preferred (the NAS
+  # is a v4 address), 5s timeout, follows redirects.
+  module: http_2xx
+  prober:
+    url: http://blackbox-exporter.monitoring.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - http://192.168.1.67:9000/minio/health/cluster

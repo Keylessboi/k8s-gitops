@@ -41,6 +41,17 @@ spec:
     ports:
     - port: 9633
       protocol: TCP
+  # MinIO's S3/health port on the NAS - the target of the blackbox probe
+  # (minio-probe.yaml). Same story as the smartctl rule above: the catch-all
+  # egress rule excludes 192.168.0.0/16, so without naming this the probe is
+  # dropped and MinIO looks permanently healthy because nothing is ever
+  # collected. Scoped to :9000 only.
+  - to:
+    - ipBlock:
+        cidr: 192.168.1.67/32
+    ports:
+    - port: 9000
+      protocol: TCP
   # node-exporter, which runs with hostNetwork - so its address is the node's
   # own LAN address, not a pod address, and the same 192.168.0.0/16 exclusion
   # below drops the scrape. It listens on *:9100 and answers fine from the
