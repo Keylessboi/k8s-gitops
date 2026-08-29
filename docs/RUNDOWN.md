@@ -149,6 +149,8 @@ Four layers, each covering the previous one's failure mode:
 
 Vaultwarden's actual vault lives in Postgres, so it is inside the first two layers rather than depending on a single PVC.
 
+The pipeline fails loudly: `BackupTooOld`, `WALArchiverFailing` and a MinIO cluster-health probe alert by email, and the **Backups** Grafana dashboard shows last-backup age, WAL archive state and probe status. The 2026-08-29 outage — MinIO serving from a shadowed boot-disk path with zero drives for ~20 h — and every other failure the cluster has seen is documented in [docs/doctor-log.md](doctor-log.md).
+
 Restoring is not theoretical — `apps/databases/restore-verify-job.yaml.example` restores a dump into a scratch database and counts what came back. It is an example file rather than a CronJob so it never runs unattended.
 
 ```bash
