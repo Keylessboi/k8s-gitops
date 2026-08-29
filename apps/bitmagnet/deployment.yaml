@@ -40,9 +40,17 @@ spec:
           # on :3333), queue_server (postgres-backed job queue) and the DHT
           # crawler. Omitting a key silently disables that component — e.g.
           # without dht_crawler the whole point of this app is gone.
-          # `args`, not `command`: the image's ENTRYPOINT is `bitmagnet`, and
-          # k8s `command` would REPLACE it (compose `command` appends) — the
-          # first deploy crashed with exec: "worker": executable not found.
+          #
+          # BOTH fields are spelled out on purpose. The image's ENTRYPOINT is
+          # `bitmagnet`; compose `command` appends to it, k8s `command`
+          # replaces it — the first deploy set only k8s `command` and crashed
+          # with exec: "worker": executable not found. Setting only `args`
+          # didn't fix it either: ArgoCD's server-side apply added `args` but
+          # never pruned the previously-applied `command`, leaving both set to
+          # the worker invocation (command won, same crash). Declaring
+          # command=["bitmagnet"] + args=[...] makes the rendered object
+          # unambiguous and self-healing.
+          command: ["bitmagnet"]
           args:
             - worker
             - run
