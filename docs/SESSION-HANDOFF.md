@@ -2,6 +2,186 @@
 
 State captured across a closet-move outage and its recovery. Newest first.
 
+---
+
+# ⛔ 2026-08-29 (afternoon) — WEEKLY LIMIT HIT; indexers fixed, maintenance-job root-caused, big builds paused
+
+## The overarching constraint: account weekly limit
+Both background subagents (Jellyfin, book-pipeline) and the earlier ones died with
+**"You've hit your weekly limit · resets Sep 2, 2am (America/New_York)"**. This is
+account-level, so **spawning fresh subagents will just hit the same wall until
+Sep 2**. The interactive session still runs, but treat agent-driven work as paused.
+Everything below is either finished, or documented precisely enough to finish by
+hand / resume as an agent after the reset.
+
+## ✅ DONE this session
+
+### Lidarr + Readarr indexers were all failing (401) — FIXED
+- **Symptom:** Lidarr health showed most indexers "unavailable due to failures";
+  logs showed `HTTP 401 Unauthorized` on
+  `http://prowlarr.prowlarr.svc.cluster.local:9696/<N>/api?t=caps&apikey=(removed)`.
+- **Root cause:** earlier this session the **Prowlarr API key was rotated**
+  (sha `9528c825…`). Prowlarr stamps *its own* API key into every torznab indexer
+  it syncs downstream (Lidarr, Readarr). Rotating the key **orphaned every synced
+  copy** — Lidarr/Readarr kept authenticating with the dead key.
+- **Fix:** forced a full re-sync from Prowlarr:
+  `POST /api/v1/command {"name":"ApplicationIndexerSync","forceSync":true}` (command
+  id 631, completed). Re-stamped the current key into all downstream torznab entries.
+- **Result:** Lidarr **10/11 indexers pass**; Readarr health clean. The one Lidarr
+  "fail" left is **Nyaa.si** — not an auth error, just "no results in the configured
+  (music) categories."
+- **⚠️ NEW RECURRING GOTCHA (add to the mental checklist):** *rotating any \*arr's
+  API key silently breaks every downstream app it syncs to* until you run a forced
+  `ApplicationIndexerSync`. See also [[k8s-gitops-failure-modes]].
+
+### Temperature email alerts — DONE (commit `1b42880`)
+- `apps/monitoring/temperature-alerts.yaml` (PrometheusRule `temperature`, 6 rules,
+  all `for: 5m`): host CPU ≥82/90 °C, NAS SAS disks ≥55/60 °C, NVMe ≥70/80 °C.
+- One Alertmanager route added in `apps/monitoring/kustomization.yaml`:
+  `alertname =~ "Temp.*"` → existing `smart-email` receiver → `travis.fiorito@tuta.com`
+  (same Gmail relay / `smtp_auth_password_file` the SMART alerts already use).
+- The agent **corrected a bad briefing**: SAS `drive_trip` is **85 °C** (normal SAS
+  max), *not* 45 — so alerting is on **absolute current temps**, not trip-relative.
+  The "85 °C phantom" story was wrong; there is no persistent phantom in Prometheus.
+- ArgoCD `monitoring` Synced/Healthy; promtool + `/api/v1/rules` verified (6 rules,
+  inactive/healthy at current temps). No test email was fired on purpose.
+- **The local temp Monitor background task was STOPPED** (owner: "you don't have to
+  monitor temps if it's already setup to hit me with SMTP"). Correct — the
+  PrometheusRule covers it now.
+- Minor open item: the old `SmartDeviceHot` (>60 °C for 20 m) in
+  `smartctl-alerts.yaml` now overlaps `TempNasDiskCritical` (>60 °C). Harmless
+  double-email on a genuinely hot disk. Drop `SmartDeviceHot` if single-source is
+  preferred — owner's call, not yet done.
+
+## 🐞 ROOT-CAUSED, FIX READY TO APPLY — nightly Lidarr maintenance CronJob fails
+
+**This is why "it didn't remove the track with missing tracks last night."**
+
+- `apps/lidarr/maintenance-cronjob.yaml` clones+runs the owner's
+  `Keylessboi/lidarr-maintenance-script` at 02:00 daily. Recent runs **Failed**.
+- The real error (from a manual re-run): after printing config it dies on the very
+  first API call — `ERROR fetching queue: <urlopen error [Errno 111] Connection
+  refused>`.
+- **It is NOT auth, NOT the Service, NOT DNS, NOT IPv6, NOT the NetworkPolicy rules
+  themselves.** Proven:
+  - Lidarr Service + endpoints healthy; `/ping` returns `{"status":"OK"}` from the
+    lidarr pod, from a fresh **busybox** pod in the same namespace, and via a fresh
+    pod that did `nslookup` first.
+  - A fresh **python:3.12-slim** pod that connects *immediately* gets
+    `ConnectionRefusedError(111)` to **both** the ClusterIP (10.43.5.224) and the
+    pod IP (10.42.0.153). `getaddrinfo` returns IPv4-only, so IPv6 is ruled out.
+  - The NetworkPolicy `apps/lidarr/networkpolicy.yaml` **does** allow egress to
+    `lidarr` ns :8686 (there's even a comment for exactly this CronJob).
+- **Diagnosis: a kube-router NetworkPolicy programming race.** When a pod starts,
+  kube-router needs ~1–2 s to program its per-pod iptables policy chains. Until
+  then, egress that *should* be allowed is **REJECTed** (RST → "connection
+  refused", not a drop/timeout). The maintenance script connects on its first line
+  of real work, so it loses the race every night. Busybox only "worked" because its
+  `nslookup` burned enough time first. (A confirming sleep-then-connect test was
+  interrupted, but every other data point lines up.)
+- **FIX (small, do this first when able):** make the job tolerate the startup
+  window. Cleanest: wrap the first reachability check in a retry, e.g. prepend to
+  the CronJob command a loop that waits until `GET /ping` succeeds (or add an
+  `initContainer` that curls `http://lidarr.lidarr.svc:8686/ping` in a
+  `until`-loop before the main container runs), then commit via GitOps. A blunt
+  fallback is `time.sleep(10)` before the first request, but a readiness loop is
+  more robust. This turns the nightly job green and the auto-removal of broken/
+  missing tracks starts working again.
+- **Separately:** `lidarr-mass-search` has been **Running for ~2.5 days** and is
+  likely jamming Lidarr's command queue. Decide whether to let it finish or cancel
+  it. Never press "Search for Missing" in the UI (queues one 31k-album command).
+
+## ⏸ PAUSED / UNFINISHED (resume after Sep 2, or by hand)
+
+### Jellyfin + Gelato behind AirVPN — manifests committed (`a378c60`), NOT verified
+Owner wants: Jellyfin serving the local library **with the Gelato *plugin*** pulling
+Stremio/torrentio content via **self-hosted AIOStreams**, everything that egresses to
+torrent/debrid sources **inside a gluetun killswitch namespace** ("airtight"),
+**no transcoding at all — Direct Play only**, and **downloads locked to 1080p easy-play
+formats**. Architecture note that drove the design: **Gelato proxies streams through
+Jellyfin itself**, so Jellyfin's egress is what pulls streams → Jellyfin + AIOStreams
+must sit behind the VPN, not just a separate downloader.
+- **Committed:** `apps/jellyfin/…` (Jellyfin + Gelato + AIOStreams behind gluetun).
+- **NOT done / to finish:**
+  1. `doppler` + `coredns` apps need to reconcile so the AirVPN `DopplerSecret`
+     (gluetun wireguard creds) actually exists — gluetun won't come up without it.
+  2. **Prove the killswitch is airtight** (3 tests): (a) `curl ip4.me` from inside
+     the Jellyfin container returns the AirVPN exit IP, not home WAN; (b) stop
+     gluetun / down the wg iface → Jellyfin container has NO internet; (c) the local
+     library + WebUI stay reachable through the Service.
+  3. **Native OIDC** via `jellyfin-plugin-sso` against Authentik (pre-create the
+     provider via `ak shell`), NOT blanket forward-auth (that breaks native mobile/TV
+     clients).
+  4. **Disable transcoding** (HW accel off + user playback policies forbid
+     transcode/remux) — CPU-only node.
+  5. **AIOStreams/torrentio quality filter → 1080p only.** Owner's current torrentio
+     config wrongly has REMUX/HDR/DV/4k/3D/Screener/Cam/Other/Unknown enabled. Enable
+     **only 1080p** (720p optional fallback); disable the rest — HDR/DV/10-bit/4k/
+     REMUX all force a transcode or fail Direct Play. Prefer 1080p WEB-DL/WEBRip,
+     h264 or 8-bit h265, mp4/mkv, AAC/AC3.
+  6. Manual browser steps to install the Gelato plugin (repo:
+     `https://raw.githubusercontent.com/lostb1t/Gelato/refs/heads/gh-pages/repository.json`,
+     needs Jellyfin 10.11+) — list every click for the owner.
+- Owner explicitly asked to "redeploy that jellyfin subagent" — **blocked by the
+  weekly limit**; resume the agent (id was `ab2407f…`) or do it inline after reset.
+
+### Book pipeline improvement — agent died mid-investigation
+Findings before it stopped:
+- Shelfmark/`book-downloader` direct-download **is** enabled with working
+  **z-library.sk (zlib) + welib** sources; **libgen mirrors were parked nginx pages**
+  as of 2026-08-27. (So the earlier "direct download is dead" was only AA; zlib works.)
+- Real gap: **Readarr has no dedicated ebook indexers** (libgen/zlibrary) — only MAM
+  + general torrent trackers. Biggest win = add Libgen/Z-Library torznab to Prowlarr,
+  sync to Readarr (tag for FlareSolverr where needed), verify Readarr→Calibre/CWA
+  import handoff, set an **EPUB/AZW3-first** quality profile (owner reads on a
+  jailbroken Kindle via KOReader), and decide the fate of the AA-crippled direct arm.
+- Task #32 is `in_progress`. Do NOT re-enable anything AA/DDoS-Guard-gated (unsolvable).
+
+### qui — three separate items
+1. **Needs a version update.** Which leads to →
+2. **Auto-update question (owner asked "is everything being auto-updated?"):** **No —
+   by design.** The repo-review hardening **pinned image digests**, so nothing bumps
+   itself; that's exactly why qui is stale. Options: adopt **Renovate** (opens PRs to
+   bump pinned digests — keeps GitOps + pinning + review; recommended), or bump by
+   hand. Not yet decided/implemented.
+3. **qui has TWO OIDC entries** (duplicate) — remove the redundant one. Not yet done.
+
+### Wings (Pelican) — CANNOT deploy yet
+Only `k3s-server` is in the cluster; **no phone node has joined**, so there is nowhere
+to run Wings. Phone-join is still blocked per `docs/phone-nodes.md` (USB netdev not
+created on the Proxmox host, 172.16.42.1 subnet collision, host-side routing). Revisit
+once a phone is actually `Ready`. Owner asked to document uncommon decisions in the
+repo — when Wings does land, add an ADR (why phones/arm64, one role per phone, MC-Java-
+only). See `docs/adr/`.
+
+### Navidrome favorites import — pending, DRY-RUN FIRST
+Owner thinks the music library is now full enough to restore favorites.
+`docs/recovery/restore-navidrome-favorites.sh` (1,136 starred tracks / 94 albums,
+matched by metadata). **Do a dry run first** (verify/extend the script's dry-run mode
+before writing stars). Precondition: the Navidrome **admin account must exist**, which
+happens on the owner's **first SSO login** — confirm that's done before importing.
+
+## Nyaa correction & the anime-tracker cleanup
+- **Owner: "Nyaa isn't an anime tracker and should be kept." → KEEP Nyaa.si.**
+  Do not remove it. (It carries general content, not just anime.)
+- The broader "remove anime trackers" cleanup is **blocked by the Claude Code safety
+  classifier**, which refuses API resource-deletes (single or bulk). Not worked
+  around. If still wanted, the owner deletes them in the **Prowlarr UI** (Settings →
+  Indexers): candidates were Nipponsei, Anibt, Bangumi Moe, dmhy, Mikan, nekoBT,
+  ACG.RIP, Shana Project — **excluding Nyaa**. Low priority; they feed only
+  Lidarr/Readarr (no Sonarr).
+
+## Suggested order when the limit resets (Sep 2)
+1. Apply the **maintenance-CronJob race fix** (small, high value — restores nightly
+   auto-cleanup). 2. Decide `lidarr-mass-search` fate. 3. **Finish Jellyfin** (secret
+   reconcile → killswitch proof → OIDC → no-transcode → 1080p filter → plugin steps).
+4. **Book pipeline** (libgen/zlib into Readarr, import path, EPUB profile).
+5. **qui**: dedupe OIDC, bump version, decide Renovate. 6. Navidrome favorites
+   **dry run** then import. 7. Optional: anime-tracker UI cleanup, SmartDeviceHot
+   dedupe, and (only once a phone joins) Wings + its ADR.
+
+---
+
 ## Storage outage after the closet move — ROOT CAUSE + FIX (RESOLVED)
 
 The move was an unclean shutdown. On reboot the NAS came up (ping/ssh/NFS
