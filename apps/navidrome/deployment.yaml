@@ -48,6 +48,14 @@ spec:
               value: info
             - name: ND_SCANSCHEDULE
               value: 1h
+            # Default is "never": navidrome keeps records for files deleted
+            # from the library forever, and their placeholder [Unknown
+            # Album]/[Unknown Artist] rows keep rendering in the UI. "full"
+            # purges them whenever a full scan runs; hourly incremental scans
+            # stay non-destructive. A full scan is `navidrome scan --full`
+            # in the container.
+            - name: ND_SCANNER_PURGEMISSING
+              value: full
             - name: ND_SESSIONTIMEOUT
               value: 720h
             - name: ND_ENABLESHARING
