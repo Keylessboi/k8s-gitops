@@ -35,7 +35,9 @@ spec:
   # is a v4 address), 5s timeout, follows redirects.
   module: http_2xx
   prober:
-    url: http://blackbox-exporter.monitoring.svc.cluster.local:9115
+    # No scheme: the operator rejects prober URLs with one ("should be of the
+    # format hostname or hostname:port") and skips the probe entirely.
+    url: blackbox-exporter.monitoring.svc.cluster.local:9115
   targets:
     staticConfig:
       static:
