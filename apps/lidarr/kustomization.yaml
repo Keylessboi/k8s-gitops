@@ -39,6 +39,7 @@ resources:
   - deployment.yaml
   - bgutil-provider.yaml
   - maintenance-cronjob.yaml
+  - mass-search-job.yaml
   - ingress.yaml
   - authentik-outpost.yaml
 

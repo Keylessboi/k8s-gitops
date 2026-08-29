@@ -1,0 +1,388 @@
+---
+# Paced "search for all missing albums", two workers on disjoint
+# album-id ranges.
+#
+# History: this job originally existed ONLY as a hand-applied kubectl
+# object (never committed), which meant a cluster rebuild would have
+# silently lost a months-long catalog build. It is committed here so
+# GitOps owns it, like everything else.
+#
+# Why two jobs: one worker fully waits for each 50-album AlbumSearch
+# command to finish before submitting the next, which measured ~15
+# albums/hour - about 83 days for the remaining ~30k. Two workers on
+# disjoint id ranges double the throughput (~42 days) without changing
+# the per-indexer query *pattern* the pacing exists to protect (see
+# the script comment - unspaced fan-out is how indexer accounts get
+# banned). Worker A: ids 2083-26194. Worker B: ids 26195+. The split
+# was cut from the live missing list on 2026-08-29, after 419 albums
+# had already been searched (those are below id 2083 and are skipped).
+#
+# When both workers complete: list a fresh /wanted/missing, cut a new
+# split, and update both jobs' RANGE_START/RANGE_END (and delete their
+# cursor files on the lidarr-config PVC, .mass-search-cursor-a/-b).
+#
+# The two inline scripts must stay in lockstep; they differ only in
+# env. (A shared ConfigMap would not help: a Job's pod template is
+# frozen at creation, so every script change means recreating the Jobs
+# either way.)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lidarr-mass-search-a
+  namespace: lidarr
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lidarr-mass-search
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        fsGroupChangePolicy: OnRootMismatch
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: search
+          image: python:3.12-slim
+          command: ["python3", "-u", "-c"]
+          args:
+            - |
+              # Paced "search for all missing albums".
+              #
+              # Lidarr's own Search-All button fans every missing album out at
+              # once. With 31k albums across 18 indexers that is roughly half a
+              # million indexer queries with no spacing, which is how accounts
+              # get rate-limited and then banned. This walks the same list in
+              # batches, waits for each batch's command to actually finish
+              # before starting the next, and sleeps in between - so the
+              # coverage is identical but the request rate stays sane.
+              #
+              # Resumable: the cursor is the highest album id already
+              # submitted, persisted on the config volume. A restart picks up
+              # where it left off rather than re-searching from zero.
+              #
+              # Ranged: RANGE_START/RANGE_END bound this worker to one slice
+              # of the album-id space, so two jobs can work disjoint halves
+              # of the same list at once. RANGE_START is a hard floor even
+              # before the cursor is read, so a fresh cursor can never rewind
+              # a worker into ids another worker already owns.
+              import json, os, time, urllib.request, urllib.error
+
+              K = os.environ["LIDARR_API_KEY"]
+              B = os.environ["LIDARR_URL"].rstrip("/") + "/api/v1"
+              BATCH = int(os.environ.get("BATCH", "50"))
+              SLEEP = int(os.environ.get("SLEEP_BETWEEN", "15"))
+              CURSOR = os.environ.get("CURSOR_PATH", "/config/.mass-search-cursor")
+              RANGE_START = int(os.environ.get("RANGE_START", "0"))
+              RANGE_END = int(os.environ.get("RANGE_END", "0"))
+
+              def req(method, p, payload=None, t=300):
+                  data = json.dumps(payload).encode() if payload is not None else None
+                  for attempt in range(8):
+                      r = urllib.request.Request(
+                          B + p, data=data,
+                          headers={"X-Api-Key": K, "Content-Type": "application/json"},
+                          method=method)
+                      try:
+                          with urllib.request.urlopen(r, timeout=t) as x:
+                              body = x.read().decode()
+                              return x.status, (json.loads(body) if body else {})
+                      except urllib.error.HTTPError as e:
+                          return e.code, e.read().decode()[:200]
+                      except Exception as e:
+                          print(f"    retry {attempt} {method} {p[:40]}: {e}", flush=True)
+                          time.sleep(min(10 * (attempt + 1), 60))
+                  return 599, "gave up"
+
+              # A Job's command runs the moment the container starts, which can
+              # precede the CNI programming this pod's NetworkPolicy; the first
+              # call is then refused. Long-lived Deployments never notice
+              # because they simply reconnect.
+              for attempt in range(60):
+                  c, _ = req("GET", "/system/status", t=20)
+                  if c < 300:
+                      break
+                  print(f"waiting for lidarr ({attempt}): {c}", flush=True)
+                  time.sleep(5)
+              else:
+                  raise SystemExit("lidarr unreachable")
+
+              start_after = RANGE_START
+              if os.path.exists(CURSOR):
+                  try:
+                      start_after = max(start_after, int(open(CURSOR).read().strip()))
+                      print(f"resuming after album id {start_after}", flush=True)
+                  except Exception:
+                      pass
+
+              # Page through everything Lidarr considers missing.
+              ids, page = [], 1
+              while True:
+                  c, d = req("GET", f"/wanted/missing?page={page}&pageSize=1000&sortKey=id&sortDirection=ascending")
+                  if c >= 300 or not isinstance(d, dict):
+                      raise SystemExit(f"cannot list missing: {c} {d}")
+                  recs = d.get("records", [])
+                  if not recs:
+                      break
+                  ids.extend(r["id"] for r in recs)
+                  if len(ids) >= d.get("totalRecords", 0):
+                      break
+                  page += 1
+              ids = sorted(set(ids))
+              total_all = len(ids)
+              ids = [i for i in ids if i > start_after]
+              if RANGE_END:
+                  ids = [i for i in ids if i <= RANGE_END]
+              print(f"missing albums: {total_all} total, {len(ids)} left to search", flush=True)
+              print(f"range [{RANGE_START or '-inf'}, {RANGE_END or 'inf'}] batch={BATCH} sleep={SLEEP}s", flush=True)
+
+              t_start = time.time()
+              done = 0
+              for n in range(0, len(ids), BATCH):
+                  chunk = ids[n:n + BATCH]
+                  t0 = time.time()
+                  c, res = req("POST", "/command",
+                               {"name": "AlbumSearch", "albumIds": chunk})
+                  if c >= 300:
+                      print(f"  batch submit failed {c}: {res}", flush=True)
+                      time.sleep(60)
+                      continue
+                  cid = res.get("id")
+                  # Wait for this batch to genuinely finish before queueing more,
+                  # so Lidarr's task queue is the pacer rather than a fixed guess.
+                  while True:
+                      c2, st = req("GET", f"/command/{cid}", t=60)
+                      if c2 >= 300:
+                          break
+                      s = st.get("status")
+                      if s in ("completed", "failed", "aborted", "cancelled", "orphaned"):
+                          break
+                      time.sleep(10)
+                  done += len(chunk)
+                  # Persist the cursor only after the batch actually completed.
+                  try:
+                      with open(CURSOR, "w") as f:
+                          f.write(str(chunk[-1]))
+                  except Exception as e:
+                      print(f"    cursor write failed: {e}", flush=True)
+                  el = time.time() - t_start
+                  rate = done / el if el else 0
+                  remain = (len(ids) - done) / rate / 3600 if rate else 0
+                  print(f"  {done}/{len(ids)} albums | batch {time.time()-t0:.0f}s "
+                        f"| {rate*3600:.0f}/hr | ~{remain:.1f}h left", flush=True)
+                  time.sleep(SLEEP)
+
+              print(f"ALL DONE: searched {done} albums in {(time.time()-t_start)/3600:.1f}h", flush=True)
+          env:
+            - name: LIDARR_URL
+              value: http://lidarr.lidarr.svc.cluster.local:8686
+            - name: BATCH
+              value: "50"
+            - name: SLEEP_BETWEEN
+              value: "15"
+            # Worker A owns the lower half of the remaining id space
+            # (2026-08-29 split; see the file header).
+            - name: CURSOR_PATH
+              value: /config/.mass-search-cursor-a
+            - name: RANGE_START
+              value: "2083"
+            - name: RANGE_END
+              value: "26194"
+            - name: LIDARR_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: api-key
+                  name: lidarr-api
+          resources:
+            requests:
+              cpu: 25m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - mountPath: /config
+              name: config
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: lidarr-config
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lidarr-mass-search-b
+  namespace: lidarr
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lidarr-mass-search
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        fsGroupChangePolicy: OnRootMismatch
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: search
+          image: python:3.12-slim
+          command: ["python3", "-u", "-c"]
+          args:
+            - |
+              # Paced "search for all missing albums" - worker B, upper half.
+              # Full rationale in lidarr-mass-search-a; the scripts must stay
+              # in lockstep and differ only in env.
+              import json, os, time, urllib.request, urllib.error
+
+              K = os.environ["LIDARR_API_KEY"]
+              B = os.environ["LIDARR_URL"].rstrip("/") + "/api/v1"
+              BATCH = int(os.environ.get("BATCH", "50"))
+              SLEEP = int(os.environ.get("SLEEP_BETWEEN", "15"))
+              CURSOR = os.environ.get("CURSOR_PATH", "/config/.mass-search-cursor")
+              RANGE_START = int(os.environ.get("RANGE_START", "0"))
+              RANGE_END = int(os.environ.get("RANGE_END", "0"))
+
+              def req(method, p, payload=None, t=300):
+                  data = json.dumps(payload).encode() if payload is not None else None
+                  for attempt in range(8):
+                      r = urllib.request.Request(
+                          B + p, data=data,
+                          headers={"X-Api-Key": K, "Content-Type": "application/json"},
+                          method=method)
+                      try:
+                          with urllib.request.urlopen(r, timeout=t) as x:
+                              body = x.read().decode()
+                              return x.status, (json.loads(body) if body else {})
+                      except urllib.error.HTTPError as e:
+                          return e.code, e.read().decode()[:200]
+                      except Exception as e:
+                          print(f"    retry {attempt} {method} {p[:40]}: {e}", flush=True)
+                          time.sleep(min(10 * (attempt + 1), 60))
+                  return 599, "gave up"
+
+              # A Job's command runs the moment the container starts, which can
+              # precede the CNI programming this pod's NetworkPolicy; the first
+              # call is then refused. Long-lived Deployments never notice
+              # because they simply reconnect.
+              for attempt in range(60):
+                  c, _ = req("GET", "/system/status", t=20)
+                  if c < 300:
+                      break
+                  print(f"waiting for lidarr ({attempt}): {c}", flush=True)
+                  time.sleep(5)
+              else:
+                  raise SystemExit("lidarr unreachable")
+
+              start_after = RANGE_START
+              if os.path.exists(CURSOR):
+                  try:
+                      start_after = max(start_after, int(open(CURSOR).read().strip()))
+                      print(f"resuming after album id {start_after}", flush=True)
+                  except Exception:
+                      pass
+
+              # Page through everything Lidarr considers missing.
+              ids, page = [], 1
+              while True:
+                  c, d = req("GET", f"/wanted/missing?page={page}&pageSize=1000&sortKey=id&sortDirection=ascending")
+                  if c >= 300 or not isinstance(d, dict):
+                      raise SystemExit(f"cannot list missing: {c} {d}")
+                  recs = d.get("records", [])
+                  if not recs:
+                      break
+                  ids.extend(r["id"] for r in recs)
+                  if len(ids) >= d.get("totalRecords", 0):
+                      break
+                  page += 1
+              ids = sorted(set(ids))
+              total_all = len(ids)
+              ids = [i for i in ids if i > start_after]
+              if RANGE_END:
+                  ids = [i for i in ids if i <= RANGE_END]
+              print(f"missing albums: {total_all} total, {len(ids)} left to search", flush=True)
+              print(f"range [{RANGE_START or '-inf'}, {RANGE_END or 'inf'}] batch={BATCH} sleep={SLEEP}s", flush=True)
+
+              t_start = time.time()
+              done = 0
+              for n in range(0, len(ids), BATCH):
+                  chunk = ids[n:n + BATCH]
+                  t0 = time.time()
+                  c, res = req("POST", "/command",
+                               {"name": "AlbumSearch", "albumIds": chunk})
+                  if c >= 300:
+                      print(f"  batch submit failed {c}: {res}", flush=True)
+                      time.sleep(60)
+                      continue
+                  cid = res.get("id")
+                  # Wait for this batch to genuinely finish before queueing more,
+                  # so Lidarr's task queue is the pacer rather than a fixed guess.
+                  while True:
+                      c2, st = req("GET", f"/command/{cid}", t=60)
+                      if c2 >= 300:
+                          break
+                      s = st.get("status")
+                      if s in ("completed", "failed", "aborted", "cancelled", "orphaned"):
+                          break
+                      time.sleep(10)
+                  done += len(chunk)
+                  # Persist the cursor only after the batch actually completed.
+                  try:
+                      with open(CURSOR, "w") as f:
+                          f.write(str(chunk[-1]))
+                  except Exception as e:
+                      print(f"    cursor write failed: {e}", flush=True)
+                  el = time.time() - t_start
+                  rate = done / el if el else 0
+                  remain = (len(ids) - done) / rate / 3600 if rate else 0
+                  print(f"  {done}/{len(ids)} albums | batch {time.time()-t0:.0f}s "
+                        f"| {rate*3600:.0f}/hr | ~{remain:.1f}h left", flush=True)
+                  time.sleep(SLEEP)
+
+              print(f"ALL DONE: searched {done} albums in {(time.time()-t_start)/3600:.1f}h", flush=True)
+          env:
+            - name: LIDARR_URL
+              value: http://lidarr.lidarr.svc.cluster.local:8686
+            - name: BATCH
+              value: "50"
+            - name: SLEEP_BETWEEN
+              value: "15"
+            # Worker B owns the upper half; no RANGE_END so albums added
+            # later with higher ids are picked up too.
+            - name: CURSOR_PATH
+              value: /config/.mass-search-cursor-b
+            - name: RANGE_START
+              value: "26195"
+            - name: LIDARR_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: api-key
+                  name: lidarr-api
+          resources:
+            requests:
+              cpu: 25m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - mountPath: /config
+              name: config
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: lidarr-config
