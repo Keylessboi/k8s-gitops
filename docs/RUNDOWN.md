@@ -264,4 +264,4 @@ There are two Vaultwarden users, both holding 319 items, with **different master
 - `root@example.com` — created first, under the placeholder email that was in place before Authentik's admin identity was corrected.
 - `travis@sandstorm.chat` — created later; this is the only one SSO can ever reach, because Authentik's provider uses `sub_mode = user_email` and its only user carries that address.
 
-Bitwarden derives the vault key client-side using **the email as KDF salt**, so the right password for the wrong account fails locally, inside the client, with no server round-trip. That is why the log shows every `connect/token` returning 200 while the client still says the master password is wrong. Resolving this means deciding which account survives — see docs/TODO.md.
+Bitwarden derives the vault key client-side using **the email as KDF salt**, so the right password for the wrong account fails locally, inside the client, with no server round-trip. That is why the log shows every `connect/token` returning 200 while the client still says the master password is wrong. Resolving this means deciding which account survives — see issue #2.
