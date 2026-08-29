@@ -143,3 +143,17 @@ spec:
           manifestTargets:
             kustomize:
               name: lscr.io/linuxserver/beets
+
+    - namePattern: convertx
+      writeBackConfig:
+        gitConfig:
+          writeBackTarget: kustomization:/apps/convertx
+      images:
+        - alias: convertx
+          # 0.x: minor bumps may break, so this is pinned to the patch stream.
+          imageName: ghcr.io/c4illin/convertx:v0.18.0
+          commonUpdateSettings:
+            allowTags: 'regexp:^v0\.18\.\d+$'
+          manifestTargets:
+            kustomize:
+              name: ghcr.io/c4illin/convertx
