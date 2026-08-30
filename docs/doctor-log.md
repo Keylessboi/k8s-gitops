@@ -5,6 +5,28 @@ solved it, then what prevents a repeat. Newest first. If an incident
 repeats, link the entries — a repeated incident means the prevention
 failed and the entry needs revisiting.
 
+## 2026-08-29 — Wings image pulls tripped kubelet DiskPressure; CNPG primary evicted
+
+- **Symptom:** while pre-pulling game-server Docker images on the node
+  (Wings deploy, ADR-0006), `app-databases-1` went Pending and the Pelican
+  panel's DB connections were refused. The node carried the
+  `node.kubernetes.io/disk-pressure` taint; the kubelet log showed a full
+  ephemeral-storage eviction pass (funkwhale, invidious, metallb-speaker and
+  others evicted or denied admission).
+- **Root cause:** the node rootfs hit 93% during the pulls. k3s's kubelet
+  eviction-hard is nodefs/imagefs < 5% free (verified via configz), and at
+  93% used the threshold crossed. The DiskPressure taint evicted the CNPG
+  primary; with the taint set, the pod could not reschedule.
+- **Fix:** freed space on the node — journal vacuum, `k3s crictl rmi --prune`
+  (old funkwhale/loki layers), `apt-get clean`, `fstrim` (returned ~12 GB to
+  the thin pool). At 12 GB free (19%) the taint cleared after kubelet's
+  5-minute `EvictionPressureTransitionPeriod`, and the pod rescheduled on its
+  own. No data lost; CNPG re-joined as primary.
+- **Prevention:** the node disk governor (ADR-0006): keep the rootfs above
+  10% free, check `df -h /` before any large pull, and keep the panel's node
+  disk allocation capped (10240 MiB, 0% overallocate). The kubelet's real
+  threshold is 5%, not the 10%/15% upstream defaults — k3s overrides it.
+
 ## 2026-08-29 — One-off pods mounting NFS exports vanish; do host-side surgery instead
 
 - **Symptom:** four standalone diagnostic pods (restoring the Jellyfin admin

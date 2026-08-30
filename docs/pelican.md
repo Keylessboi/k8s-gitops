@@ -64,8 +64,15 @@ on this admin account rather than making a second unprivileged one.
 
 ## Wings and aarch64 (Pixel 3a / postmarketOS) — the reality check
 
-Wings is deliberately **not** installed here (it cannot run on the k3s LXC node —
-ADR-0005). The owner intends to run it on Pixel 3a phones (aarch64, 3.5 GB RAM)
+**Update 2026-08-29: Wings IS now deployed — on the k3s-server node itself, not
+on phones.** The phones were dropped by the owner and CT 200 turned out to be
+privileged with nesting, so Docker runs in the LXC. See
+[ADR-0006](adr/0006-wings-on-the-node.md) for the decision, the RAM/disk
+governors, and the TLS setup; the historical aarch64 analysis below is kept for
+the record.
+
+Wings was originally **not** installed here (it cannot run on the k3s LXC node —
+ADR-0005). The owner intended to run it on Pixel 3a phones (aarch64, 3.5 GB RAM)
 on postmarketOS. Findings:
 
 - **Wings does publish arm64 builds.** Pelican Wings `v1.0.0-beta29` ships
