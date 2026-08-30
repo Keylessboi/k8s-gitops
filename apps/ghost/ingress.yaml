@@ -1,0 +1,42 @@
+---
+# PUBLIC site, deliberately NO Authentik forward-auth (owner decision, flagged
+# overridable): a blog is public by nature, and walling it off would defeat
+# the point of publishing. Ghost's admin panel at /ghost is protected by
+# Ghost's own staff auth (and staff-device verification mails, which is why
+# the SMTP wiring matters). If the owner later wants the admin path
+# additionally gated at the edge, that is a Traefik path-specific middleware
+# change - attach kube-system-authentik-forward-auth@kubernetescrd to a
+# /ghost router - not a re-plumb of this route.
+#
+# crowdsec + rate-limit still run on the whole route: a public site is exactly
+# what the edge middlewares exist for.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ghost
+  namespace: ghost
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # <namespace>-<name>@kubernetescrd is how a middleware in another
+    # namespace is referenced. NO forward-auth here - see the comment above.
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - blog.sandstorm.chat
+      secretName: ghost-tls
+  rules:
+    # Must match the `url` env var in deployment.yaml exactly - Ghost breaks
+    # assets and redirects if the configured URL and the serving host differ.
+    - host: blog.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ghost
+                port:
+                  number: 80

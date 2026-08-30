@@ -1,0 +1,45 @@
+---
+# Ghost: publishing platform / blog at blog.sandstorm.chat.
+#
+# Deliberately a single stateful pod: content AND the sqlite database file live
+# on one NFS claim, so there is no separate database service to feed on a
+# memory-tight node (owner decision, flagged overridable - see deployment.yaml
+# for the MySQL upgrade path). Mail rides the household Gmail relay from
+# Doppler. The site is public by nature; only Ghost's own staff auth guards
+# /ghost (see ingress.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: ghost
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  labels:
+    app.kubernetes.io/name: ghost
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: ghost
+
+# `labels` with includeSelectors:false, NOT `commonLabels`.
+# commonLabels rewrites every selector it finds - Deployment/Service
+# selectors and NetworkPolicy podSelectors alike. Deployment selectors
+# are immutable, so changing these labels made ArgoCD fail with
+# 'spec.selector: field is immutable', and it silently broke
+# NetworkPolicy podSelectors by adding labels the target pods lack.
+labels:
+  - pairs:
+      app.kubernetes.io/name: ghost
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/component: publishing
+      app.kubernetes.io/managed-by: argocd
+      homelab/tier: apps
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy.yaml
+  - ingress.yaml

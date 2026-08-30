@@ -1,0 +1,189 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ghost
+  namespace: ghost
+spec:
+  replicas: 1
+  # Recreate, not the default RollingUpdate: Ghost keeps the site content AND
+  # the sqlite database file (content/data/ghost.db) on the NFS claim, and two
+  # pods writing one sqlite file concurrently is corruption, not a migration.
+  # Same reasoning as vaultwarden and convertx.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ghost
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ghost
+        app.kubernetes.io/part-of: homelab
+    spec:
+      securityContext:
+        # The ghost image is built to run as root and step down to `node`
+        # (uid/gid 1000) via gosu in its entrypoint. Running directly as node
+        # skips that branch entirely - Ghost itself refuses to run as root
+        # anyway - and fsGroup below already fixes volume ownership, which is
+        # the only thing the root branch exists to do.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        # OnRootMismatch, not the default Always. fsGroup makes the kubelet
+        # recursively chown every mounted volume before the container starts.
+        # Over NFS that walk is O(files) and shows up as the pod sitting in
+        # ContainerCreating with only a 'context deadline exceeded' to go on.
+        # The volume roots already carry the right ownership, so this skips
+        # the walk; if a root ever genuinely mismatches, the full chown still
+        # runs.
+        fsGroupChangePolicy: OnRootMismatch
+        # Without this the pod runs seccomp Unconfined: this node's kubelet has
+        # seccompDefault=false, so nothing applies a profile unless a manifest
+        # asks. RuntimeDefault blocks the syscalls the container runtime
+        # considers dangerous (mount, unshare, kexec, bpf, keyctl, ...).
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        homelab/node-class: compute
+      containers:
+        - name: ghost
+          # Pinned: :latest gives no way to reason about what is running.
+          #
+          # 5.130.6 is the FINAL 5.x release - upstream dropped the 5.x image
+          # variants in Feb 2026 ("Drop EOL 5.x"), so this tag is frozen and
+          # will not move under us. 5.x over 6.x is the owner's call for a
+          # low-traffic personal blog (flagged overridable). It also happens
+          # to satisfy Ghost's own upgrade rule - "be on the latest minor
+          # before crossing a major" - so a future 5 -> 6 move starts from the
+          # right place.
+          image: ghost:5.130.6-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Ghost and its sharp image pipeline expect a writable container
+            # layer (logs, temp files); the durable state is the PVC below.
+            # The containment is the NetworkPolicy plus the public-but-authed
+            # shape of the app, not a read-only root.
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # Ghost reads its ENTIRE config through nconf, and every key is
+            # overridable with __-separated environment variables that take
+            # priority over the config.production.json baked into the image
+            # (https://ghost.org/docs/concepts/config/). That is why there is
+            # no ConfigMap here: env vars ARE the config file, and they let
+            # the mail credentials come straight from secretKeyRef instead of
+            # a JSON blob that would either duplicate secrets into git or
+            # need a new Doppler key.
+            #
+            # MUST match the ingress host exactly. Ghost bakes absolute URLs
+            # into every asset, redirect and canonical tag; a mismatch breaks
+            # the site in ways that look like caching bugs.
+            - name: url
+              value: https://blog.sandstorm.chat
+            # SQLite, not MySQL 8 (owner decision, flagged overridable): a
+            # personal blog is low-traffic, and sqlite removes an entire
+            # stateful service from a memory-tight node. The db file lives on
+            # the PVC next to the content, which is also why this Deployment
+            # is Recreate.
+            #
+            # UPGRADE PATH to MySQL 8, should traffic ever demand it:
+            #   1. Deploy a mysql:8 Deployment + Service + PVC (Ghost 5
+            #      supports MySQL only as an external server - no sidecar
+            #      socket tricks).
+            #   2. Create the `ghost` database and role.
+            #   3. Flip these env vars: database__client=mysql,
+            #      database__connection__host/user/password/database (the
+            #      password via a DopplerSecret, never inline).
+            #   4. Export content in the Ghost admin (Labs -> Export), let
+            #      knex-migrator build the fresh schema, import. Ghost cannot
+            #      migrate a sqlite file into MySQL in place.
+            - name: database__client
+              value: sqlite3
+            - name: database__connection__filename
+              value: /var/lib/ghost/content/data/ghost.db
+            # knex's sqlite3 client inserts undefined as NULL only when this
+            # is set; Ghost's own sqlite config template always carries it.
+            - name: database__useNullAsDefault
+              value: "true"
+            # Mail: staff invites and password resets are the reason Ghost
+            # must be able to send. Reuses the household Gmail relay already
+            # in Doppler (the same SMTP_* keys Alertmanager and the other
+            # mailers use), synced into this namespace by the smtp-ghost
+            # DopplerSecret in apps/doppler/dopplersecrets.yaml. Flagged
+            # overridable: the blog's outbound mail shares the household
+            # Gmail relay.
+            #
+            # optional:true per repo convention, so the pod still starts and
+            # can be debugged on the sync where the namespace exists before
+            # the operator has written the secret. Unset, Ghost falls back to
+            # its baked (MySQL-era) mail config and mail fails at send time
+            # with a log error - visible, not fatal.
+            #
+            # Port 587 + no `secure` key = STARTTLS (nodemailer upgrades the
+            # plaintext connection when the server advertises STARTTLS, which
+            # Gmail does). Port 465 would need mail__options__secure=true.
+            - name: mail__transport
+              value: SMTP
+            - name: mail__options__host
+              valueFrom:
+                secretKeyRef: {name: smtp, key: host, optional: true}
+            - name: mail__options__port
+              valueFrom:
+                secretKeyRef: {name: smtp, key: port, optional: true}
+            - name: mail__options__auth__user
+              valueFrom:
+                secretKeyRef: {name: smtp, key: mail-username, optional: true}
+            - name: mail__options__auth__pass
+              valueFrom:
+                secretKeyRef: {name: smtp, key: mail-password, optional: true}
+            # Default From for staff notifications and invites (member mail
+            # can override it per-newsletter in the admin). Gmail rewrites
+            # any From that does not match the authenticated user anyway, so
+            # this is honest rather than load-bearing.
+            - name: mail__from
+              valueFrom:
+                secretKeyRef: {name: smtp, key: from, optional: true}
+          ports:
+            - name: http
+              containerPort: 2368
+          # / serves the newest post and returns 200 on a fresh install (the
+          # Ghost welcome page). Verified from inside the pod with curl before
+          # these timings were committed.
+          #
+          # Deliberately generous anyway. An over-tight probe on Lidarr in this
+          # cluster emptied a Service's endpoints and cost hours of
+          # misdiagnosis, and kube-router programs egress rules a second or two
+          # after pod start - a tight probe makes that look like a networking
+          # fault. First boot also runs knex-migrator against a brand-new
+          # sqlite file over NFS, which takes tens of seconds.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          # Ghost idles around 300MB and spikes with sharp during image
+          # uploads. The limit caps the blast radius on a memory-tight node
+          # without making a normal upload OOM.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            # The one durable mount: themes, images, files, settings AND the
+            # sqlite db (content/data/ghost.db) all live here. The image's
+            # entrypoint seeds default themes into an empty dir on first boot.
+            - name: content
+              mountPath: /var/lib/ghost/content
+      volumes:
+        - name: content
+          persistentVolumeClaim:
+            claimName: ghost-content

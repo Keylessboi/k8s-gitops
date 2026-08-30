@@ -1,0 +1,62 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: ghost
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # cert-manager creates HTTP-01 solver pods in this namespace on demand and
+  # Traefik must reach them on 8089. Without this the ACME challenge 502s and
+  # no certificate is ever issued for blog.sandstorm.chat.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 8089
+      protocol: TCP
+  # Traefik, which fronts the public site. Nothing else ever needs in.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: TCP
+      port: 2368
+  egress:
+  # DNS only + SMTP submission. Mail is the ONLY egress Ghost needs to
+  # function: staff invites and password resets. Theme installs/updates are
+  # manual uploads, images are stored locally, and the outbound calls Ghost
+  # makes opportunistically (the updates.ghost.org version check, IndexNow
+  # pings on publish) fail harmlessly with a log line when blocked - accepted
+  # here rather than opening 443, because a blog that can phone home is a blog
+  # whose egress needs reviewing first.
+  - ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+    to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+  # SMTP submission on 587. The relay is smtp.gmail.com, whose addresses are a
+  # rotating Google pool - NetworkPolicy ipBlock cannot match a hostname, so a
+  # CIDR pin would break on Google's next shuffle. The port is the boundary:
+  # RFC1918 is excluded so this rule cannot reach into the LAN or cluster, and
+  # only 587 is open (the relay is STARTTLS on 587; 465 implicit-TLS is unused
+  # here). Same pattern as the vaultwarden policy.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 192.168.0.0/16
+        - 172.16.0.0/12
+    ports:
+    - protocol: TCP
+      port: 587
