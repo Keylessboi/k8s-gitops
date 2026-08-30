@@ -1,5 +1,12 @@
 # Pixel 3a phones as k3s nodes
 
+> **STATUS 2026-08-29: PLAN DROPPED.** The owner decided not to use the phones
+> as k3s nodes (see issue #2). This document is archived for reference — do
+> not execute it. The blockers it worked around (USB subnet collisions,
+> pixel3a3 sudo, host-side routing, CONFIG_IP_SET) are all moot now, and
+> x86 game servers are possible on the node instead (RAM-governed). See
+> docs/doctor-log.md for the cluster's living incident journal.
+
 Three Pixel 3a handsets running **postmarketOS v26.06** (aarch64, kernel
 `7.0.10-sdm670`), intended as k3s agent nodes. Each has 8 cores, 3.5 GB RAM and
 ~45 GB free — comparable to a small cloud worker.
