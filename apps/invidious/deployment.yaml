@@ -127,9 +127,15 @@ spec:
               until psql -tAc "SELECT 1" >/dev/null 2>&1; do
                 echo "waiting for the invidious database..."; sleep 5
               done
-              for f in /schema/*.sql; do
-                echo "applying $f"
-                psql -v ON_ERROR_STOP=1 -f "$f"
+              # Explicit order, NOT a glob: ConfigMap volume files list
+              # alphabetically, and playlist_videos.sql carries a foreign key
+              # into playlists.sql's table - the first deploy proved it by
+              # failing with 'relation "playlists" does not exist'. This is
+              # the exact order of upstream docker/init-invidious-db.sh.
+              for f in channels videos channel_videos users session_ids \
+                       nonces annotations playlists playlist_videos; do
+                echo "applying /schema/$f.sql"
+                psql -v ON_ERROR_STOP=1 -f "/schema/$f.sql"
               done
               echo "schema ready, config rendered"
           volumeMounts:
