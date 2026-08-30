@@ -80,6 +80,16 @@ spec:
             cidr: 192.168.1.67/32
       ports:
         - {port: 9000, protocol: TCP}
+    # Wings on the k3s-server LXC itself (CT 200): the Panel polls the daemon on
+    # :8443 (wings serves its own TLS there — see docs/adr/0006). This is the
+    # node's own IP, not a Service IP, so k3s does not DNAT it and the plain
+    # ipBlock rule matches — the post-DNAT trap on the authentik rule below does
+    # not apply here.
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.172/32
+      ports:
+        - {port: 8443, protocol: TCP}
     # Outbound HTTPS/HTTP to the internet, minus the private ranges: the
     # entrypoint's `p:plugin:composer` step and the panel's egg imports /
     # `p:egg:check-updates` cron fetch from GitHub and packagist. Private ranges

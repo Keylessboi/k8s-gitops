@@ -1,0 +1,31 @@
+---
+# The CA that signed the Wings certificate on the k3s-server node (CT 200).
+# Wings serves its own TLS on :8443 with a cert from this private CA — Let's
+# Encrypt cannot issue for the node's LAN IP (192.168.1.172), and there is no
+# DNS API credential to put wings.sandstorm.chat on public DNS (see
+# docs/adr/0006). The panel verifies daemon TLS in production
+# (AppServiceProvider: verify => environment('production')), so this CA has to
+# be in the panel container's trust store — the initContainer in
+# deployment.yaml appends it to the image's CA bundle at every pod start.
+#
+# This file is the PUBLIC trust anchor, not a secret; the CA private key lives
+# only on the node at /etc/pelican/ca.key (mode 600). Rotating it means a new
+# cert on the node AND a new entry here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pelican-wings-ca
+  namespace: pelican
+data:
+  wings-ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIBjzCCATWgAwIBAgIUTDkn+JH5nbq0iY6SgVPCvgi11UcwCgYIKoZIzj0EAwIw
+    HTEbMBkGA1UEAwwSc2FuZHN0b3JtLXdpbmdzLWNhMB4XDTI2MDgzMDAzMjEzOVoX
+    DTM2MDgyNzAzMjEzOVowHTEbMBkGA1UEAwwSc2FuZHN0b3JtLXdpbmdzLWNhMFkw
+    EwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEC5IpPFUgkDANoFxwi/jzd4lsGjl5kdv
+    FmHKAG3Ucji1keto/aF7OM+HJookW5Y0iwNGU9q63v6x90FTNUoZdaNTMFEwHQYD
+    VR0OBBYEFKgKHyicRToU73C4dooKk/aTTqLgMB8GA1UdIwQYMBaAFKgKHyicRToU
+    73C4dooKk/aTTqLgMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIh
+    AMB46Rz7Yfa7uNyp3GRuf9d7JAjcLgKIWUqqT6t4thXpAiBJeFQ6XNfYhsUvMGlY
+    ZYAinpsv0D2xkPUxF4q9mKi7rQ==
+    -----END CERTIFICATE-----

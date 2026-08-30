@@ -35,3 +35,4 @@ resources:
   - deployment.yaml
   - ingress.yaml
   - admin-job.yaml
+  - wings-ca-configmap.yaml

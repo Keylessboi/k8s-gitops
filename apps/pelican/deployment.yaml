@@ -51,6 +51,25 @@ spec:
         # runtime considers dangerous; the panel needs none of them.
         seccompProfile:
           type: RuntimeDefault
+      # Merges the Wings CA (wings-ca-configmap.yaml) into the image's CA bundle
+      # every pod start. The panel verifies daemon TLS in production
+      # (AppServiceProvider: verify => environment('production')), and Wings on
+      # CT 200 serves a cert from that private CA — Let's Encrypt cannot issue
+      # for the node's LAN IP (docs/adr/0006). Using the SAME pinned image here
+      # means the bundle always starts from the current image's store, so a
+      # panel image update cannot leave a stale CA list behind.
+      initContainers:
+        - name: ca-bundle
+          image: ghcr.io/pelican/panel:v1.0.0-beta38@sha256:46f356f3fda423b1d43f0dc3c71efc056cd8b9bec365d1d7817306a17ee5694a
+          command: ["/bin/sh", "-c"]
+          args:
+            - cp /etc/ssl/certs/ca-certificates.crt /work/ca-certificates.crt && cat /wings-ca/wings-ca.crt >> /work/ca-certificates.crt && chmod 644 /work/ca-certificates.crt
+          volumeMounts:
+            - name: ca-bundle
+              mountPath: /work
+            - name: wings-ca
+              mountPath: /wings-ca
+              readOnly: true
       containers:
         - name: panel
           # Pinned to the tag AND the multi-arch index digest so a re-pull can
@@ -212,10 +231,22 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /pelican-data
+            # The merged bundle from the ca-bundle initContainer replaces the
+            # image's own file at the same path — one extra CA, everything else
+            # identical. subPath so the emptyDir only shadows this one file.
+            - name: ca-bundle
+              mountPath: /etc/ssl/certs/ca-certificates.crt
+              subPath: ca-certificates.crt
+              readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: pelican-data
+        - name: ca-bundle
+          emptyDir: {}
+        - name: wings-ca
+          configMap:
+            name: pelican-wings-ca
 ---
 apiVersion: v1
 kind: Service
