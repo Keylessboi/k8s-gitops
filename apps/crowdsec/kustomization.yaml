@@ -89,10 +89,20 @@ helmCharts:
             value: "crowdsecurity/http-generic-bf"
       # Whitelist the owner's own public IP at parser stage, so their own
       # authentication retries - e.g. a Kindle hitting CWA OPDS with a wrong
-      # password - can never fill the http-generic-403-bf bucket and ban the IP
-      # across every service. A parser-stage whitelist means no alert or
+      # password - can never fill the http-generic-403-bf bucket and ban the
+      # IP across every service. A parser-stage whitelist means no alert or
       # decision is ever created for this source in the first place. If the
       # public IP changes (dynamic ISP), update it here.
+      #
+      # 2026-08-29: the immich bulk restore (immich-go, hours of sustained
+      # ~25 MB/s upload plus retry bursts) tripped the http scenarios into
+      # ban storms against this IP - thousands of 403s in bursts, hitting
+      # even unauthenticated /api/server/ping, recovering when each ban
+      # expired. Bulk photo restores are legitimate traffic. The bouncer
+      # additionally trusts this IP at enforcement time (see
+      # apps/traefik/crowdsec-middleware.yaml), which also covers
+      # community-blocklist decisions and any decision created before this
+      # whitelist - parser whitelists do neither.
       config:
         parsers:
           s02-enrich:
@@ -102,7 +112,7 @@ helmCharts:
               whitelist:
                 reason: "owner public IP"
                 ip:
-                  - "72.68.160.122"
+                  - "74.101.53.75"
         # Capacity-75 replacements for the three generic HTTP brute-force
         # scenarios (the hub versions, capacity 5, are removed via
         # DISABLE_SCENARIOS above). Same filters/names/remediation - only the

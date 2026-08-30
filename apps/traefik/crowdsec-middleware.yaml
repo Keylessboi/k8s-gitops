@@ -31,6 +31,16 @@ spec:
         - 10.42.0.0/16
         - 10.43.0.0/16
         - 192.168.1.0/24
+        # The owner's household WAN (dynamic ISP - update when it changes,
+        # see apps/crowdsec/kustomization.yaml). Trusted IPs bypass every
+        # bouncer check, so no CrowdSec decision - including
+        # community-blocklist entries and decisions created before the
+        # parser-stage whitelist existed - can ever 403 this source. That is
+        # what killed the 2026-08-29 immich bulk restore: legitimate
+        # hours-long upload traffic tripped the http scenarios into ban
+        # storms. This only stops IP bans; auth middlewares and the
+        # rate limiter are unaffected.
+        - 74.101.53.75/32
       # Traefik sits behind the router, so the real client address comes from
       # the forwarded header rather than the connection.
       forwardedHeadersTrustedIPs:
