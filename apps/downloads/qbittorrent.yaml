@@ -149,11 +149,13 @@ spec:
               value: wireguard
             # Pinned exit (owner decision 2026-08-29): a roaming AirVPN exit
             # changes ASN across providers, which killed the MAM seedbox
-            # session on every restart. A fixed endpoint keeps IP+ASN stable
-            # so one re-seed is the last. Trade-off: if this server dies, the
-            # tunnel stays down until the pin is changed.
-            - name: WIREGUARD_ENDPOINT
-              value: 184.75.223.218:1637
+            # session on every restart. SERVER_NAMES pins the exit to one
+            # server so IP+ASN stay stable and one re-seed is the last.
+            # Trade-off: if Aquila dies, the tunnel stays down until the pin
+            # is changed. (WIREGUARD_ENDPOINT does not work here - the
+            # built-in airvpn provider overrides it with its server list.)
+            - name: SERVER_NAMES
+              value: Aquila
             - name: WIREGUARD_PRIVATE_KEY
               valueFrom:
                 secretKeyRef:
