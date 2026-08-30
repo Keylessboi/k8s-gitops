@@ -84,7 +84,12 @@ data:
         category:
           text: ebooks
         title:
-          selector: "td:nth-child(1) b"
+          # libgen.li renders three title-cell shapes: "<b>TITLE</b><br><a
+          # edition>full title</a>", a bare "<a edition>TITLE</a>" with no <b> at
+          # all (most rows), and "<b><a series>T</a><a edition><i>S</i></a></b>".
+          # The comma group takes the <b> when present (first in document order)
+          # and falls back to the edition link for the bare-anchor rows.
+          selector: "td:nth-child(1) b, td:nth-child(1) > a[href*=\"edition.php\"]"
         details:
           selector: "td:nth-child(1) a[href*=\"edition.php\"]"
           attribute: href
