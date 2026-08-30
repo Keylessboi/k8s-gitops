@@ -5,6 +5,27 @@ solved it, then what prevents a repeat. Newest first. If an incident
 repeats, link the entries — a repeated incident means the prevention
 failed and the entry needs revisiting.
 
+## 2026-08-29 — One-off pods mounting NFS exports vanish; do host-side surgery instead
+
+- **Symptom:** four standalone diagnostic pods (restoring the Jellyfin admin
+  password) each vanished within ~2 minutes of becoming Ready — across two
+  namespaces, with and without resource guarantees, while a control canary
+  with no volume mounts in the same namespace survived indefinitely. The
+  slskd-rotation agent's temp pod in lidarr (no NFS mount) also survived a
+  full session. Deleter unidentified: no events, no controller claims, no
+  eviction records.
+- **Pattern:** every vanished pod mounted an NFS-backed volume (the
+  jellyfin-config PVC or a raw NFS export).
+- **Fix:** one-off DB surgery runs on the NAS itself — the NFS exports are
+  mounted locally (`/extra/nfs-csi/...`), and `doas python3` + sqlite3 edits
+  the same files the pods were trying to reach. Worked first try once `doas`
+  was used (unprivileged writes fail: the files are owned by uid 1000 and
+  travis is not).
+- **Prevention:** for maintenance on NFS-backed data, prefer host-side
+  execution over diagnostic pods. The vanishing-pod anomaly stays open —
+  the next sighting should capture `kubectl get pod -w` output plus events
+  and a `ps` of the kubelet.
+
 ## 2026-08-29 — Manual CronJob run deleted itself in 2 seconds
 
 - **Symptom:** `kubectl create job --from=cronjob/pgdump-backup` for a
