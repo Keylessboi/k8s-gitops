@@ -112,7 +112,11 @@ helmCharts:
               whitelist:
                 reason: "owner public IP"
                 ip:
+                  # The household ISP flaps between two WAN addresses - both
+                  # observed live in the Traefik access logs on 2026-08-29
+                  # (74.x browsing, 144.x bulk uploads). Keep both.
                   - "74.101.53.75"
+                  - "144.62.224.77"
         # Capacity-75 replacements for the three generic HTTP brute-force
         # scenarios (the hub versions, capacity 5, are removed via
         # DISABLE_SCENARIOS above). Same filters/names/remediation - only the

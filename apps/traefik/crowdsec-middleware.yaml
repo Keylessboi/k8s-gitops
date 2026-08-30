@@ -41,6 +41,10 @@ spec:
         # storms. This only stops IP bans; auth middlewares and the
         # rate limiter are unaffected.
         - 74.101.53.75/32
+        # Second observed household WAN (same flapping ISP - see the parser
+        # whitelist in apps/crowdsec). Bulk-uploader IP during the 2026-08-29
+        # immich restore.
+        - 144.62.224.77/32
       # Traefik sits behind the router, so the real client address comes from
       # the forwarded header rather than the connection.
       forwardedHeadersTrustedIPs:
