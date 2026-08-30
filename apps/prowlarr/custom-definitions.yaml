@@ -66,7 +66,12 @@ data:
         - path: index.php
           method: get
       inputs:
-        req: "{{ .Keywords }}"
+        # Prowlarr's indexer test and RSS sync run with an EMPTY search term
+        # (HttpIndexerBase hardcodes SupportsRss=true, so the test query is ""),
+        # and libgen.li answers an empty req with its search form - zero results,
+        # which fails the test. Fall back to a real query term when no keywords
+        # are given; genuine searches always carry keywords and hit the if-branch.
+        req: "{{ if .Keywords }}{{ .Keywords }}{{ else }}test{{ end }}"
         res: "25"
       headers:
         # libgen.li tarpits non-browser user agents on the search endpoint (the
