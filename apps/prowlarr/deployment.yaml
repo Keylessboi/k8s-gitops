@@ -85,6 +85,17 @@ spec:
         - name: definitions
           configMap:
             name: prowlarr-definitions
+            # Prowlarr 2.5.2 reads user definitions ONLY from
+            # /config/Definitions/Custom (IndexerDefinitionUpdateService.All
+            # reads that subdirectory for the meta listing; the full-definition
+            # lookup then searches /config/Definitions recursively). ConfigMap
+            # keys cannot contain "/", so every key in prowlarr-definitions
+            # needs an items entry projecting it into Custom/ - a flat mount
+            # would only be picked up by the disk-fallback path that runs when
+            # indexers.prowlarr.com is unreachable.
+            items:
+              - key: libgen.yml
+                path: Custom/libgen.yml
         - name: config
           persistentVolumeClaim:
             claimName: prowlarr-config

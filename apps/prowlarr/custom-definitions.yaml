@@ -9,12 +9,130 @@
 # (Shelfmark's own sources are Anna's Archive / LibGen / Z-Lib / Welib), so
 # dropping it here plus deleting the live Prowlarr indexer removes it entirely.
 #
-# The ConfigMap is intentionally kept (empty) because prowlarr/deployment.yaml
+# libgen (below) closes the Readarr book-pipeline gap: upstream Prowlarr ships
+# no Libgen definition (verified 404 on indexers.prowlarr.com v11), and the
+# site is DDL-only, so this is a from-scratch v11 definition built against the
+# live libgen.li HTML. Z-Library was scoped and deliberately NOT shipped: it
+# needs an account for search, and no zlib credentials exist in Doppler
+# (bookdl-extras carries only hardcover-api-key / prowlarr-api-key /
+# qbittorrent-password). Ship a zlib definition here once credentials land.
+#
+# The ConfigMap is mounted with an items projection (see prowlarr/deployment.yaml):
+# Prowlarr 2.5.2 reads user definitions ONLY from /config/Definitions/Custom
+# (IndexerDefinitionUpdateService.All), and ConfigMap keys cannot contain "/",
+# so each key below needs a matching items entry projecting it to
+# Custom/<key>. Add both when adding a definition.
+#
+# The ConfigMap is intentionally kept (non-empty) because prowlarr/deployment.yaml
 # mounts it as a volume; deleting it would leave a dangling volume reference.
-# Add future custom definitions back under data:.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: prowlarr-definitions
   namespace: prowlarr
-data: {}
+data:
+  libgen.yml: |
+    ---
+    id: libgen
+    name: Libgen
+    description: "Library Genesis (libgen.li) is a public direct-download library of ebooks, fiction and scientific papers"
+    language: en-US
+    type: public
+    encoding: UTF-8
+    # The download link serves the book file itself (epub/pdf/...), not a
+    # .torrent, so Cardigann's torrent-link validation must not probe it.
+    testlinktorrent: false
+    links:
+      - https://libgen.li/
+
+    caps:
+      categorymappings:
+        - {id: ebooks, cat: Books/EBook, desc: "Ebooks & fiction"}
+      modes:
+        search: [q]
+        book-search: [q]
+
+    settings:
+      - name: info_ddl
+        type: info
+        label: Direct downloads, not torrents
+        default: >-
+          Libgen serves book files over direct HTTP (get.php), not .torrent files
+          or magnets. Search and Readarr visibility work, but grabbing a release
+          into a torrent client will not - use a DDL-aware downloader for the file.
+
+    search:
+      paths:
+        - path: index.php
+          method: get
+      inputs:
+        req: "{{ .Keywords }}"
+        res: "25"
+      headers:
+        # libgen.li tarpits non-browser user agents on the search endpoint (the
+        # same failure mode the Internet Archive definition hit: request accepted,
+        # never answered). A browser UA answers in about a second.
+        User-Agent: ["Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"]
+      rows:
+        selector: "#tablelibgen tr:not(:first-child)"
+      fields:
+        category:
+          text: ebooks
+        title:
+          selector: "td:nth-child(1) b"
+        details:
+          selector: "td:nth-child(1) a[href*=\"edition.php\"]"
+          attribute: href
+          optional: true
+        year:
+          selector: "td:nth-child(4)"
+          optional: true
+        size:
+          selector: "td:nth-child(7)"
+        # The md5 sits in the mirror link of the last column (either
+        # get.php?md5=<md5> or ads.php?md5=<md5>). The Anna's Archive badge link
+        # in the same cell also carries an md5 but is never the first match.
+        _md5:
+          selector: "td:nth-child(9) a[href*=\"md5=\"]"
+          attribute: href
+          filters:
+            - name: regexp
+              args: "md5=([a-f0-9]{32})"
+        # libgen.li serves the file at get.php?md5=<md5>, but rows handed an
+        # ads.php interstitial need a per-request key that only the interstitial
+        # page carries. Normalising every grab through ads.php?md5= gives one code
+        # path that works for both row shapes; the download.selectors block below
+        # extracts the keyed get.php link at grab time.
+        download:
+          text: "ads.php?md5={{ .Result._md5 }}"
+        date:
+          # "Add/Edit : 2023-08-19/2023-08-19; ID: ..." lives in the edition
+          # link's tooltip - carve the first date out of it.
+          selector: "td:nth-child(1) a[href*=\"edition.php\"]"
+          attribute: title
+          optional: true
+          filters:
+            - name: split
+              args: [";", "0"]
+            - name: split
+              args: ["/", "0"]
+            - name: split
+              args: [":", "1"]
+            - name: trim
+        # DDL has no swarm; a fixed 1/1 keeps Prowlarr's release model happy
+        # without pretending there are seeders to prefer.
+        seeders:
+          text: 1
+        leechers:
+          text: 1
+        downloadvolumefactor:
+          text: 0
+        uploadvolumefactor:
+          text: 1
+
+    download:
+      # Pull the keyed get.php link out of the ads.php interstitial fetched at
+      # grab time (see the download field above).
+      selectors:
+        - selector: 'a[href*="get.php?md5="]'
+          attribute: href
