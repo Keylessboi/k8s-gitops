@@ -38,6 +38,15 @@ spec:
       labels:
         app.kubernetes.io/name: invidious
     spec:
+      # MUST stay false. Kubernetes injects <service>_PORT env vars for every
+      # Service in the namespace, and this app's Service is named `invidious`,
+      # so pods get INVIDIOUS_PORT=tcp://10.43.x.x:80 - which Invidious reads
+      # as its own INVIDIOUS_PORT config override and dies on at boot with
+      # "Config.port failed to parse tcp://... as Int32". Invidious maps every
+      # top-level config key to an INVIDIOUS_* env var (src/invidious/config.cr),
+      # so any service-link env var whose suffix collides with a config key is
+      # a boot failure. Nothing here needs service links.
+      enableServiceLinks: false
       securityContext:
         # Without this the pod runs seccomp Unconfined: this node's kubelet
         # has seccompDefault=false, so nothing applies a profile unless a
@@ -202,7 +211,13 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
+            # Numeric, not just runAsNonRoot: the image's USER is the
+            # non-numeric `appuser`, and the kubelet refuses to verify
+            # non-root against a name ("cannot verify user is non-root").
+            # 10001 is that user's UID in the upstream Dockerfile.
             runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
             capabilities:
               drop: ["ALL"]
           env:
