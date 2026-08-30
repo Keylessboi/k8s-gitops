@@ -105,6 +105,14 @@ spec:
         login: true
         passwordSecret:
           name: bitmagnet-db-credentials
+      # Invidious (self-hosted YouTube front-end). One role, one database —
+      # like pelican/bitmagnet it keeps everything (channels, videos, users,
+      # sessions, playlists) in a single schema.
+      - name: invidious
+        ensure: present
+        login: true
+        passwordSecret:
+          name: invidious-db-credentials
   # Backups to MinIO on the NAS.
   #
   # This block previously authenticated with a `minio-creds` secret whose

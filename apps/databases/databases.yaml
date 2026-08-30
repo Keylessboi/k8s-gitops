@@ -172,3 +172,17 @@ spec:
   cluster:
     name: app-databases
 
+---
+# Invidious's single database. Video metadata, channels, users, sessions and
+# playlists all share one schema; no separate log db.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: invidious
+  namespace: databases
+spec:
+  name: invidious
+  owner: invidious
+  cluster:
+    name: app-databases
+
