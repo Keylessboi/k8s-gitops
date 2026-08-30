@@ -101,6 +101,19 @@ helmCharts:
           exposedPort: 443
           tls:
             enabled: true
+          # Traefik v3 defaults respondingTimeouts.readTimeout to 60s (v2 was
+          # unlimited). A multi-GB video upload at the measured ~25 MB/s needs
+          # minutes in flight, so every 2.6-3.2 GB file died with a 504 at
+          # exactly 60s (access log: "POST /api/assets" 504 ... 60000ms) while
+          # files under ~1.5 GB flowed. Zero 413s across all upload windows
+          # proves body size is not involved - do not add a body-size knob.
+          # 20m matches immich-go's own client timeout, so Traefik can never
+          # be the limiting factor for a legitimate upload, while staying
+          # bounded: readTimeout: 0 would let a stalled upload hold an edge
+          # connection open forever.
+          transport:
+            respondingTimeouts:
+              readTimeout: 20m
       logs:
         general:
           level: INFO
