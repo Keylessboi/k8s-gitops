@@ -1,0 +1,39 @@
+---
+# Invidious: self-hosted YouTube front-end. Deploys after the platform
+# (databases wave 5, doppler wave 0) so its DB role, DB and Doppler-synced
+# secret all exist before the pod starts. The companion sidecar is REQUIRED
+# for playback (upstream: "Playback won't work without Invidious companion
+# configured") and ships in the same pod - see deployment.yaml.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: invidious
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  labels:
+    app.kubernetes.io/name: invidious
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: invidious
+
+# `labels` with includeSelectors:false, NOT `commonLabels`. commonLabels
+# rewrites immutable Deployment selectors and silently breaks NetworkPolicy
+# podSelectors — the same trap documented in every other app here.
+labels:
+  - pairs:
+      app.kubernetes.io/name: invidious
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/component: youtube-frontend
+      app.kubernetes.io/managed-by: argocd
+      homelab/tier: apps
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - networkpolicy.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml

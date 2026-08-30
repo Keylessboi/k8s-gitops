@@ -1,0 +1,44 @@
+---
+# Invidious, published at invidious.sandstorm.chat.
+#
+# Behind Authentik forward-auth BY DEFAULT, and this is a decision the owner
+# can override: a public Invidious instance gets abused, and the abuse is not
+# ours to absorb - every video a stranger plays makes THIS cluster's home-WAN
+# exit fetch it from YouTube, and enough of that gets the home IP
+# rate-limited or blocked by Google (the same shared-exit problem the bgutil
+# path already lives with). Gated = only the owner uses it, which is the
+# current reality anyway.
+#
+# The cost of the gate, stated plainly: third-party Invidious clients (the
+# mobile apps, LibreRedirect-style extensions hitting the API directly) do
+# not pass forward-auth. If app access is ever wanted, the gate moves or the
+# API paths get split onto their own route - an owner decision, not a
+# default.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: invidious
+  namespace: invidious
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # <namespace>-<name>@kubernetescrd is how a middleware in another
+    # namespace is referenced.
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - invidious.sandstorm.chat
+      secretName: invidious-tls
+  rules:
+    - host: invidious.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: invidious
+                port:
+                  number: 80

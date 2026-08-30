@@ -1,0 +1,254 @@
+---
+# Invidious — self-hosted YouTube front-end — with its REQUIRED companion
+# sidecar in the same pod.
+#
+# Why the companion is not optional: upstream states plainly that "Playback
+# won't work without Invidious companion configured" (docs.invidious.io/
+# installation/), and the config example marks invidious_companion as the
+# component that loads video streams from YouTube. It replaces the retired
+# inv-sig-helper / youtube-trusted-session-generator pair. It runs as a
+# SIDECAR (not a second Deployment) because the upstream docker-compose runs
+# it as a sibling container reached over the compose network; one pod gives
+# the same shape with private_url on localhost, no cross-pod NetworkPolicy
+# to maintain, and one unit to reason about. The companion only ever talks
+# to invidious (localhost) and to YouTube (egress rule above).
+#
+# Why there is no PVC: invidious keeps ALL state (channels, videos, users,
+# sessions, playlists) in Postgres, and the companion's /var/tmp/youtubei.js
+# is a disposable cache the upstream compose declares as a throwaway volume.
+# An emptyDir for the cache and nothing else is the whole storage story.
+#
+# Config is RENDERED, not mounted: database_url needs the Doppler password
+# spliced into a postgres:// URI and the two HMAC keys must never sit in a
+# ConfigMap, so an init container renders config.yml from env (the same
+# pattern as the slskd.yml render in apps/downloads/qbittorrent.yaml) into
+# an emptyDir that the main container mounts over the image's example file.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: invidious
+  namespace: invidious
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: invidious
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: invidious
+    spec:
+      securityContext:
+        # Without this the pod runs seccomp Unconfined: this node's kubelet
+        # has seccompDefault=false, so nothing applies a profile unless a
+        # manifest asks. Neither container needs a denied syscall.
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Renders /render/config.yml (mounted over the image's example
+        # config by the main container) and applies the database schema.
+        # One init container for both jobs because the postgres image
+        # already carries a shell AND psql; a second busybox container
+        # would only duplicate the secret wiring.
+        - name: init
+          # Same major as the CNPG cluster (16), so psql speaks its protocol.
+          image: postgres:16.9-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: invidious-app
+                  key: db-password
+                  # optional:true per repo convention, so the pod still
+                  # starts and can be debugged on the sync where the
+                  # namespace exists before the Doppler operator has
+                  # written the secret. The init container fails loudly
+                  # below when the value is missing, which is the visible
+                  # failure mode.
+                  optional: true
+            - name: HMAC_KEY
+              valueFrom:
+                secretKeyRef: {name: invidious-app, key: hmac-key, optional: true}
+            - name: COMPANION_KEY
+              valueFrom:
+                secretKeyRef: {name: invidious-app, key: companion-key, optional: true}
+            # psql connection settings for the schema apply.
+            - name: PGHOST
+              value: app-databases-rw.databases.svc.cluster.local
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: invidious
+            - name: PGUSER
+              value: invidious
+            - name: PGPASSWORD
+              value: $(DB_PASSWORD)
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              # Fail loudly on a missing Doppler sync rather than rendering a
+              # config with empty secrets that invidious would then reject
+              # with a confusing crypto error.
+              for v in DB_PASSWORD HMAC_KEY COMPANION_KEY; do
+                [ -n "$(eval echo \$$v)" ] || { echo "FATAL: $v is empty - has the Doppler operator synced invidious-app?"; exit 1; }
+              done
+              # The password is alphanumeric-only by construction (hex), so it
+              # needs no URL-encoding inside the postgres:// URI.
+              cat > /render/config.yml <<EOF
+              # Rendered at pod start by the init container - do not edit here.
+              # Static values mirror apps/invidious/deployment.yaml comments.
+              database_url: postgres://invidious:${DB_PASSWORD}@app-databases-rw.databases.svc.cluster.local:5432/invidious
+              check_tables: true
+              # Behind Traefik, which terminates TLS: upstream's reverse-proxy
+              # recipe is external_port 443 + https_only + the real domain, so
+              # invidious crafts absolute https URLs instead of http://:3000.
+              domain: invidious.sandstorm.chat
+              external_port: 443
+              https_only: true
+              hmac_key: "${HMAC_KEY}"
+              invidious_companion_key: "${COMPANION_KEY}"
+              invidious_companion:
+                # Sidecar in this pod, so localhost. /companion is the
+                # companion image's baked-in SERVER_BASE_PATH.
+                - private_url: "http://127.0.0.1:8282/companion"
+              EOF
+              chmod 444 /render/config.yml
+              # Schema: idempotent (CREATE TABLE IF NOT EXISTS + the DO-block
+              # enum in the ConfigMap), so this is safe on every pod start.
+              # Retries here also absorb the CNPG Database CR still coming up
+              # on a fresh cluster - an init container failing is a visible,
+              # retrying wait, not a crash loop.
+              until psql -tAc "SELECT 1" >/dev/null 2>&1; do
+                echo "waiting for the invidious database..."; sleep 5
+              done
+              for f in /schema/*.sql; do
+                echo "applying $f"
+                psql -v ON_ERROR_STOP=1 -f "$f"
+              done
+              echo "schema ready, config rendered"
+          volumeMounts:
+            - name: render
+              mountPath: /render
+            - name: schema
+              mountPath: /schema
+              readOnly: true
+      containers:
+        - name: invidious
+          # Pinned to the quay tag built from the latest GitHub release
+          # (v2.20260804.1, commit 48c6110). The image runs as uid 1000
+          # (invidious) per its Dockerfile USER directive.
+          image: quay.io/invidious/invidious:2026.08.05-48c6110
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 3000
+          # /api/v1/stats is the endpoint the upstream compose healthcheck
+          # uses, so it is verified to answer without statistics_enabled.
+          readinessProbe:
+            httpGet:
+              path: /api/v1/stats
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /api/v1/stats
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              # The node is memory-tight (ADR-0005); upstream publishes no
+              # numbers and a single-user instance idles well under this.
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            # subPath shadows ONLY the example config.yml the image ships,
+            # leaving the image's own config/sql and locales intact.
+            - name: render
+              mountPath: /invidious/config/config.yml
+              subPath: config.yml
+              readOnly: true
+        - name: companion
+          # Pinned to the newest quay tag (the one :latest points at,
+          # 2026-08-10). Distroless image running as uid 10001 (appuser) per
+          # its Dockerfile USER directive.
+          image: quay.io/invidious/invidious-companion:2026.08.10-16cf10e
+          # Mirrors the upstream compose hardening: cap_drop ALL, read-only
+          # rootfs, no-new-privileges. The only writable path is the
+          # youtubei.js cache volume below.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # The HMAC key pairing with invidious: invidious reads the same
+            # value as invidious_companion_key in the rendered config. MUST
+            # be exactly 16 characters (upstream validates the length).
+            - name: SERVER_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: invidious-app
+                  key: companion-key
+                  optional: true
+          ports:
+            - name: companion
+              containerPort: 8282
+          # /healthz is the image's own HEALTHCHECK path (tiny-health-checker
+          # with THC_PATH=/healthz), served at the root - NOT under the
+          # /companion base path, which only wraps the API routes.
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: companion
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: companion
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            # Deno/youtubei.js session cache. A cache by upstream's own
+            # definition (compose names the volume companioncache), so an
+            # emptyDir is correct - losing it costs a re-warm, not data.
+            - name: companion-cache
+              mountPath: /var/tmp/youtubei.js
+      volumes:
+        - name: render
+          emptyDir: {}
+        - name: schema
+          configMap:
+            name: invidious-schema
+        - name: companion-cache
+          emptyDir: {}
