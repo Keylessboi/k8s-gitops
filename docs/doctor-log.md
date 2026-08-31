@@ -251,3 +251,36 @@ failed and the entry needs revisiting.
 - **Prevention / decision:** tracked in issue #4 - the host thin pool is
   also at 92.78%, so this is a storage architecture decision, not a
   cleanup job.
+
+## 2026-08-31 — node memory exhaustion: swap thrash → API 503s cluster-wide
+
+- **Symptom:** kubectl returned ServiceUnavailable (503) on every read; etcd
+  transactions took up to 77 seconds (warn logs: "apply request took too
+  long"); kubelet proxy calls 502'd; probe timeouts across the cluster.
+- **Root cause:** the 13.8GB node at 13GB used with an Immich video
+  transcode (435% CPU, 1GB RSS) on top of the post-restart task backlog -
+  and a **512MB swap limit** (the Proxmox LXC default) that hit 99.9%.
+  Swap thrash turned memory pressure into a control-plane lockup.
+- **Fix:** dropped the page cache (`echo 3 > /proc/sys/vm/drop_caches`,
+  +1.6GB), reniced the ffmpeg transcode to 19 (Immich re-runs the job
+  cleanly later), and raised the CT swap limit to 4G
+  (`pct set 200 --swap 4096` - the host had 6.6G of its 8G swap unused).
+  The API recovered within a minute.
+- **Prevention:** the swap limit persists in the CT config; the
+  image-prune timer guards disk. Memory remains the node's tightest
+  resource (ADR-0005) - adding RAM or moving workloads is the structural
+  fix.
+
+## 2026-08-31 — the ServerSideDiff bug is a class, not an app
+
+- **Symptom:** after the ghost fix, nfs-csi hit the identical
+  ComparisonError ('element 0 omits key field name') the moment its helm
+  bump synced, pinning the app at Unknown and nfsplugin at v4.9.0.
+- **Root cause:** the same ArgoCD server-side-diff implementation bug; the
+  appset's compare-options list is the mitigation point.
+- **Fix:** added nfs-csi to the list and re-applied the ApplicationSet
+  directly. For future fixers: the bootstrap script's app-project.yaml
+  openapi-validation failure is cosmetic (tunnel flap) - the
+  ApplicationSet applies first and that is the file that matters.
+- **Prevention:** any app that hits 'omits key field name' gets added to
+  the list; the list is the documented workaround, not a one-off.
