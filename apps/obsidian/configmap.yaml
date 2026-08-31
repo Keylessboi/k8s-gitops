@@ -18,7 +18,11 @@ data:
     [chttpd]
     bind_address = 0.0.0.0
     port = 5984
+    require_valid_user = true
     max_http_request_size = 4294967296
+
+    [chttpd_auth]
+    require_valid_user = true
 
     [httpd]
     WWW-Authenticate = Basic realm="couchdb"

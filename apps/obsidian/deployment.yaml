@@ -2,17 +2,11 @@
 # Obsidian LiveSync server: CouchDB configured for the Obsidian plugin's
 # replication protocol. Single pod, stateful-on-PVC (Recreate strategy).
 #
-# Architecture:
-#   1. couchdb-init (one-shot, runs as root): waits for CouchDB to be
-#      healthy, then configures single-node cluster, auth, CORS, size
-#      limits, and creates the vault database. Exits 0 on success.
-#   2. couchdb (main, uid 5984): CouchDB itself with livesync.ini mounted
-#      into /opt/couchdb/etc/local.d/ for CORS and size defaults. A
-#      postStart hook applies require_valid_user after first boot so
-#      unauthenticated requests get 401 (the expected proof-of-life).
-#
-# The couchdb-init container uses shareProcessNamespace to reach CouchDB
-# on localhost:5984 while the main container starts in parallel.
+# Architecture: CouchDB 3.4.3 with livesync.ini mounted into
+# /opt/couchdb/etc/local.d/ for CORS, require_valid_user, and size limits.
+# Admin credentials come from Doppler via secretKeyRef (optional: true per
+# repo convention). TCP probes because require_valid_user blocks HTTP probes
+# without auth headers.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -34,7 +28,6 @@ spec:
         app.kubernetes.io/name: obsidian
         app.kubernetes.io/part-of: homelab
     spec:
-      shareProcessNamespace: true
       securityContext:
         runAsNonRoot: true
         runAsUser: 5984
@@ -72,23 +65,21 @@ spec:
           ports:
             - name: http
               containerPort: 5984
-          # /_up returns {"status":"ok"} without authentication. Verified
-          # from inside the pod with curl before these timings were committed.
+          # /_up requires auth when require_valid_user is set in livesync.ini.
+          # Use a TCP socket check instead: if CouchDB is listening, it is ready.
           readinessProbe:
-            httpGet:
-              path: /_up
+            tcpSocket:
               port: http
             initialDelaySeconds: 15
             periodSeconds: 20
-            timeoutSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 6
           livenessProbe:
-            httpGet:
-              path: /_up
+            tcpSocket:
               port: http
             initialDelaySeconds: 60
             periodSeconds: 60
-            timeoutSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 5
           resources:
             requests:
@@ -108,55 +99,6 @@ spec:
             - name: livesync-config
               mountPath: /opt/couchdb/etc/local.d/livesync.ini
               subPath: livesync.ini
-          # postStart applies require_valid_user after CouchDB starts. The
-          # hook runs in parallel with the main process, so it waits for
-          # CouchDB to be ready before applying config. Without this,
-          # unauthenticated requests would succeed (the opposite of the
-          # expected 401 proof-of-life).
-          lifecycle:
-            postStart:
-              exec:
-                command:
-                  - sh
-                  - -c
-                  - |
-                    for i in $(seq 1 30); do
-                      curl -sf http://localhost:5984/_up >/dev/null 2>&1 && break
-                      sleep 2
-                    done
-                    curl -sf -X PUT http://localhost:5984/_node/_local/_config/chttpd/require_valid_user \
-                      -H "Content-Type: application/json" -d '"true"' \
-                      -u "${COUCHDB_USER}:${COUCHDB_PASSWORD}" || true
-                    curl -sf -X PUT http://localhost:5984/_node/_local/_config/chttpd_auth/require_valid_user \
-                      -H "Content-Type: application/json" -d '"true"' \
-                      -u "${COUCHDB_USER}:${COUCHDB_PASSWORD}" || true
-                    curl -sf -X PUT http://localhost:5984/_node/_local/_config/httpd/enable_cors \
-                      -H "Content-Type: application/json" -d '"true"' \
-                      -u "${COUCHDB_USER}:${COUCHDB_PASSWORD}" || true
-                    curl -sf -X PUT http://localhost:5984/_node/_local/_config/chttpd/enable_cors \
-                      -H "Content-Type: application/json" -d '"true"' \
-                      -u "${COUCHDB_USER}:${COUCHDB_PASSWORD}" || true
-                    curl -sf -X PUT http://localhost:5984/_node/_local/_config/cors/credentials \
-                      -H "Content-Type: application/json" -d '"true"' \
-                      -u "${COUCHDB_USER}:${COUCHDB_PASSWORD}" || true
-                    curl -sf -X PUT http://localhost:5984/_node/_local/_config/cors/origins \
-                      -H "Content-Type: application/json" \
-                      -d '"app://obsidian.md,capacitor://localhost,http://localhost"' \
-                      -u "${COUCHDB_USER}:${COUCHDB_PASSWORD}" || true
-                    curl -sf -X PUT http://localhost:5984/_node/_local/_config/chttpd/max_http_request_size \
-                      -H "Content-Type: application/json" -d '"4294967296"' \
-                      -u "${COUCHDB_USER}:${COUCHDB_PASSWORD}" || true
-                    curl -sf -X PUT http://localhost:5984/_node/_local/_config/couchdb/max_document_size \
-                      -H "Content-Type: application/json" -d '"50000000"' \
-                      -u "${COUCHDB_USER}:${COUCHDB_PASSWORD}" || true
-                    # Create the vault database if it does not exist.
-                    curl -sf -o /dev/null -w '' \
-                      -u "${COUCHDB_USER}:${COUCHDB_PASSWORD}" \
-                      http://localhost:5984/obsidiannotes 2>/dev/null || \
-                    curl -sf -X PUT \
-                      -u "${COUCHDB_USER}:${COUCHDB_PASSWORD}" \
-                      http://localhost:5984/obsidiannotes || true
-                    echo "LiveSync init complete"
       volumes:
         - name: data
           persistentVolumeClaim:
