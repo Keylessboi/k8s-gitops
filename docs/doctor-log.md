@@ -284,3 +284,29 @@ failed and the entry needs revisiting.
   ApplicationSet applies first and that is the file that matters.
 - **Prevention:** any app that hits 'omits key field name' gets added to
   the list; the list is the documented workaround, not a one-off.
+
+## 2026-08-31 — metallb 0.16.1: edge down, rolled back to 0.14.9
+
+- **Symptom:** the moment PR #13 (chart 0.14.9 → 0.16.1) synced, the
+  controller AND speaker entered CrashLoopBackOff, the speaker stopped
+  announcing 192.168.1.240, and every published service went dark
+  (all edge curls → 000, the LB IP unpingable).
+- **Root cause:** two stacked errors. (1) the known server-side-diff
+  ComparisonError (fixed by adding metallb to the appset's
+  ServerSideDiff=false list). (2) beneath it, the sync's rbacReconcile
+  failed with `namespaces "metallb" not found` - the 0.16.1 chart renders
+  ClusterRoleBinding subjects referencing a namespace `metallb` (release
+  name) that does not exist in this cluster (only `metallb-system`).
+  A k3s restart did not clear either state; the kubelet's CSI registration
+  loss for nfs.csi.k8s.io and csi.juicefs.com in the same window is
+  likely related to the same restart-time degradation.
+- **Fix:** `kubectl -n metallb-system rollout undo` both controller and
+  speaker (instant restore from the previous 0.14.9 ReplicaSets), then
+  the git rollback commit so ArgoCD converges to the same state. The
+  `frrk8s.enabled: false` values fix stays in git for the eventual retry.
+- **Prevention:** a 0.16.x retry requires solving the rbacReconcile
+  namespace propagation first (namespaceOverride in values, or render the
+  chart locally with kustomize build --enable-helm and diff the subjects
+  before ArgoCD touches it). The edge MUST be verified within 3 minutes
+  of any metallb change - the rollback trigger that was set up for this
+  merge is the template for future ones.
