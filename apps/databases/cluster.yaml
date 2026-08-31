@@ -113,6 +113,14 @@ spec:
         login: true
         passwordSecret:
           name: invidious-db-credentials
+      # Funkwhale (federated music server). One role, one database — Django
+      # keeps users, federation actors, libraries and task state in one
+      # schema.
+      - name: funkwhale
+        ensure: present
+        login: true
+        passwordSecret:
+          name: funkwhale-db-credentials
   # Backups to MinIO on the NAS.
   #
   # This block previously authenticated with a `minio-creds` secret whose

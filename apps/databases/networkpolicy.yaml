@@ -50,6 +50,9 @@ spec:
               kubernetes.io/metadata.name: invidious
         - namespaceSelector:
             matchLabels:
+              kubernetes.io/metadata.name: funkwhale
+        - namespaceSelector:
+            matchLabels:
               kubernetes.io/metadata.name: databases
       ports:
         - {port: 5432, protocol: TCP}
