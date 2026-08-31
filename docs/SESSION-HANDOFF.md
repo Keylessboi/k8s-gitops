@@ -1,6 +1,67 @@
-# Session handoff — 2026-08-29
+# Session handoff
 
-State captured across a closet-move outage and its recovery. Newest first.
+State captured across outages and their recoveries. Newest first.
+
+---
+
+# ✅ 2026-08-31 — the big consolidation day: 6 Renovate merges, 3 new apps, 4 infra incidents (all resolved)
+
+## The one-line state
+**All 35 apps healthy** (lidarr "Progressing" = its mass-search Jobs running, ~40-day run, 124 in queue).
+Disk recovered from 100%-full twice; thin pool extended +4G and trimmed to 78%. metallb pinned back
+to 0.14.9 after 0.16.1 crashed the edge. authentik 2025.12.4, CNPG 1.30.0, loki 6.55.0, nfs-csi
+4.13.4, doppler 1.7.1 all running.
+
+## ✅ Deployed this session
+- **invidious** (Authentik edge-gated; ProxyProvider pk85 + application + embedded-outpost assignment
+  are CLUSTER-STATE objects — recreate them via the API after any rebuild; the outpost-assignment
+  step is the gotcha, see the remux recipe)
+- **obsidian** (couchdb:3.4.3 digest-pinned; edge 401 = CouchDB auth working; `frrk8s`-style SA pin NOT needed)
+- **remux** (2/2, edge 302)
+- **funkwhale** (unpaused after the disk fix; 5/5; api entrypoint must be `["/entrypoint.sh","gunicorn"]`
+  — k8s `command:` REPLACES the image ENTRYPOINT, and gluetun needs `DNS_KEEP_NAMESERVER=on`)
+- **Renovate merges verified**: nfs-csi 4.13.4, doppler 1.7.1, loki 6.55.0 (with `serviceAccount.name: loki`
+  pinned — chart 6.46.0 renames the SA), authentik 2025.12.4 (6-month migration leap, SSO verified),
+  CNPG 1.30.0 (primary restarted ~2 min, 20 DBs verified)
+
+## ⛔ HOLD / owner decisions
+- **metallb 0.16.1 → CRASHED THE EDGE, rolled back to 0.14.9.** Two stacked failures: the SSD
+  ComparisonError (metallb now in the appset's ServerSideDiff=false list) and
+  `rbacReconcile: namespaces "metallb" not found` (the 0.16.1 chart renders RBAC subjects pointing at
+  a namespace that doesn't exist). Retry requires solving that namespace propagation first. Rollback
+  trigger template: verify the edge within 3 min of any metallb change; `rollout undo` restores 0.14.9
+  instantly.
+- **CNPG #8 follow-ups**: none — upgrade clean. The pgdump restic backups continue.
+- **The structural memory/disk question (ADR-0005 + issue #11)**: the node is 13.8GB RAM (93% used at
+  peak) and the thin pool hosts vm-200 (this CT) AND **vm-2120 (100G disk, ~66G written = the largest
+  reclaimable block if abandoned)**. Adding RAM/host storage or deleting vm-2120 is the structural fix.
+
+## 🐞 Infra incidents today (full details in docs/doctor-log.md)
+1. **ganesha.log grew to 26GB** (nfs-ganesha runs IN the CT serving all NFS PVCs; no logrotate) → disk
+   100% → ext4 emergency_ro → k3s dead. **Fixed**: truncated the log, installed
+   `/etc/logrotate.d/ganesha` (500M cap, copytruncate).
+2. **containerd store bloated to 64.5GB** (the eviction/pull-storm churn). **Fixed**: CT stop →
+   e2fsck → host-side `rm -rf` of the containerd store → CT start → everything re-pulled onto 45-64G
+   free. etcd, PVC data and configs untouched.
+3. **Thin pool 100%** → extended +4G (VG exhausted now) + fstrim reclaimed 30.5G → 78%.
+4. **CT swap 512M → 4G** (`pct set 200 --swap 4096`; the LXC default swap thrashed during the memory
+   crunch and locked the API server).
+5. **authentik's 1s probe timeouts** → 10s + a 5-min startup gate on both server and worker
+   (chart-default probes killed the pods under post-restart backlog).
+
+## 🧰 Operational facts for the next session
+- kubectl ALWAYS via `--kubeconfig ~/.kube/config-ts`; tunnel self-heal:
+  `ss -tln | grep -q 16443 || ssh -i ~/.ssh/worker_key -o IdentitiesOnly=yes -o BatchMode=yes -fN -L 16443:192.168.1.172:6443 travis@100.69.240.8`
+- NAS: `ssh -i ~/.ssh/worker_key travis@100.69.240.8` (doas passwordless). PVE: `ssh -i ~/.ssh/worker_key root@100.125.108.56` → `pct exec 200`.
+- The image-prune timer (6h) on the node guards the fs floor (15G) and trims; the ganesha logrotate
+  guards the NFS logs.
+- The ServerSideDiff=false list in `apps/argocd/root-applicationset.yaml` is the workaround for the
+  ArgoCD SSD bug — apps that hit 'omits key field name' get added there; re-apply
+  `scripts/bootstrap-argocd.sh` (its app-project openapi-validation error on a tunnel flap is cosmetic).
+- **Never prune images while pods are Pending/rescheduling** — the prune-then-repull trap refills the
+  disk (cost us a 15GB pull storm).
+- Lidarr mass-search: two workers, ~40-day run, tracked in the Lidarr queue (the API key: exec into
+  the lidarr pod, grep /config/config.xml).
 
 ---
 

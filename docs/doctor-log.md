@@ -310,3 +310,26 @@ failed and the entry needs revisiting.
   before ArgoCD touches it). The edge MUST be verified within 3 minutes
   of any metallb change - the rollback trigger that was set up for this
   merge is the template for future ones.
+
+## 2026-08-31 — ganesha.log 26GB + containerd store 64.5GB: disk 100%, recovered by cache reset
+
+- **Symptom:** the API refused connections (the edge dark, every curl 000);
+  k3s in an activation loop dying with `mkdir etcd-tmp: read-only file
+  system`; the root fs in ext4 emergency_ro.
+- **Root cause:** TWO unbounded consumers filled the 84G disk: (1)
+  /var/log/ganesha/ganesha.log grew to 26GB (nfs-ganesha runs IN the CT
+  serving the cluster's NFS PVCs and logs every operation; logrotate had
+  no ganesha config), and (2) the containerd store bloated to 64.5GB
+  (the day's eviction/pull-storm churn - every prune was offset by
+  rescheduling pods re-pulling). Beneath both: the thin pool hit 100%,
+  which force-remounted the CT root read-only.
+- **Fix:** truncated ganesha.log (+26GB instantly), then the decisive
+  reset: CT stop → e2fsck -f → host-side rm -rf of
+  /var/lib/rancher/k3s/agent/containerd (etcd, PVC data and configs
+  untouched) → CT start → k3s re-initialized containerd empty and
+  re-pulled everything onto a disk with 45-64G free.
+- **Prevention:** /etc/logrotate.d/ganesha installed (500M cap, 3
+  rotations, copytruncate); the image-prune timer guards the fs floor.
+  The structural issue stands: the thin pool hosts this CT AND vm-2120
+  (100G disk, ~66G written) - vm-2120 is the largest reclaimable block
+  if abandoned (owner decision).
