@@ -1,0 +1,27 @@
+---
+# Remux - Jellyfin-compatible media server (Rust, by the Gelato author).
+#
+# Deployed IN PARALLEL with the existing Jellyfin stack (apps/jellyfin) while
+# the owner validates it; Jellyfin keeps running untouched. Same shape as the
+# Jellyfin pod: the media server shares a pod with a gluetun sidecar so ALL of
+# its public egress (Stremio/AIOStreams addon fetches, TMDB metadata, the
+# built-in torrent streaming) exits through the AirVPN tunnel with a fail-closed
+# killswitch - the airtight standard from the Funkwhale VPN design block in
+# issue #2, proven on the qBittorrent and Jellyfin pods.
+#
+# privileged, like the jellyfin and downloads namespaces and for the identical
+# reason: the gluetun sidecar needs NET_ADMIN and a passed-in /dev/net/tun to
+# bring up WireGuard, which baseline/restricted PodSecurity forbid. Remux
+# itself still pins a hardened securityContext (runAsUser 1000, seccomp
+# RuntimeDefault) inside this looser namespace - privileged here is the floor
+# the namespace allows, not what each container asks for.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: remux
+  labels:
+    app.kubernetes.io/name: remux
+    app.kubernetes.io/part-of: homelab
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged

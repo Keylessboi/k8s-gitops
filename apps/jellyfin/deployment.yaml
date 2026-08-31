@@ -280,3 +280,33 @@ spec:
     - name: http
       port: 8096
       targetPort: http
+---
+# The aiostreams Service - consumed by apps/remux, which runs the SAME
+# self-hosted AIOStreams instance this pod runs (same encrypted manifest URL,
+# same 1080p Direct-Play config) but lives in its own pod/namespace, where
+# localhost:3000 is Remux itself and the in-pod loopback Gelato uses is
+# unreachable cross-pod. This Service publishes the aiostreams container's
+# port 3000 to the cluster so the remux pod can fetch the manifest at
+#   http://aiostreams.jellyfin.svc.cluster.local:3000/stremio/<user>/<blob>/manifest.json
+# (the trailing blob is ciphertext under AIOSTREAMS_SECRET_KEY, so the URL is
+# portable to any caller that can reach this Service).
+#
+# Deliberately NOT wired to any Ingress: AIOStreams' configure UI holds debrid
+# keys and stays cluster-internal, exactly as before - this only widens the
+# audience from "this pod's netns" to "the cluster", and the jellyfin
+# NetworkPolicy still gates which namespaces may connect (see the remux ingress
+# rule there). targetPort is numeric because the aiostreams container declares
+# no named containerPort; the port is stable (PORT=3000 env).
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiostreams
+  namespace: jellyfin
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: jellyfin
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000

@@ -1,0 +1,52 @@
+---
+# Remux's web dashboard and Jellyfin-compatible API, at remux.sandstorm.chat.
+#
+# AUTHENTIK FORWARD-AUTH ON THE WHOLE ROUTE - a deliberate trade-off, the
+# opposite call to the Jellyfin Ingress next door (apps/jellyfin/ingress.yaml),
+# and the reason the two files look nothing alike:
+#
+# Remux has NO native OIDC/SSO support (checked upstream: no OIDC config in
+# crates/remux-server - its auth surface is its own Jellyfin-style
+# /Users/AuthenticateByName plus the first-run startup wizard, and users are
+# imported from Jellyfin by the owner, not federated). An open media server on
+# the public edge is unacceptable, so the edge gate is Authentik forward-auth.
+#
+# THE TRADE-OFF, stated plainly: forward-auth answers every request that lacks
+# an Authentik session with a 302 to the login flow. Browsers follow that fine;
+# NATIVE Jellyfin clients (Infuse, Swiftfin, Jellyfin for Android) authenticate
+# against Remux's own API and CANNOT follow an OAuth redirect - pointed at
+# remux.sandstorm.chat they will break. If the owner validates Remux with
+# native clients and wants them back, the options are: carve the API paths out
+# of forward-auth (weaker edge, Remux's own login becomes the gate - the
+# Jellyfin arrangement), or put an Authentik proxy in front per-client. Chosen
+# for now: forward-auth everywhere, because the dashboard validation flow is
+# browser-based and an unauthenticated media server on the public internet is
+# the worse failure mode.
+#
+# CrowdSec and the rate limiter still apply to every request.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: remux
+  namespace: remux
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - remux.sandstorm.chat
+      secretName: remux-tls
+  rules:
+    - host: remux.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: remux
+                port:
+                  number: 3000

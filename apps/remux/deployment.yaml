@@ -1,0 +1,227 @@
+---
+# Remux + gluetun, with ALL public egress forced through the tunnel.
+#
+# WHY they share one pod: Remux's whole job is pulling streams from public
+# sources - the AIOStreams Stremio addon (torrent results), TMDB metadata, the
+# RemuxDB probe database, and its built-in torrent client (librqbit: peer
+# connections, DHT gossip, tracker announces). Running it outside the tunnel
+# would present the home WAN IP to trackers and swarms. Sharing gluetun's
+# network namespace means Remux has no interface of its own beyond the tunnel:
+# if the VPN drops, gluetun's firewall drops the traffic instead of leaking.
+# This is the exact containment pattern proven in apps/downloads/qbittorrent.yaml
+# and duplicated in apps/jellyfin/deployment.yaml - the airtight standard from
+# the Funkwhale VPN design block in issue #2.
+#
+# SPLIT ACCESS (the other half of that standard): user access is INBOUND via
+# the edge - Traefik terminates TLS on remux.sandstorm.chat and reaches this
+# pod over the pod CIDR, which gluetun's firewall explicitly bypasses
+# (FIREWALL_OUTBOUND_SUBNETS below). Replies to those inbound sessions return
+# via the pre-existing connection - gluetun keeps eth0 return routing for
+# established flows. This is exactly how the qBittorrent WebUI coexists with
+# tunneled torrent traffic today. The NFS library is a node-level mount
+# bind-mounted into the container, so library reads never traverse this pod's
+# network namespace and keep working even with the tunnel down.
+#
+# NO FIREWALL_VPN_INPUT_PORTS, same as the Jellyfin pod: torrent streaming here
+# is outbound-only (Remux's own config documents that the peer port "does not
+# need to be forwarded/open for outbound-only operation"), and nothing needs to
+# reach this pod through the tunnel - the edge path is the pod-CIDR bypass.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: remux
+  namespace: remux
+spec:
+  replicas: 1
+  strategy:
+    # Recreate, not RollingUpdate: gluetun holds a single WireGuard session and
+    # /data is a single-writer SQLite database. Two pods briefly overlapping
+    # would double-connect the tunnel and contend on the DB.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: remux
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: remux
+    spec:
+      securityContext:
+        # fsGroup so the remux-config PVC is group-writable by uid 1000.
+        # OnRootMismatch, never the default Always: fsGroup makes the kubelet
+        # recursively chown every mounted volume, and over NFS that walk is
+        # O(files). OnRootMismatch skips the read-only media mount (already
+        # GID 1000) and only touches the tiny config volume on first mount.
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        # This node's kubelet has seccompDefault=false, so without this the
+        # whole pod runs seccomp Unconfined. RuntimeDefault was MEASURED safe
+        # for gluetun on this exact image in apps/downloads/qbittorrent.yaml
+        # (tunnel setup is ioctl(TUNSETIFF)+netlink, both allowed); Remux is a
+        # plain Rust HTTP server plus ffmpeg - nothing it does needs the denied
+        # set (mount/unshare/bpf/keyctl). seccomp is orthogonal to the
+        # NET_ADMIN capability below.
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        # --- The tunnel. Everything public exits through here. ---
+        - name: gluetun
+          # Pinned to the same build proven in the downloads and jellyfin pods.
+          # v3.40.0 aborts at startup on this LXC's IPv6 link-local address
+          # ("for ip6tables: failed cleaning up test rule"); v3.41.3 does not.
+          image: qmcgaw/gluetun:v3.41.3
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+          env:
+            - name: VPN_SERVICE_PROVIDER
+              value: airvpn
+            - name: VPN_TYPE
+              value: wireguard
+            - name: WIREGUARD_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: airvpn
+                  key: private-key
+            - name: WIREGUARD_PRESHARED_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: airvpn
+                  key: preshared-key
+            - name: WIREGUARD_ADDRESSES
+              valueFrom:
+                secretKeyRef:
+                  name: airvpn
+                  key: addresses
+            # SERVER_COUNTRIES deliberately unset - gluetun filters AirVPN's
+            # server list by literal country name, so any placeholder matches
+            # nothing and startup fails. Omitting it means "anywhere", which is
+            # what is wanted; the exit IP moves on reconnect and that is fine
+            # (nothing here pins an account to an exit the way MAM does).
+            #
+            # THE KILLSWITCH BOUNDARY. Only these subnets bypass the tunnel:
+            #   10.42.0.0/16 pod CIDR    - so Traefik can reach Remux over the
+            #                              edge and the replies get back.
+            #   10.43.0.0/16 service CIDR - DNS (CoreDNS) and the in-cluster
+            #                              AIOStreams addon endpoint.
+            # The LAN is deliberately NOT bypassed (unlike the Jellyfin pod,
+            # which needs 192.168.1.0/24 for its in-pod SSO plugin): Remux does
+            # no OIDC of its own - auth happens at the edge between Traefik and
+            # Authentik, never from inside this pod. Everything else (all
+            # public internet = addon sources, TMDB, trackers, DHT) is forced
+            # through WireGuard, and dropped if it is down.
+            - name: FIREWALL_OUTBOUND_SUBNETS
+              value: "10.42.0.0/16,10.43.0.0/16"
+            - name: DOT
+              value: "off"
+            - name: TZ
+              value: UTC
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            # A restart of gluetun drops the tunnel and takes Remux down with
+            # it (shared netns), so tolerate a slow check rather than tearing
+            # the tunnel down on a blip.
+            exec:
+              command: ["/gluetun-entrypoint", "healthcheck"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            # WireGuard needs a TUN device; Kubernetes does not expose one by
+            # default. NET_ADMIN alone is not enough - the device node itself
+            # must be passed in or gluetun fails with "operation not permitted".
+            - name: tun
+              mountPath: /dev/net/tun
+        # --- Remux. Jellyfin-compatible API on 3000; /data is its state. ---
+        - name: remux
+          # Latest stable release at deploy time (GitHub releases: v0.27.0,
+          # 2026-08-27; :latest and :nightly also exist but are unpinned
+          # moving tags). The ghcr tag drops the "v" prefix. Index digest at
+          # pin time:
+          #   sha256:f2de64aa9f5601c4bbe94ae2bdf15d49bd99bbb2aed0503d60ac29f33d56622a
+          image: ghcr.io/lostb1t/remux:0.27.0
+          securityContext:
+            # The image has no USER directive (defaults to root); run it as the
+            # same arbitrary non-root uid the Jellyfin container uses. It only
+            # writes under /data (db.sqlite, logs/, torrents/), which fsGroup
+            # 1000 makes group-writable on the config PVC.
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+          env:
+            # Everything else the image needs is baked in as ENV in the
+            # Dockerfile: DATA_DIR=/data, PORT=3000,
+            # DATABASE_URL=sqlite:///data/db.sqlite, LOG_FILE=/data/logs,
+            # TORRENT_DATA_DIR=/data/torrents, FFMPEG_PATH (jellyfin-ffmpeg7).
+            - name: TZ
+              value: UTC
+          ports:
+            - name: http
+              containerPort: 3000
+          resources:
+            # Direct-play media server + built-in torrent streaming. The node
+            # is memory-tight and shared, so the limit is modest - same class
+            # as the Jellyfin container next door.
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            # /health is the image's own healthcheck endpoint (served
+            # unauthenticated, first boot). Deliberately generous: an
+            # over-aggressive probe here would mark the pod NotReady and empty
+            # the Service's endpoints, which has cut media apps off in this
+            # cluster before.
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 15
+            failureThreshold: 6
+          volumeMounts:
+            - name: config
+              mountPath: /data
+            # The shared library, read-only, narrowed to the media subdirectory
+            # (music now; movies/tv once a video *arr populates them). Mounted
+            # INSIDE /data so Remux's local-file sources see /data/media/music
+            # - the same path shape the Jellyfin pod uses - while its own
+            # state (db, logs, torrents) stays on the private config PVC.
+            - name: media
+              mountPath: /data/media
+              subPath: media
+              readOnly: true
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: remux-config
+        - name: media
+          persistentVolumeClaim:
+            claimName: media-data
+        - name: tun
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: remux
+  namespace: remux
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: remux
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

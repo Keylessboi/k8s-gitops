@@ -37,6 +37,18 @@ spec:
       ports:
         - {port: 8096, protocol: TCP}
         - {port: 8089, protocol: TCP}
+    # The remux namespace, for the AIOStreams manifest fetch through the
+    # aiostreams Service (see that Service in apps/jellyfin/deployment.yaml).
+    # Without this rule the default-deny ingress here would blackhole that
+    # Service for remux even though the Service itself selects this pod.
+    # Scoped to the remux namespace and port 3000 only - 8096 stays
+    # Traefik-only.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: remux
+      ports:
+        - {port: 3000, protocol: TCP}
     # kubelet readiness probes reach the pod from the node and are not gated by
     # this policy (the CNI whitelists the host), same as navidrome/lidarr - so
     # no explicit node rule is needed here.

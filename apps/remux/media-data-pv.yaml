@@ -1,0 +1,52 @@
+---
+# The shared media library, mounted READ-ONLY for local-file playback.
+#
+# Same static-PV-per-namespace pattern as apps/jellyfin, apps/navidrome and
+# apps/lidarr: PVCs cannot be shared across namespaces, and a dynamically
+# provisioned nfs-csi claim would get its own private subdirectory - it would
+# see none of the existing library. So this points a static PV at the exact
+# same NFS directory the *arr stack, Navidrome and Jellyfin use
+# (192.168.1.67:/extra/nfs-csi/data), and the Deployment mounts only the
+# `media` subdirectory, read-only. Inside the container the folders are
+# /data/media/music (the real music library) and the video paths
+# (/data/media/movies, /data/media/tv) once a video *arr stack populates them.
+#
+# Remux never writes here. Its own state (SQLite DB, logs, torrent sessions)
+# lives on the separate remux-config PVC. Read-only at the mount is defence in
+# depth on top of that.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: media-data-remux
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.1
+    - hard
+  csi:
+    driver: nfs.csi.k8s.io
+    # Unique per PV - jellyfin/navidrome/lidarr use media-data-<app>; two PVs
+    # may not share a volumeHandle or the second bind silently reuses the
+    # first.
+    volumeHandle: media-data-remux
+    volumeAttributes:
+      server: 192.168.1.67
+      share: /extra/nfs-csi
+      subDir: data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media-data
+  namespace: remux
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: media-data-remux
+  resources:
+    requests:
+      storage: 500Gi

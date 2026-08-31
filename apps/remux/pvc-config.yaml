@@ -1,0 +1,17 @@
+---
+# Remux's own state: the SQLite server database (users, devices, addons, the
+# AIOStreams addon config), logs and the torrent session data, all under /data.
+# Dynamic nfs-csi is fine - unlike the media library this is private to Remux,
+# so a per-claim private subdirectory is exactly what is wanted.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: remux-config
+  namespace: remux
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 10Gi
