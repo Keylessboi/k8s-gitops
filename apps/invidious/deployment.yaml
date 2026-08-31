@@ -252,13 +252,18 @@ spec:
             periodSeconds: 60
             timeoutSeconds: 10
             failureThreshold: 5
+          # Measured, not guessed: at 256Mi the companion was OOMKilled 270
+          # times in a day (Deno/youtubei.js buffering during video fetches
+          # spikes past it), leaving the pod stuck 1/2 with the sidecar in
+          # CrashLoopBackOff. 1Gi leaves real headroom over the observed
+          # spikes while capping the blast radius on the memory-tight node.
           resources:
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 256Mi
             limits:
               cpu: 500m
-              memory: 256Mi
+              memory: 1Gi
           volumeMounts:
             # Deno/youtubei.js session cache. A cache by upstream's own
             # definition (compose names the volume companioncache), so an
