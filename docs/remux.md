@@ -70,11 +70,61 @@ or front clients individually.
 1. Startup wizard via the API: `POST /startup/configuration`,
    `POST /startup/user` (admin, password from Doppler `REMUX_ADMIN_PASSWORD`),
    `POST /startup/complete`. The wizard endpoints lock themselves after
-   completion.
-2. AIOStreams addon created via `POST /addons` (above).
-3. Verified: search through Remux's Jellyfin-compatible API returns AIOStreams
-   results; killswitch 3-test passed (see git history / session log for the
-   evidence captures).
+   completion. NOTE: the payload fields are PascalCase (`{"Name":...,
+   "Password":...}`) — lowercase keys deserialize as None and the endpoint
+   silently no-ops with a 204 (this bit once; the wizard flag was reset via
+   the `server_configuration` row in the settings table to redo it).
+2. AIOStreams addon created via `POST /addons` (above). Catalogs enabled via
+   `POST /addons/{id}/catalogs` (all 8 enabled).
+3. Authentik forward-auth provider created via `ak shell` (cluster state, not
+   git): ProxyProvider `remux` (mode proxy, external_host
+   `https://remux.sandstorm.chat`, internal_host
+   `http://remux.remux.svc.cluster.local:3000`) + Application slug `remux`.
+   Recreate after a cluster rebuild with the same two objects.
+
+## Verification evidence (2026-08-30 ~21:00-23:45 EDT)
+
+- **Pod Ready, health 200** in-cluster; gluetun tunnel up.
+- **AIOStreams addon wired**: `POST /addons` returned 201 (Remux validates the
+  manifest live at create time — the cross-namespace Service path works);
+  `GET /addons/{id}/catalogs` lists 8 catalogs, all enabled.
+- **Real search through the Jellyfin-compatible API**: with the system TMDB
+  addon disabled, `GET /Items?searchTerm=Inception` returned **17 results**
+  (Inception 2010 first) — pure AIOStreams path. Re-enabled after.
+- **Killswitch test 1 — exit IP ≠ home WAN**: PASS. `curl ip4.me` from the
+  remux container returned `62.102.148.182` (AirVPN exit), never
+  `74.101.53.75`.
+- **Killswitch test 2 — tunnel down = no egress**: PASS. With `tun0` down
+  inside gluetun, both a DNS-resolved fetch (ip4.me) and a raw-IP fetch
+  (1.1.1.1) timed out (curl rc=28) — fail-closed, no leak.
+- **Killswitch test 3 — edge survives tunnel-down**: PARTIAL. The Remux
+  backend stayed reachable in-cluster during the tunnel-down window (health
+  200). The full edge path (Traefik → forward-auth → browser) could not be
+  validated end-to-end: the cluster spent the evening in a pre-existing
+  node disk-pressure eviction storm (CNPG/Postgres churn, days old — see
+  below), which took down Authentik's database and every pod repeatedly. The
+  lidarr forward-auth control failed identically at the same moment, so the
+  failure is infrastructure, not the remux route. To finish the check once
+  the cluster is calm:
+  ```bash
+  curl -sk -o /dev/null -w '%{http_code} %{redirect_url}\n' \
+    https://remux.sandstorm.chat/   # expect 302 to Authentik login
+  ```
+
+## Known issues at deploy time (pre-existing, not remux's)
+
+- **Node disk-pressure storm**: the k3s node's 67 GB disk hovers at the
+  kubelet eviction threshold; the CNPG Postgres pod's write churn (measured
+  517 GiB/24h through the postgres container) cycles the node between
+  taint-on and taint-off, evicting everything periodically. Remux has
+  resource requests, so it is not first in eviction order, but it flaps with
+  the storm like every other app.
+- **Torrentio 403s**: AIOStreams' upstream Torrentio fetches are being
+  403'd (Cloudflare vs the AirVPN exit), so the AIOStreams manifest currently
+  advertises no `stream` resource — search/catalogs work, stream results are
+  degraded for BOTH Jellyfin/Gelato and Remux equally (same shared instance).
+  This comes and goes with VPN exits; nothing in the remux deployment
+  influences it.
 
 ## Owner click-list
 
