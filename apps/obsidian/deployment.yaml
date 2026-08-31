@@ -157,10 +157,6 @@ spec:
                       -u "${COUCHDB_USER}:${COUCHDB_PASSWORD}" \
                       http://localhost:5984/obsidiannotes || true
                     echo "LiveSync init complete"
-          volumeMounts:
-            - name: livesync-config
-              mountPath: /opt/couchdb/etc/local.d/livesync.ini
-              subPath: livesync.ini
       volumes:
         - name: data
           persistentVolumeClaim:
