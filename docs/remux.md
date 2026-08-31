@@ -81,8 +81,22 @@ or front clients individually.
    `https://remux.sandstorm.chat`, internal_host
    `http://remux.remux.svc.cluster.local:3000`) + Application slug `remux`.
    Recreate after a cluster rebuild with the same two objects.
+4. **AND assign the provider to the Embedded Outpost** — the non-obvious step
+   that cost an hour: the embedded outpost serves an EXPLICIT provider list
+   (Lidarr, Prowlarr, Books, qui, Book Downloader, Navidrome, ConvertX,
+   bitmagnet, Alertmanager), not "all providers". A provider that exists but
+   is not in that list makes the outpost's `/outpost.goauthentik.io/auth/traefik`
+   return 404 for its domain — Traefik then 404s the whole route. The fix:
+   ```python
+   from authentik.outposts.models import Outpost
+   o = Outpost.objects.get(name="authentik Embedded Outpost")
+   o.providers.add(ProxyProvider.objects.get(name="remux"))
+   ```
+   The outpost re-syncs within ~60s (watch for
+   `GET /api/v3/outposts/proxy/ 200` from user `ak-outpost-*` in the
+   authentik-server log).
 
-## Verification evidence (2026-08-30 ~21:00-23:45 EDT)
+## Verification evidence (2026-08-30, 21:00-23:00 EDT)
 
 - **Pod Ready, health 200** in-cluster; gluetun tunnel up.
 - **AIOStreams addon wired**: `POST /addons` returned 201 (Remux validates the
@@ -92,24 +106,23 @@ or front clients individually.
   addon disabled, `GET /Items?searchTerm=Inception` returned **17 results**
   (Inception 2010 first) — pure AIOStreams path. Re-enabled after.
 - **Killswitch test 1 — exit IP ≠ home WAN**: PASS. `curl ip4.me` from the
-  remux container returned `62.102.148.182` (AirVPN exit), never
-  `74.101.53.75`.
+  remux container returned AirVPN exits across pod rolls (`62.102.148.182`,
+  `130.195.210.114`, `68.235.36.19`), never `74.101.53.75`.
 - **Killswitch test 2 — tunnel down = no egress**: PASS. With `tun0` down
   inside gluetun, both a DNS-resolved fetch (ip4.me) and a raw-IP fetch
   (1.1.1.1) timed out (curl rc=28) — fail-closed, no leak.
-- **Killswitch test 3 — edge survives tunnel-down**: PARTIAL. The Remux
-  backend stayed reachable in-cluster during the tunnel-down window (health
-  200). The full edge path (Traefik → forward-auth → browser) could not be
-  validated end-to-end: the cluster spent the evening in a pre-existing
-  node disk-pressure eviction storm (CNPG/Postgres churn, days old — see
-  below), which took down Authentik's database and every pod repeatedly. The
-  lidarr forward-auth control failed identically at the same moment, so the
-  failure is infrastructure, not the remux route. To finish the check once
-  the cluster is calm:
-  ```bash
-  curl -sk -o /dev/null -w '%{http_code} %{redirect_url}\n' \
-    https://remux.sandstorm.chat/   # expect 302 to Authentik login
-  ```
+- **Killswitch test 3 — edge survives tunnel-down**: PASS. With `tun0` down:
+  `https://remux.sandstorm.chat` still answered **302 → the Authentik login
+  flow** (`/outpost.goauthentik.io/start?rd=...`), and the backend stayed
+  healthy (health 200) — the edge path rides the pod-CIDR bypass and does not
+  traverse the tunnel. After `tun0 up`, egress returned on the VPN exit
+  (`68.235.36.19`).
+- **Edge gate enforced**: unauthenticated request → 302 to the Authentik
+  login flow, identical in kind to the lidarr forward-auth control captured
+  side by side. Testing note for anyone re-verifying through a port-forward:
+  the outpost matches providers by exact forwarded host, so a non-standard
+  port in the Host header (`host:18443`) 404s EVERY app including known-good
+  ones — send a clean `Host:` header or test on 443.
 
 ## Known issues at deploy time (pre-existing, not remux's)
 
@@ -119,12 +132,13 @@ or front clients individually.
   taint-on and taint-off, evicting everything periodically. Remux has
   resource requests, so it is not first in eviction order, but it flaps with
   the storm like every other app.
-- **Torrentio 403s**: AIOStreams' upstream Torrentio fetches are being
-  403'd (Cloudflare vs the AirVPN exit), so the AIOStreams manifest currently
-  advertises no `stream` resource — search/catalogs work, stream results are
-  degraded for BOTH Jellyfin/Gelato and Remux equally (same shared instance).
-  This comes and goes with VPN exits; nothing in the remux deployment
-  influences it.
+- **Torrentio 403s (transient, recovered)**: during the deploy evening,
+  AIOStreams' upstream Torrentio fetches were 403'd (Cloudflare vs the AirVPN
+  exit), which dropped the `stream` resource from the AIOStreams manifest —
+  search/catalogs kept working, stream results were degraded for BOTH
+  Jellyfin/Gelato and Remux equally (same shared instance). By end of session
+  the 403s cleared and the `stream` resource returned. This comes and goes
+  with VPN exits; nothing in the remux deployment influences it.
 
 ## Owner click-list
 
