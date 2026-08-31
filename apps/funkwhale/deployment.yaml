@@ -44,12 +44,11 @@ metadata:
   name: funkwhale
   namespace: funkwhale
 spec:
-  # PAUSED at the owner's earlier request, and now for a second reason: the
-  # node sits right at the kubelet's ephemeral-storage eviction threshold,
-  # and this pod's ~1.5G image pull re-pushes it over on every scheduling
-  # attempt - four eviction loops today. Re-enable (replicas: 1) after the
-  # disk-capacity decision in issue #4.
-  replicas: 0
+  # Was paused at the owner's request, and because the ~1.5G image pull rode
+  # the node's eviction threshold (issue #11). Un-paused after the fix: the
+  # CT disk grew 63G -> 83G (thin pool +12G, offline resize) and
+  # k3s-image-prune guards the floor.
+  replicas: 1
   strategy:
     # Recreate, not RollingUpdate: gluetun holds a single WireGuard session,
     # the data PVC is a shared NFS tree the migrate init container and the api
