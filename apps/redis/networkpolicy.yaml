@@ -23,6 +23,12 @@ spec:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: pelican
+    # Funkwhale uses logical DBs 2 (cache) and 3 (celery broker), selected in
+    # its CACHE_URL/CELERY_BROKER_URL - verified empty before it moved in
+    # (redis-cli info keyspace showed only db0 populated).
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: funkwhale
   egress:
   # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
   # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so
