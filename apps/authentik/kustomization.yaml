@@ -127,6 +127,33 @@ helmCharts:
           host: redis-master.redis.svc.cluster.local
       server:
         replicas: 1
+        # Same probe-landmine fix as the worker block below: the chart
+        # defaults carry timeoutSeconds: 1, which the server's health
+        # endpoints blow under post-restart load ('context deadline
+        # exceeded' -> Ready=False -> SSO flap).
+        livenessProbe:
+          httpGet:
+            path: /-/health/live/
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /-/health/ready/
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 10
+          failureThreshold: 5
+        startupProbe:
+          httpGet:
+            path: /-/health/live/
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 30
         resources:
           requests:
             cpu: 100m
