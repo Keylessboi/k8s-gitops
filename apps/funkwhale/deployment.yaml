@@ -191,6 +191,17 @@ spec:
             # egress tunnels.
             - name: DOT
               value: "off"
+            # gluetun rewrites /etc/resolv.conf for the whole pod netns to its
+            # own resolver (upstream public DNS), which cannot resolve
+            # cluster-internal names: worker/beat could not reach
+            # redis-master.redis.svc.cluster.local ('Name does not resolve').
+            # DNS_KEEP_NAMESERVER=on keeps the original kube-dns entry in the
+            # chain, so *.svc.cluster.local resolves again. kube-dns is
+            # cluster-internal - the same class of destination as the bypass
+            # subnets above - so the killswitch boundary is unchanged. Same
+            # fix as apps/remux.
+            - name: DNS_KEEP_NAMESERVER
+              value: "on"
             - name: TZ
               value: UTC
           resources:
@@ -223,11 +234,17 @@ spec:
           # Pinned to tag AND index digest, like every image in this repo.
           # 2.0.10 is current stable (docs.funkwhale.audio, 2026-08).
           image: funkwhale/api:2.0.10@sha256:cedb8f691302952ff41eb84e30087333aa62d9e5a276cb8afa34f5b40af9f2d9
-          # The image ENTRYPOINT (/entrypoint.sh) dispatches on $1: "gunicorn"
-          # execs gunicorn config.asgi:application bound to
-          # 0.0.0.0:${FUNKWHALE_API_PORT}. Verified in api/entrypoint.sh at
-          # this tag.
-          command: ["gunicorn"]
+          # Kubernetes 'command' REPLACES the image ENTRYPOINT - it is not a
+          # CMD handed to it (Docker mental-model trap). The first deploy set
+          # command: ["gunicorn"], which ran gunicorn BARE with no WSGI
+          # module: 'Error: No application module specified.' in a crash
+          # loop. Invoke the image's own entrypoint explicitly instead:
+          # /entrypoint.sh dispatches on $1 and its gunicorn case execs
+          # gunicorn config.asgi:application --worker-class
+          # uvicorn.workers.UvicornWorker --bind 0.0.0.0:${FUNKWHALE_API_PORT}
+          # (verified by cat-ing /entrypoint.sh out of the live worker
+          # container, which runs the same image digest).
+          command: ["/entrypoint.sh", "gunicorn"]
           # The image has no USER directive and runs as root; funkwhale's own
           # compose does the same. Nothing here needs capabilities.
           securityContext:
@@ -346,8 +363,10 @@ spec:
         # --- Celery worker. Federation delivery, imports, transcoding. ---
         - name: worker
           image: funkwhale/api:2.0.10@sha256:cedb8f691302952ff41eb84e30087333aa62d9e5a276cb8afa34f5b40af9f2d9
-          # The entrypoint's default case execs unknown commands directly, so
-          # this is the compose file's worker command verbatim. Concurrency is
+          # command replaces the image ENTRYPOINT (k8s semantics - see the
+          # api container), which is fine here: celery needs no entrypoint
+          # dispatch, so this is the compose file's worker command verbatim.
+          # Concurrency is
           # pinned to 1 rather than the compose default (0 = one process per
           # CPU): every worker process is a full python fork holding the
           # funkwhale app, and this node is memory-tight with documented
