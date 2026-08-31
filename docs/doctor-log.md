@@ -188,3 +188,47 @@ failed and the entry needs revisiting.
   SSO. The evidence gate (identical pks) stopped it.
 - **Prevention:** when a parent/child ORM hierarchy exists, dedupe by pk
   before believing a count.
+
+## 2026-08-31 — kubelet probes ghost's readiness with https despite an HTTP spec
+
+- **Symptom:** ghost sat 0/1 Ready=False for 25h+; every readiness event read
+  `Get "https://10.42.x.x:2368/": http: server gave HTTP response to HTTPS
+  client` — while the pod spec said `scheme: HTTP` (the default), the
+  kustomization has no patches, the live deployment matched git, and the
+  liveness probe of the exact same shape succeeded as http every 60s
+  (0 restarts in 25h). Reproduced on a brand-new pod (fresh IP, same event)
+  to rule out stale state.
+- **Root cause:** not fully pinned — the kubelet constructs an https probe
+  for readiness only. Node runs k3s v1.31.5 on Debian 13; no manifest-level
+  explanation exists.
+- **Fix:** dropped the readiness probe, kept liveness (same call as the
+  funkwhale worker/beat and the seedboxapi lesson: a probe that empties the
+  Service for nothing is worse than no probe). Ghost either serves or the
+  container dies and liveness restarts it.
+- **Prevention:** when a probe misbehaves at the kubelet level, verify the
+  pod spec, the rendered manifest, AND a fresh pod before trusting the
+  event's story — then bias toward removing the probe over keeping it.
+
+## 2026-08-31 — k8s `command:` replaces the image ENTRYPOINT (funkwhale api)
+
+- **Symptom:** funkwhale api CrashLoopBackOff with gunicorn's
+  `Error: No application module specified.` while worker and beat (same
+  image) ran fine. The manifest comment claimed the image entrypoint
+  dispatches on `command: ["gunicorn"]`.
+- **Root cause:** Docker mental-model trap. In Kubernetes, `command` IS the
+  new ENTRYPOINT — it is not an argument handed to the image's entrypoint.
+  `command: ["gunicorn"]` therefore ran bare gunicorn with no WSGI module.
+  worker/beat only worked because their `command` replaced the entrypoint
+  with celery directly, which needs no dispatch.
+- **Fix:** `command: ["/entrypoint.sh", "gunicorn"]` — invoke the image's
+  own entrypoint explicitly; its gunicorn case execs
+  `gunicorn config.asgi:application --worker-class
+  uvicorn.workers.UvicornWorker --bind 0.0.0.0:${FUNKWHALE_API_PORT}`
+  (verified by cat-ing the script out of the live worker container, same
+  image digest). Same incident window: gluetun's resolv.conf rewrite broke
+  cluster DNS for the pod (worker/beat could not resolve
+  redis-master.redis.svc.cluster.local) — fixed with DNS_KEEP_NAMESERVER=on,
+  same as remux.
+- **Prevention:** `command` replaces ENTRYPOINT, `args` replaces CMD —
+  always. To pass a subcommand THROUGH an image entrypoint, include the
+  entrypoint path in `command`.
