@@ -232,3 +232,22 @@ failed and the entry needs revisiting.
 - **Prevention:** `command` replaces ENTRYPOINT, `args` replaces CMD —
   always. To pass a subcommand THROUGH an image entrypoint, include the
   entrypoint path in `command`.
+
+## 2026-08-31 — disk-pressure churn loop: prune-then-repull feeds itself
+
+- **Symptom:** the fourth ephemeral-storage eviction loop of the day. Each
+  loop evicted authentik (SSO down cluster-wide), argocd-repo-server (no
+  app could sync) and whatever else was running, and piled hundreds of
+  Evicted pod records.
+- **Root cause:** the CT 200 disk (63G) sits permanently at the kubelet's
+  15% imagefs threshold (9.45G free); containerd holds 41.7G (27G
+  snapshots + 9G content) and k3s local-path PVCs another 6.3G. Made
+  worse by an operator error: `crictl rmi --prune` deletes images that
+  PENDING pods still need, so each scheduling retry re-pulled ~1.5G and
+  re-crossed the threshold. Prune only when nothing is Pending.
+- **Fix (immediate):** sweep Failed pods, remove Exited containers
+  (`crictl ps -aq --state Exited | xargs crictl rm`) before pruning,
+  pause funkwhale at replicas: 0 until the capacity decision lands.
+- **Prevention / decision:** tracked in issue #4 - the host thin pool is
+  also at 92.78%, so this is a storage architecture decision, not a
+  cleanup job.
