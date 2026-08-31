@@ -35,6 +35,7 @@ resources:
   - monitoring-pvc.yaml
   - networkpolicy.yaml
   - ingress.yaml
+  - alertmanager-ingress.yaml
   - dashboard-homelab.yaml
   - smartctl-alerts.yaml
   - temperature-alerts.yaml
@@ -266,6 +267,16 @@ helmCharts:
           templates:
             - /etc/alertmanager/config/*.tmpl
         alertmanagerSpec:
+          # The public URL Alertmanager is published at (see
+          # alertmanager-ingress.yaml). The operator passes this to the pods as
+          # --web.external-url, and Alertmanager builds the links inside
+          # notification emails from it. Left unset it defaults to the
+          # in-cluster service address, which is unreachable from any inbox -
+          # exactly the bug this fixes.
+          externalUrl: https://alertmanager.sandstorm.chat
+          # Serve the UI at / so the published route needs no path rewriting
+          # between Traefik and the pod.
+          routePrefix: /
           # Mounts the `smtp` secret at /etc/alertmanager/secrets/smtp/ so the
           # password_file above resolves. Same Doppler secret Grafana mounts.
           secrets:

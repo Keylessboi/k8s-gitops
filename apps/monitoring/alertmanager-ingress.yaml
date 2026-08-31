@@ -1,0 +1,38 @@
+---
+# Alertmanager, published admin-only. The alert emails embed links back into
+# the Alertmanager UI (built from alertmanagerSpec.externalUrl in
+# kustomization.yaml); without this route those links point at the in-cluster
+# service address and are dead on arrival in any inbox.
+#
+# Forward-auth on the whole route, no exceptions: Alertmanager has no auth of
+# its own and can silence every alert in the cluster, so it must never be
+# reachable unauthenticated. Same edge pattern as every other admin service
+# (crowdsec + rate-limit + authentik-forward-auth).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # <namespace>-<name>@kubernetescrd is how a middleware in another
+    # namespace is referenced.
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - alertmanager.sandstorm.chat
+      secretName: alertmanager-tls
+  rules:
+    - host: alertmanager.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kps-kube-prometheus-stack-alertmanager
+                port:
+                  number: 9093

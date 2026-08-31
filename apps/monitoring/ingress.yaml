@@ -1,6 +1,8 @@
 ---
-# Grafana only. Prometheus and Alertmanager stay internal — they have no auth
-# of their own and publishing them would expose the whole metrics surface.
+# Grafana only. Prometheus stays internal — it has no auth of its own and
+# publishing it would expose the whole metrics surface. Alertmanager is
+# published separately (alertmanager-ingress.yaml), behind Authentik
+# forward-auth on the entire route.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
