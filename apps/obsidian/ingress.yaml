@@ -1,0 +1,36 @@
+---
+# Obsidian LiveSync CouchDB endpoint at obsidian.sandstorm.chat.
+#
+# NO AUTHENTIK FORWARD-AUTH - a deliberate decision, matching how the owner
+# runs it. Obsidian LiveSync clients (desktop and mobile) speak CouchDB's
+# replication protocol directly. They cannot perform a browser SSO flow:
+# pointing them at an Authentik redirect would break every sync client.
+# The server's own CouchDB credentials (COUCHDB_USER / COUCHDB_PASSWORD
+# from Doppler) are the auth. CrowdSec and the rate limiter still apply
+# to every request.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: obsidian
+  namespace: obsidian
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - obsidian.sandstorm.chat
+      secretName: obsidian-tls
+  rules:
+    - host: obsidian.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: obsidian
+                port:
+                  number: 5984

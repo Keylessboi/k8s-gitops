@@ -1,0 +1,58 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: obsidian
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # cert-manager creates HTTP-01 solver pods in this namespace on demand and
+  # Traefik must reach them on 8089. Without this the ACME challenge 502s and
+  # no certificate is ever issued for obsidian.sandstorm.chat.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 8089
+      protocol: TCP
+  # Traefik, which fronts the CouchDB sync endpoint. Nothing else ever needs in.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: TCP
+      port: 5984
+  egress:
+  # DNS only.
+  - ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+    to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+  # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
+  # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so
+  # the old rule was a no-op.
+  - to:
+    - ipBlock:
+        cidr: 10.43.0.1/32
+    ports:
+    - port: 443
+      protocol: TCP
+  # k3s DNATs 10.43.0.1:443 to the node's own address before NetworkPolicy
+  # egress is evaluated, so the Service rule above matches nothing for a new
+  # connection. This is the defect that broke CNPG's base backups.
+  - to:
+    - ipBlock:
+        cidr: 192.168.1.0/24
+    ports:
+    - port: 6443
+      protocol: TCP
