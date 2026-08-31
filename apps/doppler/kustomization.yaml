@@ -42,7 +42,7 @@ helmCharts:
   # so there is nothing to configure here.
   - name: doppler-kubernetes-operator
     repo: https://helm.doppler.com
-    version: 1.5.7
+    version: 1.7.1
     releaseName: doppler-operator
     namespace: doppler-operator-system
     includeCRDs: true
