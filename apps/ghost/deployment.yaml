@@ -153,20 +153,27 @@ spec:
           # Ghost welcome page). Verified from inside the pod with curl before
           # these timings were committed.
           #
-          # Deliberately generous anyway. An over-tight probe on Lidarr in this
-          # cluster emptied a Service's endpoints and cost hours of
-          # misdiagnosis, and kube-router programs egress rules a second or two
-          # after pod start - a tight probe makes that look like a networking
-          # fault. First boot also runs knex-migrator against a brand-new
-          # sqlite file over NFS, which takes tens of seconds.
-          readinessProbe:
+          # Liveness ONLY - there is deliberately no readiness probe. This
+          # node's kubelet probes readiness with https despite a scheme-less
+          # httpGet: fresh pods twice logged 'Readiness probe failed: Get
+          # "https://10.42.x.x:2368/": http: server gave HTTP response to
+          # HTTPS client' while the pod spec said scheme=HTTP (the default),
+          # the kustomization has no patches, and the liveness probe of the
+          # exact same shape succeeded as http every 60s (0 restarts in 25h).
+          # Reproduced on a brand-new pod to rule out stale state. The result
+          # was 25h+ of Ready=False with the Service's endpoints empty - the
+          # same failure class as the over-tight-probe lesson below, with the
+          # kubelet as the culprit. A misbehaving probe empties the Service
+          # for nothing: Ghost either serves or the container dies and
+          # liveness restarts it.
+          livenessProbe:
             httpGet:
               path: /
               port: http
-            initialDelaySeconds: 30
-            periodSeconds: 20
+            initialDelaySeconds: 60
+            periodSeconds: 60
             timeoutSeconds: 10
-            failureThreshold: 6
+            failureThreshold: 5
           # Ghost idles around 300MB and spikes with sharp during image
           # uploads. The limit caps the blast radius on a memory-tight node
           # without making a normal upload OOM.
