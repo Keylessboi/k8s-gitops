@@ -13,6 +13,7 @@ All of these sit behind Traefik with a Let's Encrypt certificate, and every one 
 | `nextcloud.sandstorm.chat` | Files | Nextcloud account, or "Log in with authentik" |
 | `immich.sandstorm.chat` | Photos | Immich account, or "Sign in with Authentik" |
 | `navidrome.sandstorm.chat` | Music streaming | Navidrome account |
+| `remux.sandstorm.chat` | Remux — Jellyfin-compatible media server (Stremio addons + local files + built-in torrent streaming), deployed in parallel with Jellyfin during owner validation; all egress tunnels through AirVPN | Authentik, then Remux (`admin`, password in Doppler `REMUX_ADMIN_PASSWORD`) |
 | `funkwhale.sandstorm.chat` | Federated music server — federation egress tunnels through AirVPN, access is VPN-free | Funkwhale account (admin seeded; see below) |
 | `kiwix.sandstorm.chat` | Offline Wikipedia and other archives | none |
 | `grafana.sandstorm.chat` | Dashboards and metrics | Grafana account |
