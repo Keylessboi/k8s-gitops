@@ -112,6 +112,18 @@ spec:
             # through WireGuard, and dropped if it is down.
             - name: FIREWALL_OUTBOUND_SUBNETS
               value: "10.42.0.0/16,10.43.0.0/16"
+            # gluetun otherwise rewrites the netns resolv.conf to a public
+            # resolver (1.1.1.1), which routes DNS through the tunnel and
+            # CANNOT resolve cluster-internal names - the AIOStreams addon
+            # endpoint (aiostreams.jellyfin.svc.cluster.local) was unresolvable
+            # and the addon create failed with 502 until this was set. Keeping
+            # the pod's original nameserver (kube-dns, 10.43.0.10) sends DNS to
+            # the service CIDR, which the firewall bypasses above - so cluster
+            # names resolve, public names resolve via CoreDNS upstream, and
+            # nothing about the killswitch changes (kube-dns is cluster-
+            # internal, the same class of destination as the bypass itself).
+            - name: DNS_KEEP_NAMESERVER
+              value: "on"
             - name: DOT
               value: "off"
             - name: TZ
