@@ -136,6 +136,36 @@ helmCharts:
             memory: 1Gi
       worker:
         replicas: 1
+        # Probe timings, explicit. The chart defaults carry timeoutSeconds: 1
+        # and `ak healthcheck` is a full python process spawn that exceeds
+        # that window under load: after the 2026-08-31 node restart the
+        # worker was flooded with outpost reconciliation tasks, the
+        # healthcheck blew the 1s window three times, and the kubelet
+        # SIGTERMed it into a crash loop (17 restarts; "warm shutdown,
+        # exit 0" in the pod's lastState). The startup probe is the real
+        # fix - it gates liveness, giving the worker up to 5 minutes to
+        # drain a post-restart backlog before liveness starts judging it.
+        # Same failure class as the over-tight-probe lesson in the README.
+        livenessProbe:
+          exec:
+            command: [ak, healthcheck]
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 5
+        readinessProbe:
+          exec:
+            command: [ak, healthcheck]
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 10
+          failureThreshold: 5
+        startupProbe:
+          exec:
+            command: [ak, healthcheck]
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 30
         resources:
           requests:
             cpu: 50m
