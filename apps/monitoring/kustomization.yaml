@@ -374,6 +374,12 @@ helmCharts:
             installOperator: false
       lokiCanary:
         enabled: true
+      # Pin the ServiceAccount name. Chart 6.46.0 changed the default from
+      # the chart name (`loki`) to the fullname (`loki-loki`) - without this
+      # pin the upgrade renames the SA out from under the running pod and
+      # breaks its token mount and RBAC.
+      serviceAccount:
+        name: loki
   # Blackbox exporter: probes endpoints from inside the cluster so Prometheus
   # can watch services that have no exporter of their own. Here it exists for
   # exactly one target - MinIO's /minio/health/cluster on the NAS, which
