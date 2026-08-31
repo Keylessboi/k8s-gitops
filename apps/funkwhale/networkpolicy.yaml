@@ -1,0 +1,88 @@
+---
+# Default-deny with explicit allowances, the repo-standard shape (mirrors
+# apps/downloads/networkpolicy.yaml). The gluetun container's tunnel egress is
+# the 0.0.0.0/0 rule at the bottom - the killswitch itself lives in gluetun's
+# iptables, not here; this policy only has to let the tunnel be established
+# and the in-cluster paths work.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: funkwhale
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Traefik, for the web UI, streaming and inbound federation deliveries
+    # (remote instances POST activities to our public inbox URL, which lands
+    # at the same edge route as the owner's browser).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 80
+          protocol: TCP
+  egress:
+    # k3s apiserver, reachable only by ipBlock.
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
+        - port: 443
+          protocol: TCP
+    # k3s DNATs 10.43.0.1:443 to the node's own address before NetworkPolicy
+    # egress is evaluated, so the Service rule above matches nothing for a new
+    # connection and the API call fails. This is the defect that broke CNPG's
+    # base backups and, here, kept the Doppler operator from ever winning leader
+    # election - i.e. from ever syncing a secret.
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.0/24
+      ports:
+        - port: 6443
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # PostgreSQL: the funkwhale database on the shared CNPG cluster.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: databases
+      ports:
+        - port: 5432
+          protocol: TCP
+    # Redis: the shared redis-master, logical DBs 2 (cache) and 3 (broker).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: redis
+      ports:
+        - port: 6379
+          protocol: TCP
+    # gluetun needs to reach the AirVPN endpoint and, once up, the internet -
+    # this is the rule that lets the tunnel exist. Everything that actually
+    # flows through it is confined by gluetun's own firewall (the killswitch),
+    # which is airtight by construction: tunnel down = no egress, not
+    # "egress without the tunnel".
+    #
+    # Deliberately NOT here: the 192.168.1.240:443 / kube-system 8443+8000
+    # edge rules other apps carry for OIDC discovery. Funkwhale runs native
+    # users today; if Authentik OIDC is enabled for users later (the flagged
+    # post-deploy step in issue #2), those two rules must be added then or
+    # discovery will time out.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12

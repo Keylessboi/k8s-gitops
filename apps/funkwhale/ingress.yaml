@@ -1,0 +1,44 @@
+---
+# Funkwhale's web UI, streaming and federation endpoint, at
+# funkwhale.sandstorm.chat.
+#
+# NO Authentik forward-auth middleware here, and that is deliberate. Funkwhale
+# is FEDERATED: remote instances and their users fetch nodeinfo, actors,
+# libraries and the inbox over plain signed HTTP - there is no browser to
+# redirect through Authentik, and a blanket forward-auth would answer every
+# federation request with a 302 and sever the instance from the network.
+# Access control is Funkwhale's own user system (the admin account is seeded
+# by admin-job.yaml; sign-ups are off by default).
+#
+# Authentik OIDC for HUMAN users is a real Funkwhale feature and the flagged
+# post-deploy enable in issue #2 - it is configured inside Funkwhale
+# (FUNKWHALE_AUTHENTIK_* style settings per the docs), not at this Ingress, so
+# enabling it later needs no change here.
+#
+# CrowdSec and the rate limiter still apply to every request.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: funkwhale
+  namespace: funkwhale
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - funkwhale.sandstorm.chat
+      secretName: funkwhale-tls
+  rules:
+    - host: funkwhale.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: funkwhale
+                port:
+                  number: 80

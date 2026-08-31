@@ -1,0 +1,20 @@
+---
+# Funkwhale - federated music server (ActivityPub), the split-networking shape
+# the owner specified in issue #2: federation egress airtight behind AirVPN,
+# owner access VPN-free over the normal edge.
+#
+# The namespace is privileged, like downloads and jellyfin, for one reason and
+# one reason only: the pod carries a gluetun sidecar that needs NET_ADMIN and a
+# passed-in /dev/net/tun to bring up WireGuard. Baseline/restricted PodSecurity
+# forbid both. Every other container in the pod pins its own hardened
+# securityContext inside this looser floor.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: funkwhale
+  labels:
+    app.kubernetes.io/name: funkwhale
+    app.kubernetes.io/part-of: homelab
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
