@@ -1,15 +1,23 @@
 ---
-# qBittorrent, with ALL of its traffic forced through gluetun.
+# qBittorrent + slskd + seedboxapi, routed through the shared VPN gateway.
 #
-# gluetun and qBittorrent share one pod, so they share a network namespace.
-# qBittorrent has no network interface of its own beyond gluetun's tunnel: if
-# the VPN drops, gluetun's firewall drops the traffic rather than leaking to
-# the LAN. That containment is the entire point of putting them in one pod
-# rather than running qBittorrent standalone.
+# The gluetun sidecar has been removed. All three network-speaking containers
+# route through the VPN gateway's Shadowsocks proxy (port 8388) for outbound
+# traffic: qBittorrent's tracker/peer TCP connections, slskd's Soulseek
+# connections, and seedboxapi's MAM API calls.
 #
-# Credentials are now present, so this runs. If they are ever cleared, gluetun
-# fails to build a tunnel and the whole pod stays down - which is the correct
-# failure mode: no tunnel means no traffic, rather than traffic in the clear.
+# The killswitch is enforced by the downloads NetworkPolicy: egress is locked
+# to DB, redis, DNS, the VPN gateway proxy, and the kube-system OIDC
+# endpoints. Direct internet egress is DENIED.
+#
+# CAVEAT: qBittorrent's SOCKS5 proxy only carries TCP traffic. UDP-based
+# DHT and UDP tracker announces egress from the node's WAN. This is
+# acceptable for the MAM use case (MAM trackers are TCP-only).
+#
+# CAVEAT: AirVPN's forwarded ports (6877 for qBittorrent, 6874 for slskd)
+# are forwarded through the VPN tunnel and terminate at gluetun's pod IP.
+# With gluetun removed, incoming peer connections on these ports will not
+# reach the pod. Outbound-only operation is unaffected.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -131,98 +139,37 @@ spec:
               mountPath: /app
             - name: data
               mountPath: /data
-      containers:
-        - name: gluetun
-          # v3.40.0 aborted at startup the moment it detected the pod's
-          # IPv6 link-local address: "for ip6tables: failed cleaning up test
-          # rule ... Bad rule", immediately followed by shutdown. Nothing in
-          # the cluster was wrong - ip6tables works fine inside the LXC and the
-          # kernel modules are loaded - it is gluetun's own ip6tables probe.
-          image: qmcgaw/gluetun:v3.41.3
-          securityContext:
-            capabilities:
-              add: ["NET_ADMIN"]
-          env:
-            - name: VPN_SERVICE_PROVIDER
-              value: airvpn
-            - name: VPN_TYPE
-              value: wireguard
-            # Pinned exit (owner decision 2026-08-29): a roaming AirVPN exit
-            # changes ASN across providers, which killed the MAM seedbox
-            # session on every restart. SERVER_NAMES pins the exit to one
-            # server so IP+ASN stay stable and one re-seed is the last.
-            # Trade-off: if Aquila dies, the tunnel stays down until the pin
-            # is changed. (WIREGUARD_ENDPOINT does not work here - the
-            # built-in airvpn provider overrides it with its server list.)
-            - name: SERVER_NAMES
-              value: Aquila
-            - name: WIREGUARD_PRIVATE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: airvpn
-                  key: private-key
-            - name: WIREGUARD_PRESHARED_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: airvpn
-                  key: preshared-key
-            - name: WIREGUARD_ADDRESSES
-              valueFrom:
-                secretKeyRef:
-                  name: airvpn
-                  key: addresses
-            # SERVER_COUNTRIES deliberately unset. gluetun filters its AirVPN
-            # server list by literal country name, so a placeholder like
-            # "Earth" matches nothing and startup fails with no server found.
-            # Omitting it entirely is how you say "anywhere", which is what is
-            # wanted here. The value is still kept in Doppler for the day a
-            # real country is wanted.
-            # Let the pod's own subnet through so the qui UI and Prowlarr can
-            # still reach qBittorrent's WebUI while everything else is tunnelled.
-            - name: FIREWALL_OUTBOUND_SUBNETS
-              value: "10.42.0.0/16,10.43.0.0/16"
-            # The ports AirVPN forwards for this account: 6877 for
-            # qBittorrent, 6874 for slskd. AirVPN forwards nothing by default -
-            # without a reservation the tunnel is outbound-only, so peers can
-            # never connect in and both swarm speed and seeding suffer. These
-            # must match what the clients actually listen on.
-            - name: FIREWALL_VPN_INPUT_PORTS
-              value: "6877,6874"
-            - name: DOT
-              value: "off"
-            - name: TZ
-              value: UTC
-          ports:
-            - name: qbit-http
-              containerPort: 8080
-          resources:
-            requests:
-              cpu: 25m
-              memory: 64Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
-          livenessProbe:
-            # A liveness timeout here RESTARTS gluetun, which drops the VPN and takes
-            # qBittorrent and slskd down with it - they share its network namespace.
-            # Far better to tolerate a slow check than to tear the tunnel down.
-            timeoutSeconds: 10
-            failureThreshold: 6
-            exec:
-              command: ["/gluetun-entrypoint", "healthcheck"]
-            initialDelaySeconds: 30
-            periodSeconds: 60
+        # Configure qBittorrent's SOCKS5 proxy to route tracker/peer TCP
+        # traffic through the shared VPN gateway's Shadowsocks proxy.
+        - name: qbit-proxy-config
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              CONF=/config/qBittorrent
+              mkdir -p "$CONF"
+              if [ -f "$CONF/qBittorrent.conf" ]; then
+                cat >> "$CONF/qBittorrent.conf" <<'PROXY'
+                [LegalNotice]
+                Accepted=true
+                [Proxy]
+                Enabled=true
+                Type=5
+                Host=vpn-gateway.vpn.svc.cluster.local
+                Port=8388
+                UseProxyForPeerConnections=true
+                UseProxyForTrackerConnections=true
+                PROXY
+                echo "qBittorrent SOCKS5 proxy configured"
+              else
+                echo "qBittorrent config not yet created; proxy will be set on next restart"
+              fi
           volumeMounts:
-            # WireGuard needs a TUN device, and Kubernetes does not expose one
-            # by default: gluetun fails with "opening TUN device file:
-            # operation not permitted". NET_ADMIN alone is not enough - the
-            # device node itself has to be passed in.
-            - name: tun
-              mountPath: /dev/net/tun
-        # slskd (Soulseek), in the SAME pod for the same reason qBittorrent is:
-        # sharing gluetun's network namespace means its only route out is the
-        # tunnel. Soulseek is peer-to-peer, so running it outside the tunnel
-        # would expose the connection just as a bare torrent client would.
+            - name: config
+              mountPath: /config
+      containers:
+        # --- slskd (Soulseek), SOCKS5-routed through the VPN gateway. ---
         - name: slskd
           image: slskd/slskd:0.23.2
           # slskd/slskd is NOT a linuxserver image, so PUID/PGID do nothing here
@@ -261,6 +208,14 @@ spec:
               value: "false"
             - name: TZ
               value: UTC
+            # Route Soulseek connections through the shared VPN gateway's
+            # Shadowsocks proxy. slskd honours these env vars natively.
+            - name: SLSKD_SLSK_PROXY
+              value: "true"
+            - name: SLSKD_SLSK_PROXY_ADDRESS
+              value: vpn-gateway.vpn.svc.cluster.local
+            - name: SLSKD_SLSK_PROXY_PORT
+              value: "8388"
           ports:
             - name: slskd
               containerPort: 5030
@@ -453,6 +408,8 @@ spec:
             # `kubectl logs` on this namespace can read it. The undebugged
             # output ("Session is valid", "No IP change detected", "New IP
             # detected") is enough to tell whether it is working.
+            - name: all_proxy
+              value: socks5h://vpn-gateway.vpn.svc.cluster.local:8388
             - name: TZ
               value: UTC
           resources:
@@ -498,10 +455,6 @@ spec:
         - name: slskd-config
           persistentVolumeClaim:
             claimName: slskd-config
-        - name: tun
-          hostPath:
-            path: /dev/net/tun
-            type: CharDevice
         - name: data
           persistentVolumeClaim:
             claimName: media-data

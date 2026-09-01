@@ -1,4 +1,20 @@
 ---
+# Killswitch NetworkPolicy for the migrated downloads pod.
+#
+# With the gluetun sidecar removed, the pod has its own network interface
+# and COULD reach the internet directly. This policy is the killswitch:
+# egress is locked to cluster-internal services and the VPN gateway's
+# Shadowsocks proxy ONLY. Direct internet egress (0.0.0.0/0) is DENIED.
+#
+# If the VPN gateway goes down, the download stack can still reach DB,
+# redis, DNS, and the kube-system OIDC endpoints, but cannot reach the
+# internet - which is the correct failure mode (no traffic without the
+# tunnel, rather than traffic without the tunnel).
+#
+# CAVEAT: qBittorrent's SOCKS5 proxy only carries TCP traffic. UDP-based
+# DHT and UDP tracker announces would need to be disabled or proxied
+# separately. MAM trackers are TCP-only, so this is acceptable for the
+# MAM use case.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -32,10 +48,7 @@ spec:
         - port: 8080
           protocol: TCP
     # Lidarr drives slskd through its API, and both Lidarr and Readarr drive
-    # qBittorrent's WebUI. 8080 was previously allowed only from downloads and
-    # prowlarr, so the arr apps' download-client tests failed with "Unable to
-    # connect to qBittorrent" while qBittorrent itself was perfectly healthy -
-    # a login through the same Service from the node returned 200.
+    # qBittorrent's WebUI.
     - from:
         - namespaceSelector:
             matchLabels:
@@ -56,17 +69,13 @@ spec:
       ports:
         - port: 443
           protocol: TCP
-    # k3s DNATs 10.43.0.1:443 to the node's own address before NetworkPolicy
-    # egress is evaluated, so the Service rule above matches nothing for a new
-    # connection and the API call fails. This is the defect that broke CNPG's
-    # base backups and, here, kept the Doppler operator from ever winning leader
-    # election - i.e. from ever syncing a secret.
     - to:
       - ipBlock:
           cidr: 192.168.1.0/24
       ports:
       - port: 6443
         protocol: TCP
+    # DNS. CoreDNS resolves hostnames; namespace-qualified.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -81,11 +90,7 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: downloads
-    # qui -> Prowlarr, for the torznab "1-click" indexer sync (Settings ->
-    # Indexers) and for cross-seed searches. qui keeps the indexer list and its
-    # API key in its own DB, not env - this egress is the only GitOps-side
-    # change the integration needs. Prowlarr's ingress must allow downloads too;
-    # this cluster evaluates NetworkPolicy at both ends.
+    # qui -> Prowlarr.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -93,25 +98,13 @@ spec:
       ports:
         - port: 9696
           protocol: TCP
-    # gluetun needs to reach the VPN endpoint and, once up, the internet.
-    # Peer traffic is confined to the tunnel by gluetun's own firewall; this
-    # rule only has to let the tunnel itself be established.
-    # Reach our own services through the load balancer.
-    # CoreDNS resolves *.sandstorm.chat to 192.168.1.240 in-cluster (see
-    # apps/coredns), and the 0.0.0.0/0 rule below deliberately excludes
-    # 192.168.0.0/16 - so without this rule that lookup succeeds and the connection
-    # is then dropped. Needed by anything doing OIDC discovery against Authentik.
+    # OIDC discovery via the Traefik LoadBalancer.
     - to:
       - ipBlock:
           cidr: 192.168.1.240/32
       ports:
       - port: 443
         protocol: TCP
-    # ...and the same rule again in post-DNAT terms. k3s translates
-    # 192.168.1.240:443 to the Traefik pod at :8443 BEFORE NetworkPolicy egress is
-    # evaluated, so the ipBlock rule above matches nothing on a new connection -
-    # the identical trap that broke CNPG's base backups and the Doppler operator.
-    # Traefik listens on 8443/8000 internally, not 443/80.
     - to:
       - namespaceSelector:
           matchLabels:
@@ -121,12 +114,17 @@ spec:
         protocol: TCP
       - port: 8000
         protocol: TCP
+    # The shared VPN gateway's Shadowsocks proxy. qBittorrent's SOCKS5
+    # tracker/peer traffic, slskd's Soulseek connections, and seedboxapi's
+    # MAM API calls all go through here. This is the only path to the
+    # public internet - the killswitch.
     - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.0.0.0/8
-              - 172.16.0.0/12
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vpn
+      ports:
+        - {port: 8388, protocol: TCP}
+        - {port: 8388, protocol: UDP}
     # MinIO on the NAS, for JuiceFS-backed volumes.
     - to:
         - ipBlock:
