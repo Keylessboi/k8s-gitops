@@ -1,0 +1,199 @@
+---
+# Shared VPN gateway: ONE gluetun container serving the entire cluster.
+#
+# This replaces the four per-app gluetun sidecars (downloads, funkwhale,
+# remux, jellyfin) with a single WireGuard tunnel that consumer apps reach
+# through built-in proxy servers:
+#
+#   - HTTP proxy on :8888 (HTTPPROXY) - for funkwhale (Django/requests) and
+#     remux (Rust/reqwest) outbound HTTP(S) federation/metadata calls.
+#   - Shadowsocks on :8388 - for qBittorrent's SOCKS5 peer/tracker traffic
+#     and slskd's Soulseek connections.
+#
+# DNS: gluetun rewrites /etc/resolv.conf to its own upstream resolver, which
+# cannot resolve cluster-internal names (*.svc.cluster.local). DNS_KEEP_NAMESERVER=on
+# preserves the original kube-dns entry so cluster DNS keeps working. Consumer
+# apps use the cluster DNS (CoreDNS) for all lookups; external names resolve
+# via CoreDNS upstream, and internal names via kube-dns directly. This is the
+# same fix proven in apps/funkwhale and apps/remux.
+#
+# Killswitch: the consumer apps' NetworkPolicies enforce the killswitch
+# boundary at the kubernetes level. Each consumer namespace is locked down:
+# egress to the vpn-gateway proxy ports is explicitly allowed, and direct
+# internet egress (0.0.0.0/0 except RFC1918) is DENIED. This means if the
+# VPN gateway goes down, consumer apps cannot reach the internet at all -
+# they are confined to cluster-internal traffic (DB, redis, DNS).
+# gluetun's own firewall (FIREWALL_OUTBOUND_SUBNETS) provides the second
+# layer on the gateway side: cluster CIDRs bypass the tunnel, everything
+# else is forced through WireGuard.
+#
+# SERVER_NAMES=Aquila is pinned. The MAM seedbox session is IP-tied to this
+# exit server - changing it breaks the session. The pin MUST stay.
+# TRADE-OFF: if Aquila goes down, the tunnel stays up on a different server
+# but the exit IP changes and MAM needs re-seeding.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vpn-gateway
+  namespace: vpn
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vpn-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vpn-gateway
+    spec:
+      securityContext:
+        # Pod-level: covers gluetun. RuntimeDefault was MEASURED safe for
+        # this exact image in apps/downloads/qbittorrent.yaml (tunnel setup
+        # is ioctl(TUNSETIFF)+netlink, both allowed; the denied set is
+        # mount/unshare/bpf/keyctl, none of which gluetun uses).
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gluetun
+          # v3.41.3 pinned: v3.40.0 aborts at startup on this LXC's IPv6
+          # link-local address ("for ip6tables: failed cleaning up test
+          # rule"). v3.41.3 does not.
+          image: qmcgaw/gluetun:v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+          env:
+            - name: VPN_SERVICE_PROVIDER
+              value: airvpn
+            - name: VPN_TYPE
+              value: wireguard
+            # Pinned exit (owner decision 2026-08-29): a roaming AirVPN exit
+            # changes ASN across providers, which killed the MAM seedbox
+            # session on every restart. SERVER_NAMES pins the exit to one
+            # server so IP+ASN stay stable and one re-seed is the last.
+            # Trade-off: if Aquila dies, the tunnel stays down until the pin
+            # is changed.
+            - name: SERVER_NAMES
+              value: Aquila
+            - name: WIREGUARD_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: airvpn
+                  key: private-key
+            - name: WIREGUARD_PRESHARED_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: airvpn
+                  key: preshared-key
+            - name: WIREGUARD_ADDRESSES
+              valueFrom:
+                secretKeyRef:
+                  name: airvpn
+                  key: addresses
+            # SERVER_COUNTRIES deliberately unset. gluetun filters its AirVPN
+            # server list by literal country name, so a placeholder like
+            # "Earth" matches nothing and startup fails with no server found.
+            # Omitting it entirely is how you say "anywhere", which is what is
+            # wanted here.
+            #
+            # THE KILLSWITCH BOUNDARY. Only these subnets bypass the tunnel:
+            #   10.42.0.0/16 pod CIDR     - so consumer apps can reach this
+            #                               service, and replies get back.
+            #   10.43.0.0/16 service CIDR - so DNS (CoreDNS) works.
+            # Everything else (all public internet) is forced through
+            # WireGuard, and dropped if it is down.
+            - name: FIREWALL_OUTBOUND_SUBNETS
+              value: "10.42.0.0/16,10.43.0.0/16"
+            # AirVPN forwarded ports for this account: 6877 for qBittorrent,
+            # 6874 for slskd. These are forwarded through the VPN tunnel, so
+            # peer connections arrive through the Aquila exit.
+            - name: FIREWALL_VPN_INPUT_PORTS
+              value: "6877,6874"
+            # HTTP proxy: consumer apps point HTTP_PROXY/HTTPS_PROXY at
+            # vpn-gateway.vpn.svc.cluster.local:8888.
+            - name: HTTPPROXY
+              value: "on"
+            # Shadowsocks proxy: consumer apps point their SOCKS5 client at
+            # vpn-gateway.vpn.svc.cluster.local:8388. This carries
+            # qBittorrent's tracker/peer TCP traffic and slskd's Soulseek
+            # connections. The password is in Doppler (VPN_SHADOWSOCKS_PASSWORD).
+            - name: SHADOWSOCKS
+              value: "on"
+            - name: SHADOWSOCKS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vpn-proxy
+                  key: shadowsocks-password
+                  optional: true
+            - name: SHADOWSOCKS_CIPHER
+              value: "aes-256-gcm"
+            # Keep the original kube-dns nameserver so cluster-internal DNS
+            # (*.svc.cluster.local) keeps working. Without this, gluetun
+            # rewrites resolv.conf to its upstream resolver (e.g. 1.1.1.1)
+            # which cannot resolve cluster names.
+            - name: DNS_KEEP_NAMESERVER
+              value: "on"
+            - name: DOT
+              value: "off"
+            - name: TZ
+              value: UTC
+          ports:
+            - name: http-proxy
+              containerPort: 8888
+            - name: shadowsocks
+              containerPort: 8388
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            # A liveness timeout here RESTARTS gluetun, which drops the VPN.
+            # Far better to tolerate a slow check than tear the tunnel down.
+            timeoutSeconds: 10
+            failureThreshold: 6
+            exec:
+              command: ["/gluetun-entrypoint", "healthcheck"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+          volumeMounts:
+            # WireGuard needs a TUN device; Kubernetes does not expose one by
+            # default. NET_ADMIN alone is not enough - the device node itself
+            # must be passed in or gluetun fails with "operation not permitted".
+            - name: tun
+              mountPath: /dev/net/tun
+      volumes:
+        - name: tun
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice
+---
+# ClusterIP service: consumer apps reach the VPN through these ports.
+# No LoadBalancer, no Ingress - this is cluster-internal only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vpn-gateway
+  namespace: vpn
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vpn-gateway
+  ports:
+    - name: http-proxy
+      port: 8888
+      targetPort: http-proxy
+      protocol: TCP
+    - name: shadowsocks
+      port: 8388
+      targetPort: shadowsocks
+      protocol: TCP
+    # UDP for Shadowsocks clients that tunnel UDP (DNS over SOCKS5).
+    - name: shadowsocks-udp
+      port: 8388
+      targetPort: shadowsocks
+      protocol: UDP

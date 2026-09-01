@@ -1,0 +1,59 @@
+---
+# NetworkPolicy for the VPN gateway namespace.
+#
+# This pod MUST reach the public internet (AirVPN endpoint, all tunnelled
+# traffic). It also needs DNS. The policy is permissive on egress because
+# gluetun's own firewall is the fine-grained boundary - this policy only
+# needs to let the tunnel exist.
+#
+# On ingress: only consumer namespaces (downloads, funkwhale, remux, jellyfin)
+# may reach the proxy ports. Nobody else needs to.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: vpn
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Consumer namespaces reach the HTTP proxy (8888) and Shadowsocks (8388).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: downloads
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: funkwhale
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: remux
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: jellyfin
+      ports:
+        - {port: 8888, protocol: TCP}
+        - {port: 8388, protocol: TCP}
+        - {port: 8388, protocol: UDP}
+  egress:
+    # DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    # Everything else. gluetun needs to reach the AirVPN WireGuard endpoint
+    # (public IP, arbitrary UDP port) and tunnel all public internet traffic.
+    # Private RFC1918 space is excluded - the gateway does not need to reach
+    # any cluster-internal service (it proxies for others, it does not call
+    # them).
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12

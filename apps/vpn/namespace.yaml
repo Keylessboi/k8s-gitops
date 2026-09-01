@@ -1,0 +1,20 @@
+---
+# Shared VPN gateway namespace. Houses the single gluetun container that all
+# VPN-consuming apps in the cluster route through.
+#
+# privileged, like downloads/funkwhale/remux/jellyfin and for the identical
+# reason: gluetun needs NET_ADMIN and a passed-in /dev/net/tun to bring up
+# WireGuard. The baseline/restricted PodSecurity profiles forbid both.
+# Consumer apps still pin their own hardened securityContexts inside their
+# own namespaces - privileged here is the floor this namespace allows, not
+# what each container asks for.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vpn
+  labels:
+    app.kubernetes.io/name: vpn
+    app.kubernetes.io/part-of: homelab
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
