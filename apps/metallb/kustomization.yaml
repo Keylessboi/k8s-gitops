@@ -32,7 +32,6 @@ labels:
 
 resources:
   - namespace.yaml
-  - metallb-ns.yaml
   - address-pool.yaml
 
 # helmCharts is the Kustomize way to cut a Helm release in ArgoCD.
