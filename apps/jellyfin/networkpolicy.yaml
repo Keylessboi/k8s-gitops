@@ -1,20 +1,14 @@
 ---
-# Two layers guard this pod's egress and they are NOT the same thing:
+# Killswitch NetworkPolicy for the migrated jellyfin pod.
 #
-#   1. gluetun's own firewall (FIREWALL_OUTBOUND_SUBNETS in the Deployment)
-#      decides which destinations bypass the WireGuard tunnel (cluster + LAN)
-#      versus which are forced through it (all public internet = the stream
-#      sources). That is the killswitch: if the tunnel drops, everything not in
-#      FIREWALL_OUTBOUND_SUBNETS is dropped rather than leaking to the WAN.
+# With the gluetun sidecar removed, the pod has its own network interface
+# and COULD reach the internet directly. This policy is the killswitch:
+# egress is locked to cluster-internal services and the VPN gateway's
+# HTTP proxy port ONLY. Direct internet egress (0.0.0.0/0) is DENIED.
 #
-#   2. This NetworkPolicy decides what may leave the pod's network namespace at
-#      all. It has to be permissive enough for gluetun to reach the AirVPN
-#      endpoint (a public IP, arbitrary UDP port) and for the tunnelled traffic
-#      to flow, then gluetun's firewall does the fine-grained routing.
-#
-# So this policy deliberately allows broad public egress; containment is
-# gluetun's job, not this file's. What this file adds is: pod isolation on
-# ingress (only Traefik may reach the WebUI), DNS, and the two hops OIDC needs.
+# If the VPN gateway goes down, Jellyfin can still serve the local library
+# (NFS is a node-level mount) but cannot fetch metadata or stream debrid
+# sources - which is the correct failure mode.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -27,9 +21,7 @@ spec:
     - Egress
   ingress:
     # Traefik (kube-system) -> Jellyfin WebUI/API on 8096, plus the cert-manager
-    # HTTP-01 solver on 8089. AIOStreams (3000) is deliberately NOT exposed to
-    # the network - it is reached only over localhost by Gelato inside this pod,
-    # and by the owner via `kubectl port-forward` for one-time configuration.
+    # HTTP-01 solver on 8089.
     - from:
         - namespaceSelector:
             matchLabels:
@@ -38,22 +30,15 @@ spec:
         - {port: 8096, protocol: TCP}
         - {port: 8089, protocol: TCP}
     # The remux namespace, for the AIOStreams manifest fetch through the
-    # aiostreams Service (see that Service in apps/jellyfin/deployment.yaml).
-    # Without this rule the default-deny ingress here would blackhole that
-    # Service for remux even though the Service itself selects this pod.
-    # Scoped to the remux namespace and port 3000 only - 8096 stays
-    # Traefik-only.
+    # aiostreams Service.
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: remux
       ports:
         - {port: 3000, protocol: TCP}
-    # kubelet readiness probes reach the pod from the node and are not gated by
-    # this policy (the CNI whitelists the host), same as navidrome/lidarr - so
-    # no explicit node rule is needed here.
   egress:
-    # DNS. CoreDNS resolves jellyfin/authentik hostnames; namespace-qualified.
+    # DNS. CoreDNS resolves hostnames; namespace-qualified.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -64,9 +49,7 @@ spec:
     # OIDC, server-to-server: the SSO plugin fetches Authentik's token/userinfo
     # endpoints at authentik.sandstorm.chat, which CoreDNS answers as
     # 192.168.1.240 (the Traefik LoadBalancer). k3s DNATs 192.168.1.240:443 to
-    # the Traefik pod at :8443 BEFORE this policy is evaluated, so the rule must
-    # name the post-DNAT destination (kube-system 8443/8000) or the OIDC call is
-    # silently dropped - the same trap documented in apps/books and apps/downloads.
+    # the Traefik pod at :8443 BEFORE this policy is evaluated.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -74,17 +57,23 @@ spec:
       ports:
         - {port: 8443, protocol: TCP}
         - {port: 8000, protocol: TCP}
-    # Everything else. gluetun needs to reach the AirVPN WireGuard endpoint (a
-    # public IP on an arbitrary UDP port) to build the tunnel, and once up the
-    # tunnelled stream traffic exits here too - so no port restriction. Private
-    # RFC1918 space is excluded EXCEPT 192.168.0.0/16, which is left in on
-    # purpose: the AirVPN endpoint is public (covered by 0.0.0.0/0), while
-    # 192.168.1.240 (Authentik via the LB, pre-DNAT) sits in the LAN range and
-    # must stay reachable. NFS to 192.168.1.67 is a node-level mount and never
-    # originates from this pod's namespace, so it needs no rule here.
+    # k3s apiserver, reachable only by ipBlock.
     - to:
         - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.0.0.0/8
-              - 172.16.0.0/12
+            cidr: 10.43.0.1/32
+      ports:
+        - {port: 443, protocol: TCP}
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.0/24
+      ports:
+        - {port: 6443, protocol: TCP}
+    # The shared VPN gateway's HTTP proxy. AIOStreams' torrentio/debrid
+    # queries and Jellyfin's metadata/plugin updates go through here.
+    # This is the only path to the public internet - the killswitch.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vpn
+      ports:
+        - {port: 8888, protocol: TCP}

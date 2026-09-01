@@ -1,4 +1,12 @@
 ---
+# Jellyfin media server + Gelato + AIOStreams.
+#
+# No longer privileged: the gluetun sidecar has been removed and replaced
+# with the shared VPN gateway (apps/vpn). The pod no longer needs NET_ADMIN
+# or /dev/net/tun. Baseline PodSecurity is sufficient for the remaining
+# containers (jellyfin/aiostreams), which all pin hardened securityContexts.
+#
+# NOTE: This app is pending decommission per the owner.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -6,13 +14,6 @@ metadata:
   labels:
     app.kubernetes.io/name: jellyfin
     app.kubernetes.io/part-of: homelab
-    # privileged, like the downloads namespace and for the identical reason:
-    # this pod contains a gluetun sidecar that needs NET_ADMIN and a passed-in
-    # /dev/net/tun to bring up WireGuard. The baseline/restricted PodSecurity
-    # profiles forbid both, so gluetun cannot start under them. Jellyfin and
-    # AIOStreams still pin their own hardened securityContext (runAsUser 1000,
-    # seccomp RuntimeDefault) inside this looser namespace - privileged here is
-    # the floor the namespace allows, not what each container asks for.
-    pod-security.kubernetes.io/enforce: privileged
-    pod-security.kubernetes.io/audit: privileged
-    pod-security.kubernetes.io/warn: privileged
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

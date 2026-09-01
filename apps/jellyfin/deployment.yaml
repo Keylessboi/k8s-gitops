@@ -1,20 +1,15 @@
 ---
-# Jellyfin + AIOStreams, with ALL public egress forced through gluetun.
+# Jellyfin + AIOStreams, with the gluetun sidecar removed.
 #
-# WHY they share one pod: Gelato (a Jellyfin plugin) proxies stream fetching
-# THROUGH Jellyfin, and AIOStreams is what queries torrentio/debrid. So the
-# process that pulls from public stream sources is Jellyfin's own egress. To be
-# airtight behind AirVPN, Jellyfin AND AIOStreams therefore have to sit inside
-# gluetun's network namespace: they get no interface of their own beyond the
-# tunnel, and if the VPN drops gluetun's firewall drops the traffic instead of
-# leaking the owner's real WAN IP to a tracker. This is the exact containment
-# pattern proven in apps/downloads/qbittorrent.yaml, deliberately duplicated
-# into its own pod rather than sharing the downloads pod (Jellyfin is heavy and
-# a separate concern).
+# Jellyfin is pending decommission per the owner. The gluetun sidecar has
+# been removed and replaced with the shared VPN gateway (apps/vpn). The
+# aiostreams container queries torrentio/debrid and needs internet access;
+# the NetworkPolicy allows this via the vpn-gateway proxy. Local library
+# playback is unaffected (NFS is a node-level mount).
 #
-# The LOCAL library is unaffected by the tunnel: NFS is a node-level mount
-# bind-mounted into the container, so library reads never traverse this pod's
-# network namespace and keep working even with the tunnel down.
+# NOTE: This app is pending decommission. The AIOStreams Service is also
+# consumed by the remux namespace. When jellyfin is decommissioned, the
+# aiostreams Service should be moved to remux or a standalone deployment.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -54,81 +49,6 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        # --- The tunnel. Everything public exits through here. ---
-        - name: gluetun
-          # Pinned to the same build proven in the downloads pod. v3.40.0 aborts
-          # at startup on this LXC's IPv6 link-local address ("for ip6tables:
-          # failed cleaning up test rule"); v3.41.3 does not.
-          image: qmcgaw/gluetun:v3.41.3
-          securityContext:
-            capabilities:
-              add: ["NET_ADMIN"]
-          env:
-            - name: VPN_SERVICE_PROVIDER
-              value: airvpn
-            - name: VPN_TYPE
-              value: wireguard
-            - name: WIREGUARD_PRIVATE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: airvpn
-                  key: private-key
-            - name: WIREGUARD_PRESHARED_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: airvpn
-                  key: preshared-key
-            - name: WIREGUARD_ADDRESSES
-              valueFrom:
-                secretKeyRef:
-                  name: airvpn
-                  key: addresses
-            # SERVER_COUNTRIES deliberately unset - gluetun filters AirVPN's
-            # server list by literal country name, so any placeholder matches
-            # nothing and startup fails. Omitting it means "anywhere", which is
-            # what is wanted; the exit IP moves on reconnect and that is fine.
-            #
-            # THE KILLSWITCH BOUNDARY. Only these subnets bypass the tunnel:
-            #   10.42.0.0/16 pod CIDR   - so Traefik can reach the WebUI and the
-            #                             WebUI's replies get back to Traefik.
-            #   10.43.0.0/16 service CIDR
-            #   192.168.1.0/24 LAN      - so the SSO plugin can reach Authentik
-            #                             via the 192.168.1.240 LoadBalancer.
-            # Everything else (all public internet = torrentio/debrid/stream
-            # sources) is forced through WireGuard, and dropped if it is down.
-            - name: FIREWALL_OUTBOUND_SUBNETS
-              value: "10.42.0.0/16,10.43.0.0/16,192.168.1.0/24"
-            # No FIREWALL_VPN_INPUT_PORTS: unlike qBittorrent, Jellyfin/AIOStreams
-            # never need an inbound port forwarded from the internet - they only
-            # pull streams outbound. The WebUI's inbound path is from Traefik over
-            # the LAN/pod bypass above, not through the tunnel.
-            - name: DOT
-              value: "off"
-            - name: TZ
-              value: UTC
-          resources:
-            requests:
-              cpu: 25m
-              memory: 64Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
-          livenessProbe:
-            # A restart of gluetun drops the tunnel and takes Jellyfin + AIOStreams
-            # down with it (shared netns), so tolerate a slow check rather than
-            # tearing the tunnel down on a blip.
-            exec:
-              command: ["/gluetun-entrypoint", "healthcheck"]
-            initialDelaySeconds: 30
-            periodSeconds: 60
-            timeoutSeconds: 10
-            failureThreshold: 6
-          volumeMounts:
-            # WireGuard needs a TUN device; Kubernetes does not expose one by
-            # default. NET_ADMIN alone is not enough - the device node itself
-            # must be passed in or gluetun fails with "operation not permitted".
-            - name: tun
-              mountPath: /dev/net/tun
         # --- Jellyfin. Direct-play media server; no transcoding (CPU-only node). ---
         - name: jellyfin
           # Official image (not linuxserver): runs cleanly as an arbitrary
@@ -229,6 +149,12 @@ spec:
             # SQLite on the persistent claim; holds the encrypted addon config.
             - name: DATABASE_URI
               value: sqlite:///app/data/db.sqlite
+            - name: HTTP_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: HTTPS_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16"
             - name: TZ
               value: UTC
           # No readinessProbe on purpose: all containers' readiness is ANDed into
@@ -259,10 +185,6 @@ spec:
         - name: cache
           emptyDir:
             sizeLimit: 4Gi
-        - name: tun
-          hostPath:
-            path: /dev/net/tun
-            type: CharDevice
         - name: media
           persistentVolumeClaim:
             claimName: media-data
