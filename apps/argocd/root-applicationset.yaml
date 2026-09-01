@@ -53,7 +53,7 @@ spec:
         # CustomResource that kubectl must parse as YAML before ArgoCD ever
         # templates it, and a bare conditional makes it invalid. Every other app
         # renders an empty string here, which ArgoCD reads as no options.
-        argocd.argoproj.io/compare-options: '{{ if has .path.basename (list "downloads" "vaultwarden" "books" "ghost" "nfs-csi" "metallb" "funkwhale") }}ServerSideDiff=false{{ end }}'
+        argocd.argoproj.io/compare-options: '{{ if has .path.basename (list "downloads" "vaultwarden" "books" "ghost" "nfs-csi" "metallb" "funkwhale" "remux") }}ServerSideDiff=false{{ end }}'
       finalizers:
         - resources-finalizer.argocd.argoproj.io
     spec:
