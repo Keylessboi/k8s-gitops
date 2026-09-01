@@ -1,9 +1,14 @@
 ---
-# Default-deny with explicit allowances, the repo-standard shape (mirrors
-# apps/downloads/networkpolicy.yaml). The gluetun container's tunnel egress is
-# the 0.0.0.0/0 rule at the bottom - the killswitch itself lives in gluetun's
-# iptables, not here; this policy only has to let the tunnel be established
-# and the in-cluster paths work.
+# Killswitch NetworkPolicy for the migrated funkwhale pod.
+#
+# With the gluetun sidecar removed, the pod has its own network interface
+# and COULD reach the internet directly. This policy is the killswitch:
+# egress is locked to cluster-internal services and the VPN gateway's
+# HTTP proxy port ONLY. Direct internet egress (0.0.0.0/0) is DENIED.
+#
+# If the VPN gateway goes down, funkwhale can still reach DB, redis, and
+# DNS but cannot federate - which is the correct failure mode (no traffic
+# without the tunnel, rather than traffic without the tunnel).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -44,6 +49,7 @@ spec:
       ports:
         - port: 6443
           protocol: TCP
+    # DNS. CoreDNS resolves funkwhale.sandstorm.chat and cluster hostnames.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -69,20 +75,14 @@ spec:
       ports:
         - port: 6379
           protocol: TCP
-    # gluetun needs to reach the AirVPN endpoint and, once up, the internet -
-    # this is the rule that lets the tunnel exist. Everything that actually
-    # flows through it is confined by gluetun's own firewall (the killswitch),
-    # which is airtight by construction: tunnel down = no egress, not
-    # "egress without the tunnel".
-    #
-    # Deliberately NOT here: the 192.168.1.240:443 / kube-system 8443+8000
-    # edge rules other apps carry for OIDC discovery. Funkwhale runs native
-    # users today; if Authentik OIDC is enabled for users later (the flagged
-    # post-deploy step in issue #2), those two rules must be added then or
-    # discovery will time out.
+    # The shared VPN gateway's HTTP proxy. All outbound federation
+    # (ActivityPub GET/POST) goes through here via HTTP_PROXY/HTTPS_PROXY
+    # env vars on the api, worker and beat containers. This is the only
+    # path to the public internet - the killswitch.
     - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.0.0.0/8
-              - 172.16.0.0/12
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vpn
+      ports:
+        - port: 8888
+          protocol: TCP

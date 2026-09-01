@@ -1,35 +1,20 @@
 ---
-# Funkwhale, in the gluetun killswitch shape proven by apps/downloads/qbittorrent.yaml
-# and apps/jellyfin/deployment.yaml, per the owner's split-networking design in
-# issue #2:
+# Funkwhale, routed through the shared VPN gateway (apps/vpn).
 #
-#   - OUTBOUND federation (ActivityPub delivery, follows, fetches of remote
-#     objects) must exit through AirVPN - other instances see the VPN exit,
-#     never the home WAN.
-#   - INBOUND owner access (web UI, streaming) rides the normal Traefik edge,
-#     VPN-free, and inbound federation deliveries are POSTed by remote
-#     instances to our public inbox URL at that same edge - nothing needs to
-#     come in through the tunnel.
+# Federation egress goes through the AirVPN tunnel via the gateway's HTTP
+# proxy (HTTP_PROXY/HTTPS_PROXY env vars on api/worker/beat). Owner access
+# (web UI, streaming) rides the normal Traefik edge, VPN-free. Inbound
+# federation deliveries arrive through the same edge.
 #
-# ONE pod holds all five containers. That is not laziness, it is the design:
+# The killswitch is enforced by the funkwhale NetworkPolicy: egress to the
+# vpn-gateway proxy port is allowed; direct internet egress is DENIED.
+# If the VPN gateway goes down, funkwhale cannot reach the internet at all -
+# only cluster-internal services (DB, redis, DNS).
 #
-#   - gluetun + api + celeryworker share a network namespace, so every process
-#     that speaks federation has no interface of its own beyond the tunnel. If
-#     the VPN drops, gluetun's firewall drops the traffic rather than leaking
-#     the home WAN IP to every instance we federate with. The api fetches
-#     remote objects synchronously (opening a remote artist page) and the
-#     worker delivers activities asynchronously (federation is a celery task),
-#     so BOTH need the tunnel - splitting them into separate pods would mean
-#     two gluetuns, two WireGuard sessions on the same AirVPN account, and two
-#     killswitch boundaries to test.
-#   - celerybeat only schedules tasks into redis; it rides along because it is
-#     30 MB of python and a separate Deployment for it would be pure overhead.
-#   - front (nginx) serves the built SPA and proxies /api, /federation and
-#     friends to the api. In the compose reference the ONLY published port is
-#     front's :80 - the api is never exposed directly - and keeping front in
-#     the pod lets it proxy over localhost, so the api port is not reachable
-#     from anywhere but this pod. The front needs no internet egress at all;
-#     sharing the netns costs it nothing.
+# FOUR containers remain (down from five): api, celery worker, celery beat,
+# and front nginx. The gluetun sidecar is gone - its job is now the shared
+# gateway. The data PVC is a shared NFS tree the migrate init container
+# and the api both write.
 #
 # The container layout mirrors the upstream compose file exactly (verified
 # against dev.funkwhale.audio/funkwhale/funkwhale deploy/docker-compose.yml at
@@ -138,101 +123,6 @@ spec:
             - name: data
               mountPath: /srv/funkwhale/data
       containers:
-        # --- The tunnel. Everything federation exits through here. ---
-        - name: gluetun
-          # Pinned to the same build proven in the downloads and jellyfin
-          # pods. v3.40.0 aborts at startup on this LXC's IPv6 link-local
-          # address ("for ip6tables: failed cleaning up test rule"); v3.41.3
-          # does not.
-          image: qmcgaw/gluetun:v3.41.3
-          securityContext:
-            capabilities:
-              add: ["NET_ADMIN"]
-          env:
-            - name: VPN_SERVICE_PROVIDER
-              value: airvpn
-            - name: VPN_TYPE
-              value: wireguard
-            - name: WIREGUARD_PRIVATE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: airvpn
-                  key: private-key
-            - name: WIREGUARD_PRESHARED_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: airvpn
-                  key: preshared-key
-            - name: WIREGUARD_ADDRESSES
-              valueFrom:
-                secretKeyRef:
-                  name: airvpn
-                  key: addresses
-            # SERVER_COUNTRIES deliberately unset, exactly like the downloads
-            # and jellyfin pods: gluetun filters AirVPN's server list by
-            # literal country name, so any placeholder matches nothing and
-            # startup fails. The owner explicitly declined pinning an exit
-            # ("I don't want to set a fixed VPN exit, it will update the IP
-            # and that's fine") - noted in issue #2 that the federation
-            # identity's exit IP will move on reconnect, same trade-off as the
-            # MAM seedbox session.
-            #
-            # THE KILLSWITCH BOUNDARY. Only these subnets bypass the tunnel:
-            #   10.42.0.0/16 pod CIDR     - Traefik reaches the front, and the
-            #                               front's replies get back to it.
-            #   10.43.0.0/16 service CIDR - api/worker/beat reach Postgres and
-            #                               redis through their Services.
-            # Everything else - all public internet, which for this pod means
-            # every instance we federate with - is forced through WireGuard
-            # and dropped if it is down. Airtight by construction.
-            - name: FIREWALL_OUTBOUND_SUBNETS
-              value: "10.42.0.0/16,10.43.0.0/16"
-            # No FIREWALL_VPN_INPUT_PORTS: inbound federation does NOT arrive
-            # through the tunnel. Remote instances POST activities to our
-            # public inbox URL (https://funkwhale.sandstorm.chat/federation/...),
-            # which lands at the Traefik edge and comes in over the pod
-            # network - the same path as the owner's browser. Only OUTBOUND
-            # egress tunnels.
-            - name: DOT
-              value: "off"
-            # gluetun rewrites /etc/resolv.conf for the whole pod netns to its
-            # own resolver (upstream public DNS), which cannot resolve
-            # cluster-internal names: worker/beat could not reach
-            # redis-master.redis.svc.cluster.local ('Name does not resolve').
-            # DNS_KEEP_NAMESERVER=on keeps the original kube-dns entry in the
-            # chain, so *.svc.cluster.local resolves again. kube-dns is
-            # cluster-internal - the same class of destination as the bypass
-            # subnets above - so the killswitch boundary is unchanged. Same
-            # fix as apps/remux.
-            - name: DNS_KEEP_NAMESERVER
-              value: "on"
-            - name: TZ
-              value: UTC
-          resources:
-            requests:
-              cpu: 25m
-              memory: 64Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
-          livenessProbe:
-            # A liveness timeout here RESTARTS gluetun, which drops the VPN
-            # and takes the api, worker and beat down with it - they share its
-            # network namespace. Far better to tolerate a slow check than to
-            # tear the tunnel down.
-            timeoutSeconds: 10
-            failureThreshold: 6
-            exec:
-              command: ["/gluetun-entrypoint", "healthcheck"]
-            initialDelaySeconds: 30
-            periodSeconds: 60
-          volumeMounts:
-            # WireGuard needs a TUN device, and Kubernetes does not expose one
-            # by default: gluetun fails with "opening TUN device file:
-            # operation not permitted". NET_ADMIN alone is not enough - the
-            # device node itself has to be passed in.
-            - name: tun
-              mountPath: /dev/net/tun
         # --- The Django API. Federation actor, REST API, streaming auth. ---
         - name: api
           # Pinned to tag AND index digest, like every image in this repo.
@@ -330,6 +220,18 @@ spec:
               value: /srv/funkwhale/data/music
             - name: MUSIC_DIRECTORY_SERVE_PATH
               value: /srv/funkwhale/data/music
+            # Route outbound HTTP(S) through the shared VPN gateway's HTTP
+            # proxy. Django/requests honours these env vars natively - every
+            # federation fetch (ActivityPub GET/POST) exits through the
+            # AirVPN tunnel. NO_PROXY keeps cluster-internal traffic (DB,
+            # redis, DNS) direct - those go through the pod network, not
+            # the proxy.
+            - name: HTTP_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: HTTPS_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,app-databases-rw.databases.svc.cluster.local,redis-master.redis.svc.cluster.local"
           ports:
             - name: api
               containerPort: 5000
@@ -436,6 +338,12 @@ spec:
               value: /srv/funkwhale/data/music
             - name: MUSIC_DIRECTORY_SERVE_PATH
               value: /srv/funkwhale/data/music
+            - name: HTTP_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: HTTPS_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,app-databases-rw.databases.svc.cluster.local,redis-master.redis.svc.cluster.local"
           resources:
             requests:
               cpu: 100m
@@ -509,6 +417,12 @@ spec:
               value: /srv/funkwhale/data/media
             - name: STATIC_ROOT
               value: /srv/funkwhale/data/static
+            - name: HTTP_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: HTTPS_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,app-databases-rw.databases.svc.cluster.local,redis-master.redis.svc.cluster.local"
           resources:
             requests:
               cpu: 25m
@@ -597,10 +511,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: funkwhale-data
-        - name: tun
-          hostPath:
-            path: /dev/net/tun
-            type: CharDevice
 ---
 # The ONLY published port, exactly like the compose reference: front's :80.
 # The api's :5000 stays inside the pod - the front proxies /api, /federation,
