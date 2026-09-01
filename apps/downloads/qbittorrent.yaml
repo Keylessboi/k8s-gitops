@@ -150,17 +150,7 @@ spec:
               CONF=/config/qBittorrent
               mkdir -p "$CONF"
               if [ -f "$CONF/qBittorrent.conf" ]; then
-                cat >> "$CONF/qBittorrent.conf" <<'PROXY'
-                [LegalNotice]
-                Accepted=true
-                [Proxy]
-                Enabled=true
-                Type=5
-                Host=vpn-gateway.vpn.svc.cluster.local
-                Port=8388
-                UseProxyForPeerConnections=true
-                UseProxyForTrackerConnections=true
-                PROXY
+                printf '[LegalNotice]\nAccepted=true\n[Proxy]\nEnabled=true\nType=5\nHost=vpn-gateway.vpn.svc.cluster.local\nPort=8388\nUseProxyForPeerConnections=true\nUseProxyForTrackerConnections=true\n' >> "$CONF/qBittorrent.conf"
                 echo "qBittorrent SOCKS5 proxy configured"
               else
                 echo "qBittorrent config not yet created; proxy will be set on next restart"
