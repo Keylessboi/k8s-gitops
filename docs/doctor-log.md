@@ -333,3 +333,15 @@ failed and the entry needs revisiting.
   The structural issue stands: the thin pool hosts this CT AND vm-2120
   (100G disk, ~66G written) - vm-2120 is the largest reclaimable block
   if abandoned (owner decision).
+
+## 2026-08-31 — metallb 0.16.1 retry SUCCEEDED (the namespace fix)
+
+- The retry after the rollback: created the `metallb` namespace
+  out-of-band (kustomize's namespace transformer ID-conflicts an in-git
+  Namespace resource with the real metallb-system one - the namespace
+  is a hand-applied object, documented here), kept
+  `frrk8s.enabled: false`, bumped to 0.16.1 - rbacReconcile passed,
+  controller and speaker came up 1/1 on 0.16.1, the edge verified
+  (302 through traefik). The metallb-ns.yaml file was removed from
+  git; the namespace must be recreated manually after any cluster
+  rebuild (noted in docs/SESSION-HANDOFF.md).

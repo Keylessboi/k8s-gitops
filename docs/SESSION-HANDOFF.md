@@ -25,8 +25,10 @@ to 0.14.9 after 0.16.1 crashed the edge. authentik 2025.12.4, CNPG 1.30.0, loki 
   CNPG 1.30.0 (primary restarted ~2 min, 20 DBs verified)
 
 ## ⛔ HOLD / owner decisions
-- **metallb 0.16.1 → CRASHED THE EDGE, rolled back to 0.14.9.** Two stacked failures: the SSD
-  ComparisonError (metallb now in the appset's ServerSideDiff=false list) and
+^- **metallb 0.16.1 → the first sync crashed the edge; the RETRY SUCCEEDED** after adding the
+  `metallb` namespace (out-of-band, hand-applied) which satisfied the rbacReconcile
+  `namespaces "metallb" not found` error. The SSD
+  ComparisonError (metallb is in the appset's ServerSideDiff=false list) remains fixed, and
   `rbacReconcile: namespaces "metallb" not found` (the 0.16.1 chart renders RBAC subjects pointing at
   a namespace that doesn't exist). Retry requires solving that namespace propagation first. Rollback
   trigger template: verify the edge within 3 min of any metallb change; `rollout undo` restores 0.14.9
