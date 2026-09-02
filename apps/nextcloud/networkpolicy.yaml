@@ -26,6 +26,16 @@ spec:
       protocol: TCP
     - port: 80
       protocol: TCP
+  # qBittorrent's AutoRun hook pushes completed torrents to a bot WebDAV
+  # account over the cluster-internal DAV endpoint. This is the ingress side
+  # of that handshake; the egress side lives in apps/downloads/networkpolicy.yaml.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: downloads
+    ports:
+    - port: 8080
+      protocol: TCP
   podSelector: {}
   policyTypes:
   - Ingress

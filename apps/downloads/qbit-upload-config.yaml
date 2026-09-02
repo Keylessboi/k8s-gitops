@@ -1,0 +1,58 @@
+---
+# Completed-torrent upload from a qBittorrent category to Nextcloud via WebDAV.
+#
+# Invoked by qBittorrent's AutoRun hook ("Run external program on torrent
+# completion") with %L (category) and %F (file/folder). A network PUT, not a
+# copy: the torrent stays on /data for seeding, and because the upload goes
+# through Nextcloud's WebDAV layer it is indexed by Nextcloud properly (a raw
+# write into Nextcloud's S3 objectstore would NOT surface in the UI - files
+# are registered in the oc_filecache/Postgres by the DAV layer).
+#
+# The destination credentials come from env vars injected from the
+# `nextcloud-webdav` secret (dedicated bot user, NOT the owner's account, so
+# the credential that lives in this untrusted torrent pod is revocable).
+#
+# AutoRun is a completion hook, not a readiness-coupled sidecar: a failed
+# upload is logged here and never empties the qbittorrent/slskd Service
+# endpoints. (The same lesson that made seedboxapi a supervised loop.)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qbit-upload-config
+  namespace: downloads
+data:
+  qbit-upload.sh: |
+    #!/bin/sh
+    # Upload a completed torrent to Nextcloud WebDAV.
+    # Usage: qbit-upload.sh "<category>" "<path>"   (qBittorrent AutoRun args)
+    set -u
+    CATEGORY="${NEXTCLOUD_CATEGORY:-nextcloud}"
+    WANT="${1:-}"
+    PATH_ARG="${2:-}"
+    [ "$WANT" = "$CATEGORY" ] || exit 0
+    [ -n "$PATH_ARG" ] && [ -e "$PATH_ARG" ] || { echo "qbit-upload: nothing at '$PATH_ARG'" >&2; exit 1; }
+    URL="${NEXTCLOUD_WEBDAV_URL:-}"
+    USER="${NEXTCLOUD_WEBDAV_USER:-}"
+    PASS="${NEXTCLOUD_WEBDAV_PASSWORD:-}"
+    [ -n "$URL" ] && [ -n "$USER" ] && [ -n "$PASS" ] || { echo "qbit-upload: webdav env not set" >&2; exit 1; }
+    BASEURL="$URL/remote.php/dav/files/$USER/qbittorrent"
+    upload() {
+      src="$1"
+      dst="$2"
+      curl -fsS --max-time 3600 --retry 3 -u "$USER:$PASS" -T "$src" "$dst" >/dev/null \
+        || echo "qbit-upload: PUT failed: $src" >&2
+    }
+    if [ -d "$PATH_ARG" ]; then
+      find "$PATH_ARG" -type f | while read -r f; do
+        rel="${f#"$PATH_ARG"/}"
+        dir="${rel%/*}"
+        [ "$dir" = "$rel" ] && dir=""
+        if [ -n "$dir" ]; then
+          curl -fsS --max-time 30 -u "$USER:$PASS" -X MKCOL "$BASEURL/$dir" >/dev/null 2>&1 || true
+        fi
+        upload "$f" "$BASEURL/$rel"
+      done
+    else
+      upload "$PATH_ARG" "$BASEURL/$(basename "$PATH_ARG")"
+    fi
+    echo "qbit-upload: done"

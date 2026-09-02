@@ -25,6 +25,7 @@ resources:
   - namespace.yaml
   - media-data-pv.yaml
   - pvc.yaml
+  - qbit-upload-config.yaml
   - networkpolicy.yaml
   - qbittorrent.yaml
   - qui.yaml

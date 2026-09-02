@@ -132,3 +132,15 @@ spec:
       ports:
         - port: 9000
           protocol: TCP
+    # Nextcloud's internal DAV endpoint, for the qBittorrent AutoRun upload
+    # hook (category "nextcloud" -> WebDAV PUT into the bot's files area).
+    # Goes to the cluster-internal Service (nextcloud.nextcloud.svc.cluster.local),
+    # not the public Traefik host, so the upload is not rate-limited. Nextcloud's
+    # own NetworkPolicy must allow this ingress - see apps/nextcloud/networkpolicy.yaml.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: nextcloud
+      ports:
+        - port: 8080
+          protocol: TCP

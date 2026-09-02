@@ -150,10 +150,10 @@ spec:
               CONF=/config/qBittorrent
               mkdir -p "$CONF"
               if [ -f "$CONF/qBittorrent.conf" ]; then
-                printf '[LegalNotice]\nAccepted=true\n[Proxy]\nEnabled=true\nType=5\nHost=vpn-gateway.vpn.svc.cluster.local\nPort=8388\nUseProxyForPeerConnections=true\nUseProxyForTrackerConnections=true\n' >> "$CONF/qBittorrent.conf"
-                echo "qBittorrent SOCKS5 proxy configured"
+                printf '[LegalNotice]\nAccepted=true\n[Proxy]\nEnabled=true\nType=5\nHost=vpn-gateway.vpn.svc.cluster.local\nPort=8388\nUseProxyForPeerConnections=true\nUseProxyForTrackerConnections=true\n[AutoRun]\nEnabled=true\nProgram=/bin/sh /scripts/qbit-upload.sh "%L" "%F"\n' >> "$CONF/qBittorrent.conf"
+                echo "qBittorrent SOCKS5 proxy + AutoRun configured"
               else
-                echo "qBittorrent config not yet created; proxy will be set on next restart"
+                echo "qBittorrent config not yet created; proxy + AutoRun will be set on next restart"
               fi
           volumeMounts:
             - name: config
@@ -259,6 +259,12 @@ spec:
             # like separate filesystems to the arr apps and loses hardlinks.
             - name: data
               mountPath: /data
+            # AutoRun hook (qbit-upload-config): qBittorrent invokes it via the
+            # [AutoRun] Program line written by qbit-proxy-config. Env-gated -
+            # without NEXTCLOUD_WEBDAV_* it no-ops, so Phase A (no secret yet)
+            # is safe.
+            - name: qbit-upload-script
+              mountPath: /scripts
         # MyAnonaMouse dynamic-seedbox IP updater, in this pod for the same
         # reason everything else here is: it MUST reach MAM from the VPN's
         # egress IP.
@@ -456,6 +462,10 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: media-data
+        - name: qbit-upload-script
+          configMap:
+            name: qbit-upload-config
+            defaultMode: 0755
 ---
 apiVersion: v1
 kind: Service
