@@ -23,6 +23,28 @@ State captured across outages and their recoveries. Newest first.
 - **Renovate queue: fully merged and verified** — authentik 2025.12.4, CNPG 1.30.0, nfs-csi 4.13.4,
   doppler 1.7.1, loki 6.55.0 (with the SA pin), metallb 0.16.1 (retry).
 
+## 🧰 The follow-up fixes (same evening, after the first verification)
+- **remux Bad Gateway fixed**: the remux Authentik provider is PROXY mode (the embedded outpost
+  proxies authenticated requests to remux:3000) and the remux ingress netpol only allowed
+  kube-system → the outpost's connections were rejected. Fixed BOTH sides: the remux ingress netpol
+  now allows the authentik namespace on 3000, and the authentik egress netpol allows remux:3000
+  (commit 0797aa7). Verified: the outpost→remux curl returns 308 (the path works). **remux is the
+  ONLY proxy-mode provider** — all 10 others are forward_single (Traefik handles), so no other app
+  has this netpol requirement (swept and confirmed via the Authentik API).
+- **invidious audio-but-never-video fixed**: the browser was fetching googlevideo directly (the
+  client's path to googlevideo is limited → big video streams failed, small audio streams worked).
+  Fix: `proxy_videos: true` in the rendered config (commit fcedec5) — the player now uses
+  `/latest_version` proxy paths through the companion sidecar; verified 86MB of valid MP4 served
+  through the full chain. The API still returns direct URLs (by design — the player is what matters).
+  17 stale invidious pods (the node's lost bookkeeping) deleted.
+- **qui→qbittorrent**: the netpol is verified correct (both ingress and egress allow intra-namespace);
+  the connection refused was the qbittorrent pod still in Init:0/2 (the slow slskd-config init +
+  NFS chown after the migration) with empty endpoints as a consequence. The deeper endpoints mystery
+  (empty even for Ready pods) was under investigation by another agent at handoff time.
+- **The airtight battery re-verified after the consolidation**: the gateway exits via the pinned
+  Aquila IP 23.130.104.134; direct IPv4 egress DENIED from funkwhale api and qbittorrent; IPv6
+  egress DENIED; the proxied paths (funkwhale, remux) exit via Aquila.
+
 ## For the next machine
 - Access: `ssh -i <key> -fN -L 16443:192.168.1.172:6443 travis@100.69.240.8` (tunnel) +
   `kubectl --kubeconfig <config-ts>`; the worker key and kubeconfig must exist on that machine.
