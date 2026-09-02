@@ -40,7 +40,10 @@ State captured across outages and their recoveries. Newest first.
 - **qui→qbittorrent**: the netpol is verified correct (both ingress and egress allow intra-namespace);
   the connection refused was the qbittorrent pod still in Init:0/2 (the slow slskd-config init +
   NFS chown after the migration) with empty endpoints as a consequence. The deeper endpoints mystery
-  (empty even for Ready pods) was under investigation by another agent at handoff time.
+  (empty even for Ready pods) was ROOT-CAUSED and fixed: the Service's named targetPort
+  `qbit-http` lived only on the removed gluetun sidecar - the qbittorrent container declared no
+  ports. Fixed (commit e36c66a): the port declaration moved to the qbittorrent container, endpoints
+  populated, qui→qbittorrent verified HTTP 200. See docs/doctor-log.md (the named-port contract).
 - **The airtight battery re-verified after the consolidation**: the gateway exits via the pinned
   Aquila IP 23.130.104.134; direct IPv4 egress DENIED from funkwhale api and qbittorrent; IPv6
   egress DENIED; the proxied paths (funkwhale, remux) exit via Aquila.

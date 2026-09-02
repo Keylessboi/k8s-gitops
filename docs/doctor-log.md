@@ -345,3 +345,25 @@ failed and the entry needs revisiting.
   (302 through traefik). The metallb-ns.yaml file was removed from
   git; the namespace must be recreated manually after any cluster
   rebuild (noted in docs/SESSION-HANDOFF.md).
+
+## 2026-09-01 — removing a sidecar silently emptied a Service's endpoints (named-port contract)
+
+- **Symptom:** qui could not reach qbittorrent (connection refused via the
+  Service IP); the qbittorrent pod was 3/3 Running+Ready with a matching
+  Service selector, yet the Endpoints object was empty - and stayed empty
+  through a k3s restart and an Endpoints deletion.
+- **Root cause:** the Service's targetPort was the NAMED port `qbit-http`,
+  which only the removed gluetun sidecar had declared. The qbittorrent
+  container (which actually serves 8080) declared NO ports. The endpoints
+  controller silently produces empty endpoints when a named targetPort
+  matches no container port - no error, no event, nothing.
+- **Fix:** declared `ports: [{name: qbit-http, containerPort: 8080}]` on
+  the qbittorrent container (commit e36c66a). Endpoints populated
+  (10.42.0.198:8080), qui connected, HTTP 200 from the WebUI.
+- **Prevention:** when removing a sidecar, audit every Service whose
+  targetPort is a NAMED port - the port name may live on the sidecar,
+  not the main container. A named targetPort with empty endpoints and a
+  Ready, label-matched pod = check the container port declarations first.
+  Side note: the slskd-config-render init takes ~45 min per restart
+  (chown -R over NFS on an already-owned tree) - an ownership check
+  before recursing would cut pod-start time dramatically.
