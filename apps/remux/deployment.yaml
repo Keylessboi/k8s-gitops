@@ -84,7 +84,7 @@ spec:
             # proxy. Rust/reqwest honours these env vars natively - stream
             # source fetches, TMDB metadata and the AIOStreams addon calls
             # exit through the AirVPN tunnel. NO_PROXY keeps cluster-internal
-            # traffic (AIOStreams addon in jellyfin ns) direct.
+            # traffic (the AIOStreams addon in this namespace) direct.
             #
             # CAVEAT: Remux's built-in torrent client (librqbit) makes raw
             # TCP connections to trackers and peers - these bypass the HTTP
@@ -97,7 +97,7 @@ spec:
             - name: HTTPS_PROXY
               value: http://vpn-gateway.vpn.svc.cluster.local:8888
             - name: NO_PROXY
-              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,aiostreams.jellyfin.svc.cluster.local"
+              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,aiostreams.remux.svc.cluster.local"
           ports:
             - name: http
               containerPort: 3000

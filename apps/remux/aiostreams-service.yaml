@@ -1,0 +1,28 @@
+---
+# The AIOStreams Service - consumed by the remux pod (same namespace, so this
+# Service publishes the standalone AIOStreams pod's port 3000 to the remux pod
+# at
+#   http://aiostreams.remux.svc.cluster.local:3000/stremio/<user>/<blob>/manifest.json
+# (the trailing blob is ciphertext under AIOSTREAMS_SECRET_KEY, so the URL is
+# portable to any caller that can reach this Service).
+#
+# Moved here from apps/jellyfin (where it previously exposed the jellyfin pod's
+# aiostreams sidecar) when Jellyfin was decommissioned. Deliberately NOT wired
+# to any Ingress: AIOStreams' configure UI holds debrid keys and stays
+# cluster-internal. The remux NetworkPolicy gates which pods may connect
+# (same-namespace egress to the aiostreams pod, port 3000). targetPort is
+# numeric because the aiostreams container declares no named containerPort; the
+# port is stable (PORT=3000 env).
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiostreams
+  namespace: remux
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: aiostreams
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000

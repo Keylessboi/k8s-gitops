@@ -1,0 +1,18 @@
+---
+# AIOStreams' SQLite database (sqlite:///app/data/db.sqlite -> /app/data). It
+# holds the encrypted addon configuration that the manifest URL Remux consumes
+# points at, so it MUST persist across restarts or the manifest URL 404s and
+# Remux search goes dark until reconfigured. Small; a dynamic nfs-csi claim is
+# fine.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: aiostreams-data
+  namespace: remux
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 1Gi

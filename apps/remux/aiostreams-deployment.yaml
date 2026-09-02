@@ -1,0 +1,108 @@
+---
+# Standalone AIOStreams, moved out of the decommissioned jellyfin pod.
+#
+# AIOStreams (self-hosted; adds torrentio/debrid search into Remux/Gelato)
+# previously ran as a sidecar container in the jellyfin pod. Jellyfin is being
+# decommissioned, but the remux app consumes this addon, so AIOStreams now
+# lives on its own in the remux namespace. It cannot be a sidecar inside the
+# remux pod: remux binds its HTTP server on 3000 and AIOStreams also binds
+# 3000, so in a shared pod netns they would collide. It is therefore a
+# standalone Deployment with its own Service (aiostreams.remux.svc:3000).
+#
+# Stream queries exit our AirVPN tunnel through the shared VPN gateway's HTTP
+# proxy (HTTP_PROXY/HTTPS_PROXY below) - the same path the addon used inside
+# the jellyfin pod. The remux NetworkPolicy (podSelector: {} -> all pods in
+# this namespace) is the killswitch for both pods; egress to the proxy port is
+# allowed, direct internet egress is denied.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiostreams
+  namespace: remux
+spec:
+  replicas: 1
+  strategy:
+    # Recreate, not RollingUpdate: the config DB is single-writer SQLite.
+    # Two pods briefly overlapping would contend on the DB.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aiostreams
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: aiostreams
+    spec:
+      securityContext:
+        # fsGroup so the aiostreams-data PVC is group-writable by uid 1000.
+        # OnRootMismatch, never the default Always (avoids O(files) NFS walks).
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        # RuntimeDefault, for the same reasons documented in
+        # apps/jellyfin/deployment.yaml. AIOStreams is a plain Node process.
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: aiostreams
+          # Self-hosted rather than a public instance so the stream queries exit
+          # OUR AirVPN tunnel, and so we control the quality filters that keep
+          # everything direct-playable. Pinned.
+          #
+          # v2.33.2, not v1.x: Gelato resolves search through search-capable
+          # CATALOGS in the addon manifest, and the v1.x manifest hardcodes
+          # `catalogs: []`. v2 aggregates catalogs from the tmdb preset.
+          image: ghcr.io/viren070/aiostreams:v2.33.2
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+          env:
+            # Reached only over the cluster-internal Service by remux, and by
+            # the owner via `kubectl port-forward` to configure it; it is not
+            # exposed through Traefik (its config UI holds debrid keys and must
+            # not be public). The base URL stays loopback - AIOStreams serves
+            # its own configure UI on localhost within this pod.
+            - name: BASE_URL
+              value: http://localhost:3000
+            - name: PORT
+              value: "3000"
+            # Encrypts the stored addon configuration; the manifest URL Gelato
+            # consumes is only decryptable with this key, so it MUST be stable
+            # across restarts - hence Doppler (see the aiostreams DopplerSecret,
+            # now synced into this namespace).
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aiostreams
+                  key: secret-key
+            # SQLite on the persistent claim; holds the encrypted addon config.
+            - name: DATABASE_URI
+              value: sqlite:///app/data/db.sqlite
+            - name: HTTP_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: HTTPS_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16"
+            - name: TZ
+              value: UTC
+          # No readinessProbe on purpose: all containers' readiness is ANDed
+          # into pod readiness and this Deployment has no readiness gate of its
+          # own; a flapping probe here would only delay traffic to the Service
+          # endpoints. If AIOStreams is unhealthy, search degrades; the kubelet
+          # still restarts a crashed container. Same lesson as the seedboxapi
+          # sidecar in the downloads pod.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          volumeMounts:
+            - name: aiostreams-data
+              mountPath: /app/data
+      volumes:
+        - name: aiostreams-data
+          persistentVolumeClaim:
+            claimName: aiostreams-data

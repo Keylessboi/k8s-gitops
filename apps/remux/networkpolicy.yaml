@@ -49,13 +49,14 @@ spec:
       ports:
         - {protocol: UDP, port: 53}
         - {protocol: TCP, port: 53}
-    # The AIOStreams addon endpoint: the aiostreams Service in the jellyfin
-    # namespace (see apps/jellyfin/deployment.yaml for why that Service
-    # exists).
+    # The AIOStreams addon endpoint, co-located in this namespace since Jellyfin
+    # was decommissioned. The standalone aiostreams Deployment publishes its own
+    # Service (aiostreams.remux.svc:3000); this egress lets the remux pod reach
+    # the aiostreams pod directly (same-namespace podSelector).
     - to:
-        - namespaceSelector:
+        - podSelector:
             matchLabels:
-              kubernetes.io/metadata.name: jellyfin
+              app.kubernetes.io/name: aiostreams
       ports:
         - {port: 3000, protocol: TCP}
     # k3s apiserver, reachable only by ipBlock.

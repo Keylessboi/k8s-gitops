@@ -27,7 +27,10 @@ resources:
   - namespace.yaml
   - media-data-pv.yaml
   - pvc-config.yaml
+  - aiostreams-pvc.yaml
   - networkpolicy.yaml
   - deployment.yaml
+  - aiostreams-deployment.yaml
+  - aiostreams-service.yaml
   - ingress.yaml
   - authentik-outpost.yaml
