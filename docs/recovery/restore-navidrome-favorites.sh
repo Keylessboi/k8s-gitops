@@ -48,9 +48,9 @@ fi
 echo "  user id: ${USER_ID:0:8}..."
 
 echo "== pulling the current library =="
-nd sqlite3 -separator "'\t'" /data/navidrome.db \
+nd sqlite3 -separator \$\'\\t\' /data/navidrome.db \
   "'select id, artist, album, title from media_file;'" > /tmp/nd_tracks.tsv
-nd sqlite3 -separator "'\t'" /data/navidrome.db \
+nd sqlite3 -separator \$\'\\t\' /data/navidrome.db \
   "'select id, album_artist, name from album;'" > /tmp/nd_albums.tsv
 echo "  tracks: $(wc -l < /tmp/nd_tracks.tsv)   albums: $(wc -l < /tmp/nd_albums.tsv)"
 
