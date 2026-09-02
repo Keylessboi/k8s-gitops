@@ -103,6 +103,16 @@ spec:
     ports:
     - protocol: TCP
       port: 443
+  # The remux Authentik provider runs in proxy mode: the embedded outpost
+  # authenticates the request, then dials remux:3000 to forward it. Without
+  # this egress rule the outpost's outbound connections are silently dropped.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: remux
+    ports:
+    - port: 3000
+      protocol: TCP
   # Reach our own services through the load balancer.
   # CoreDNS resolves *.sandstorm.chat to 192.168.1.240 in-cluster (see
   # apps/coredns), and the 0.0.0.0/0 rule below deliberately excludes

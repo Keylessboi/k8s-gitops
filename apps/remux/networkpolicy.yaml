@@ -31,6 +31,15 @@ spec:
       ports:
         - {port: 3000, protocol: TCP}
         - {port: 8089, protocol: TCP}
+    # Authentik's embedded outpost runs in proxy mode: it authenticates the
+    # request, then dials remux:3000 to forward it. Without this rule the
+    # outpost's connections are rejected → "Bad Gateway" at the ingress.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: authentik
+      ports:
+        - {port: 3000, protocol: TCP}
   egress:
     # DNS. CoreDNS resolves addon and API hostnames; namespace-qualified.
     - to:
