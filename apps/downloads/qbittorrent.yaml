@@ -150,7 +150,7 @@ spec:
               CONF=/config/qBittorrent
               mkdir -p "$CONF"
               if [ -f "$CONF/qBittorrent.conf" ]; then
-                printf '[LegalNotice]\nAccepted=true\n[Proxy]\nEnabled=true\nType=5\nHost=vpn-gateway.vpn.svc.cluster.local\nPort=8388\nUseProxyForPeerConnections=true\nUseProxyForTrackerConnections=true\n[AutoRun]\nEnabled=true\nProgram=/bin/sh /scripts/qbit-upload.sh "%L" "%F"\n' >> "$CONF/qBittorrent.conf"
+                printf '[LegalNotice]\nAccepted=true\n[Proxy]\nEnabled=true\nType=5\nHost=vpn-gateway.vpn.svc.cluster.local\nPort=8388\nUseProxyForPeerConnections=true\nUseProxyForTrackerConnections=true\n[AutoRun]\nEnabled=true\nProgram=/bin/sh /scripts/qbit-upload.sh "%%L" "%%F"\n' >> "$CONF/qBittorrent.conf"
                 echo "qBittorrent SOCKS5 proxy + AutoRun configured"
               else
                 echo "qBittorrent config not yet created; proxy + AutoRun will be set on next restart"
