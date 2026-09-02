@@ -223,6 +223,14 @@ spec:
               mountPath: /data
         - name: qbittorrent
           image: lscr.io/linuxserver/qbittorrent:5.1.2
+          # The Service's targetPort references this named port. When the
+          # gluetun sidecar was removed (4ad7387), the qbit-http port
+          # declaration was removed with it, leaving the qbittorrent
+          # container with no ports — the endpoints controller could not
+          # match the Service's targetPort, producing empty Endpoints.
+          ports:
+            - name: qbit-http
+              containerPort: 8080
           env:
             - name: PUID
               value: "1000"
