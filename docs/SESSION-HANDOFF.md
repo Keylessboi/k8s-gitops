@@ -4,6 +4,41 @@ State captured across outages and their recoveries. Newest first.
 
 ---
 
+# ✅ 2026-08-31 (session close) — gluetun consolidation DEPLOYED and verified airtight
+
+## The final state (verified before handoff)
+- **34/35 apps Healthy** (lidarr Progressing = its mass-search run: 124+ in queue, grabs landing minutes apart)
+- **ONE gluetun container cluster-wide**: the `vpn-gateway` pod (apps/vpn/) — exit IP verified as the
+  pinned Aquila exit **23.130.104.134**. HTTP proxy: `vpn-gateway.vpn.svc.cluster.local:8888`,
+  shadowsocks :8388. ZERO per-app gluetun sidecars remain.
+- **The airtight battery — all passing**: funkwhale and remux proxied paths exit via Aquila; direct
+  IPv4 egress DENIED from funkwhale api and qbittorrent (netpol killswitch enforcing); IPv6 egress
+  DENIED; the gateway is pinned (no exit drift).
+- **The edge**: metallb **0.16.1** running (the retry succeeded — see below), traefik serving, all
+  published services answering: authentik/invidious/remux/navidrome/nextcloud/grafana/jellyfin 302,
+  obsidian 401, vaultwarden/immich/forgejo 200.
+- **Storage**: the CT disk **112G** (37G free) after deleting the macOS VM (vm-2120, 100G, owner
+  approved) and the online resize; the thin pool ~52-78%; swap 4G; the ganesha logrotate (500M cap)
+  and the image-prune timer (6h) guard the disk.
+- **Renovate queue: fully merged and verified** — authentik 2025.12.4, CNPG 1.30.0, nfs-csi 4.13.4,
+  doppler 1.7.1, loki 6.55.0 (with the SA pin), metallb 0.16.1 (retry).
+
+## For the next machine
+- Access: `ssh -i <key> -fN -L 16443:192.168.1.172:6443 travis@100.69.240.8` (tunnel) +
+  `kubectl --kubeconfig <config-ts>`; the worker key and kubeconfig must exist on that machine.
+  NAS: `ssh -i <key> travis@100.69.240.8` (doas passwordless). PVE: `ssh -i <key> root@100.125.108.56` → `pct exec 200`.
+- **Hand-applied objects to remember**: the `metallb` namespace (kustomize ID-conflicts it in git —
+  recreate manually after any rebuild); the Authentik providers/applications are cluster-state
+  (recreate via the API after any rebuild; the outpost-assignment step is the gotcha).
+- **Open items**: ADR-0005 memory (13.8GB, the tightest resource); the lidarr run (~40 days);
+  the ganesha logrotate + the image-prune timer run unattended.
+- The gluetun consolidation's per-app proxy configs and the netpol killswitch shape are in
+  apps/vpn/ + the consumer netpols — the airtight battery to re-run after any VPN change is in
+  docs/doctor-log.md's entries plus: direct-egress deny (v4+v6) from each consumer ns, the
+  proxied-path exit IP per app.
+
+---
+
 # ✅ 2026-08-31 — the big consolidation day: 6 Renovate merges, 3 new apps, 4 infra incidents (all resolved)
 
 ## The one-line state
