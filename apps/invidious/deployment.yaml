@@ -120,6 +120,12 @@ spec:
               domain: invidious.sandstorm.chat
               external_port: 443
               https_only: true
+              # Proxy the streams server-side: with the default (false) the
+              # browser fetches googlevideo directly, which fails for any
+              # client whose path to googlevideo is blocked or throttled -
+              # observed as 'audio plays, video never'. Proxied, the cluster
+              # fetches both streams and the browser only talks to invidious.
+              proxy_videos: true
               hmac_key: "${HMAC_KEY}"
               invidious_companion_key: "${COMPANION_KEY}"
               invidious_companion:
