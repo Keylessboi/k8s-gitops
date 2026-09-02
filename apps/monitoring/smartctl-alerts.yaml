@@ -121,18 +121,6 @@ spec:
               The drive has used {{ $value }}% of its rated write endurance.
               Plan a replacement before it reaches 100%.
 
-        # 60C is where drive vendors generally stop warranting the thing. Filter
-        # to the current reading - the series also carries drive_trip (the
-        # manufacturer's shutdown temp), which must not be alerted on directly.
-        - alert: SmartDeviceHot
-          expr: smartctl_device_temperature{temperature_type="current"} > 60
-          for: 20m
-          labels:
-            severity: warning
-          annotations:
-            summary: "{{ $labels.device }} ({{ $labels.host }}) is at {{ $value }}C"
-            description: "Sustained above 60C. Check airflow before it throttles or fails."
-
         # If the exporter itself stops, every alert above goes quiet and the
         # disks look fine. That silence is the dangerous failure mode.
         - alert: SmartExporterDown
