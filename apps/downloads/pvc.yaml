@@ -12,25 +12,7 @@ spec:
     requests:
       storage: 5Gi
 ---
-# Where torrents actually land.
-#
-# The plan puts torrents on the `extra` pool: "Torrents (2.4T measured) |
-# extra | None | Re-downloadable; excluded from borg". The JuiceFS bucket
-# lives on tank, so this is sized conservatively rather than provisioning
-# multiple terabytes of object storage for data that is by definition
-# disposable. Point it at a dedicated extra-pool export if it needs to grow.
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: qbittorrent-downloads
-  namespace: downloads
-spec:
-  accessModes: [ReadWriteMany]
-  storageClassName: nfs-csi
-  resources:
-    requests:
-      storage: 200Gi
----
+
 # qui keeps a small local database of the qBittorrent instances it manages.
 apiVersion: v1
 kind: PersistentVolumeClaim
