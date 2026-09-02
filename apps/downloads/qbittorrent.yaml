@@ -252,6 +252,25 @@ spec:
               value: "8080"
             - name: TORRENTING_PORT
               value: "6877"
+            # Nextcloud WebDAV upload (qbit-upload-config): qBittorrent's AutoRun
+            # hook pushes finished torrents to Nextcloud over WebDAV. Values come
+            # from the nextcloud-webdav DopplerSecret (kubernetes/prd). Env-gated
+            # in the script, so leaving any of these unset (Phase A) just no-ops.
+            - name: NEXTCLOUD_WEBDAV_URL
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud-webdav
+                  key: url
+            - name: NEXTCLOUD_WEBDAV_USER
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud-webdav
+                  key: user
+            - name: NEXTCLOUD_WEBDAV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud-webdav
+                  key: password
           resources:
             requests:
               cpu: 50m
