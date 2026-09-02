@@ -149,12 +149,20 @@ spec:
               set -e
               CONF=/config/qBittorrent
               mkdir -p "$CONF"
-              if [ -f "$CONF/qBittorrent.conf" ]; then
-                printf '[LegalNotice]\nAccepted=true\n[Proxy]\nEnabled=true\nType=5\nHost=vpn-gateway.vpn.svc.cluster.local\nPort=8388\nUseProxyForPeerConnections=true\nUseProxyForTrackerConnections=true\n[AutoRun]\nEnabled=true\nProgram=/bin/sh /scripts/qbit-upload.sh "%%L" "%%F"\n' >> "$CONF/qBittorrent.conf"
-                echo "qBittorrent SOCKS5 proxy + AutoRun configured"
-              else
-                echo "qBittorrent config not yet created; proxy + AutoRun will be set on next restart"
-              fi
+              F="$CONF/qBittorrent.conf"
+              touch "$F"
+              # Strip previously-injected blocks first: older runs appended
+              # unconditionally, stacking N AutoRun sections across N rollouts
+              # (qBittorrent's rewrite on exit glued them into garbage like
+              # `Program=... "[LegalNotice]`). Strip-then-append is idempotent.
+              awk '
+                /^\[LegalNotice\]$/ || /^\[Proxy\]$/ || /^\[AutoRun\]$/ { skip=1; next }
+                /^\[/ { skip=0 }
+                { if (!skip) print }
+              ' "$F" > "$F.tmp"
+              mv "$F.tmp" "$F"
+              printf '[LegalNotice]\nAccepted=true\n[Proxy]\nEnabled=true\nType=5\nHost=vpn-gateway.vpn.svc.cluster.local\nPort=8388\nUseProxyForPeerConnections=true\nUseProxyForTrackerConnections=true\n[AutoRun]\nEnabled=true\nProgram=/bin/sh /scripts/qbit-upload.sh "%%L" "%%F"\n' >> "$F"
+              echo "qBittorrent SOCKS5 proxy + AutoRun configured"
           volumeMounts:
             - name: config
               mountPath: /config
