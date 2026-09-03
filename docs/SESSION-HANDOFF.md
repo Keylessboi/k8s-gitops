@@ -18,7 +18,7 @@ days old and completely silent.
 |---|---|---|
 | 0 | Alert routing **inverted** — default back to `null`, only the physical set reaches a human | done, verified in Alertmanager's live config |
 | 1 | Monthly restore drill + daily backup-freshness check | done |
-| 1 | Watchdog heartbeat + external probe | **BLOCKED** — no shell on any off-cluster host |
+| 1 | Watchdog heartbeat + external probe | **DONE** — heartbeat verified advancing; see below |
 | 2 | `scripts/doctor.sh <app>` | done |
 | 3 | 22 edge probes, Events→Loki, restic freshness | done, 23 targets green |
 | 4 | Symptom index in the doctor's log; Funkwhale deleted | done |
@@ -44,14 +44,43 @@ days old and completely silent.
   the last**; Go's yaml refuses. Now a third invariant check. *Validate with the same
   parser as the consumer.*
 
+## 🔔 The dead man's switch, and the topology surprise behind it
+`~/.ssh/worker_key` opens **travisbackupserver** and **pve**. The obvious plan — ntfy on
+travisbackupserver, Alertmanager POSTing to it — **does not work, and the reason matters:**
+
+> travisbackupserver is on **wlo1**, behind the room's WiFi router, on a **separate
+> `192.168.1.0/24`**. Same numbering, different L2 segment. The cluster cannot route to
+> it (`no route to host`, *not* a NetworkPolicy REJECT, which says connection refused),
+> and its own local subnet route shadows the tailnet route back. Verified both ways.
+
+So it is two layers, each doing only what it can actually see:
+
+| Host | Job | Sees | Cannot see |
+|---|---|---|---|
+| **pve** `.153` | Receives the Watchdog POST on `:9099`, relays staleness to ntfy over Tailscale | LXC 200 OOM, swap thrash, k3s down, Prometheus/Alertmanager dead | pve itself dying, power cut |
+| **travisbackupserver** | External edge probe over the **public** path (resolves `74.101.53.75`, hairpins) | Node gone, router, port forward, public DNS, L2 | Anything internal |
+
+**Verified end to end:** the beat advances on schedule (451s → 47s across a sync).
+`homelab-beat-receiver` + `homelab-beat-check.timer` on pve; `homelab-watch.timer` on
+travisbackupserver. ntfy 2.11.0 on travisbackupserver:2586 — **subscribe a phone to the
+`homelab-alerts` topic over Tailscale**; that is the only step left for notifications to
+reach you.
+
 ## ⛔ Blocked on the owner
-1. **`ssh-copy-id -i ~/.ssh/id_ed25519.pub root@travisbackupserver`** — unblocks the
-   Tier 1 heartbeat and the external probe. No off-cluster host currently accepts a
-   non-interactive key; `vmhub-1` has Tailscale SSH but wants an interactive check.
-2. **`gh auth refresh -h github.com -s workflow`** then `git push origin ci-workflow:main`
-   — the CI jobs (invariants, kubeconform, fix-needs-log) are written, tested and sitting
-   on the local `ci-workflow` branch. The token has `repo` but not `workflow`.
-3. Decide on **Octo-Fiesta** (no provider credentials) — the last easy headroom.
+1. **Subscribe your phone to `homelab-alerts`** on `http://100.81.123.74:2586` (ntfy app,
+   custom server, over Tailscale). Until then the alarms fire into a topic nobody reads.
+2. Decide on **Octo-Fiesta** (no provider credentials) — the last easy headroom.
+
+## 🧲 bitmagnet — already fine, and the real gap was elsewhere
+bitmagnet **was already connected to Prowlarr** (indexer id 38, enabled) and **works**: a
+`radiohead` search through Prowlarr returned live results. `/torznab/api` and
+`/torznab/all/api` both answer 200.
+
+Lidarr and Readarr **both already have qBittorrent** enabled, so the automated path was
+never broken. What was missing: **Prowlarr had zero download clients**, and its egress to
+`downloads:8080` did not exist (bare `000`) while the downloads side already permitted it
+— the mirror image of the hermes bug. Egress added in `4e7b5e2`. **Still to do:** add the
+qBittorrent client inside Prowlarr's UI/API so manual grabs have somewhere to go.
 
 ## 📋 Still open
 - **Music:** re-cut the mass-search split (time-sensitive — anything added since 29 Aug
