@@ -22,6 +22,30 @@ spec:
     ports:
     - port: 2283
       protocol: TCP
+  # Immich talking to itself. immich-server calls immich-machine-learning on
+  # 3003 for every smart-search, face-detection and CLIP job.
+  #
+  # This rule was MISSING, and the effect was invisible from every direction
+  # that gets checked: both pods Running with 0 restarts, ArgoCD Synced and
+  # Healthy, the edge probe returning 200, no alert firing. Immich simply had
+  # no machine learning. Measured from inside immich-server:
+  #
+  #   curl -m 25 http://immich-machine-learning...:3003/ping
+  #   -> 000 in 0.0058s
+  #
+  # 5 milliseconds is the tell. A missing route or a dead pod times out; an
+  # instant refusal is kube-router REJECTing on policy. The ML pod was listening
+  # the whole time - /proc/net/tcp6 shows 0BBB (3003) in state 0A - and the only
+  # established connections were from 10.42.0.1, the node's own kubelet probes.
+  # Probes passed, so nothing looked wrong.
+  #
+  # A default-deny ingress policy denies POD-TO-POD traffic inside its own
+  # namespace too, which is easy to forget when every other rule in the file is
+  # about getting traffic in from outside. Any multi-pod app needs this.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: immich
   podSelector: {}
   policyTypes:
   - Ingress

@@ -49,6 +49,45 @@ prose version of the prevention failed:
 - **Duplicate YAML keys** (1×, but silent) — PyYAML accepts them, Go's yaml does
   not. Validate with the same parser as the consumer.
 
+## 2026-09-03 — Immich had no machine learning: the namespace denied its own pods
+
+- **Symptom:** owner reported "immich machine learning isn't working". Smart
+  search, face detection and CLIP jobs silently did nothing.
+- **Root cause:** `apps/immich/networkpolicy.yaml` is a default-deny ingress
+  policy (`podSelector: {}`, `policyTypes: [Ingress]`) whose only rules admit
+  `kube-system` on 8089 and 2283. **Nothing allowed immich → immich.** A
+  default-deny ingress policy denies POD-TO-POD traffic inside its own namespace
+  too, which is easy to miss when every other rule in the file is about letting
+  traffic in from outside. `immich-server` could not reach
+  `immich-machine-learning:3003`.
+- **How it was found:** `curl` from inside `immich-server` returned
+  **`000` in 0.0058s to the Service and 0.0002s to the pod IP.** The *speed* is
+  the diagnosis: a dead pod or missing route times out, an instant refusal is a
+  policy REJECT. The ML pod was listening the whole time — `/proc/net/tcp6`
+  showed `0BBB` (3003) in state `0A` — and its only established connections came
+  from `10.42.0.1`, the node's kubelet. **Probes therefore passed**, so both pods
+  were Running with 0 restarts, ArgoCD was Synced/Healthy, the edge probe
+  returned 200, and no alert fired. Invisible from every direction that is
+  normally checked.
+- **Fix:** an ingress rule admitting the `immich` namespace to itself.
+- **Prevention:** intended to be a check, and **the check was written and then
+  deliberately dropped** — see below.
+- **Confidence:** CONFIRMED for the diagnosis (reproduced twice, both by Service
+  name and pod IP). See the open question before treating the general rule as
+  settled.
+- **OPEN QUESTION — do not treat this as a general rule yet.** A check that
+  flagged "namespace-wide default-deny ingress with ≥2 workloads and no
+  self-rule" immediately flagged **remux**, which has the *identical* shape:
+  `app-isolation`, `podSelector: {}`, ingress rules for `kube-system` and
+  `authentik` only, two workloads. But `remux → aiostreams:3000` **returns 200**,
+  repeatedly. So the same configuration blocks in `immich` and permits in
+  `remux`, on the same node, and I could not explain why. The check was removed
+  rather than shipped: a rule that fires on a working configuration is the noisy
+  expert-system this repo has already decided not to build, and it would have
+  taught the next reader to ignore CI. Worth resolving — the difference may be
+  kube-router chain ordering, or something about `policyTypes: [Ingress]` versus
+  `[Ingress, Egress]` — but it needs an explanation before it becomes a rule.
+
 ## 2026-09-03 — A duplicate YAML key parked lidarr at ComparisonError; the local check could not see it
 
 - **Symptom:** `lidarr` showed sync status `Unknown`, health `Progressing`, and
