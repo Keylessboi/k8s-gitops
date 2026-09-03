@@ -51,7 +51,6 @@ spec:
     ports:
     - port: 8686
       protocol: TCP
-      protocol: TCP
   # Octo (apps/downloads/octo.yaml) hands an album to Lidarr when Soulseek
   # cannot serve it. Note the direction: downloads -> lidarr already existed
   # the other way round (Lidarr driving slskd on 5030), and that rule does

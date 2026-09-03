@@ -5,6 +5,40 @@ solved it, then what prevents a repeat. Newest first. If an incident
 repeats, link the entries — a repeated incident means the prevention
 failed and the entry needs revisiting.
 
+## 2026-09-03 — A duplicate YAML key parked lidarr at ComparisonError; the local check could not see it
+
+- **Symptom:** `lidarr` showed sync status `Unknown`, health `Progressing`, and
+  `Failed to load target state: ... kustomize build ... failed exit status 1:
+  line 61: mapping key "protocol" already defined at line 60`. The app stopped
+  picking up new commits and sat on the previous revision.
+- **Root cause:** the fix for the hermes ingress appended
+  `ports: [- port: 8686, protocol: TCP]` immediately before an existing
+  `protocol: TCP`, producing the key twice in one mapping.
+  It was pushed because the pre-push check could not detect it:
+  **PyYAML's `safe_load_all` accepts duplicate keys silently and keeps the last
+  value**, so `python3 -c "yaml.safe_load_all(...)"` returned clean. Go's yaml —
+  which kustomize, ArgoCD and the API server all use — refuses outright.
+  `.yamllint.yaml` has `key-duplicates: enable` and would have caught it, but
+  yamllint was not installed locally and only runs in CI.
+- **Fix:** removed the duplicate line. Verified with `kubectl kustomize
+  apps/lidarr`, which is the parser that actually matters.
+- **Prevention:** added a third check to `scripts/ci/check-invariants.py` that
+  loads every tracked YAML file with a `SafeLoader` subclass whose mapping
+  constructor raises on a repeated key — i.e. validating with the same
+  strictness as the consumer rather than the most permissive parser to hand.
+  It reproduces the failure when the duplicate is reintroduced and is clean
+  otherwise. This closes the gap where a local check passes and CI is the first
+  thing to notice.
+- **Confidence:** CONFIRMED — reproduced both the ComparisonError and the
+  check's detection of it.
+- **The general lesson**, which is worth more than this bug: *validate with the
+  same parser as the consumer.* A permissive local check that disagrees with
+  the strict remote one is worse than no local check, because it grants
+  confidence it has not earned. ComparisonError is especially unforgiving here
+  because it fails the ENTIRE Application and does so quietly — auto-sync keeps
+  reporting the last good state, so a broken push looks exactly like a
+  successful one.
+
 ## 2026-09-03 — Hermes could never reach Lidarr; the NetworkPolicy was declared on one side only
 
 - **Symptom:** none visible. `hermes` reported Running 1/1 for seven days,

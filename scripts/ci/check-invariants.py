@@ -62,6 +62,70 @@ def load_baseline() -> set[str]:
     return out
 
 
+class DuplicateKeyLoader(yaml.SafeLoader):
+    """SafeLoader that REJECTS duplicate mapping keys.
+
+    PyYAML accepts them silently and keeps the last value. Go's yaml - which is
+    what kustomize, ArgoCD and the API server all use - refuses outright with
+    `mapping key "x" already defined at line N`.
+
+    That difference is not academic. On 2026-09-03 a duplicated `protocol: TCP`
+    in apps/lidarr/networkpolicy.yaml passed a local
+    `yaml.safe_load_all` check, was pushed, and parked the lidarr Application
+    at ComparisonError - which does not fail loudly: auto-sync keeps reporting
+    the last good state, so the app simply stops updating until somebody
+    notices. Validating with the same strictness as the consumer is the whole
+    point.
+    """
+
+
+def _no_duplicates(loader, node, deep=False):
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping", node.start_mark,
+                f"found duplicate key {key!r}", key_node.start_mark)
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+DuplicateKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicates)
+
+
+def check_duplicate_keys(findings: list[str], passes: list[str]) -> None:
+    import subprocess
+    try:
+        tracked = subprocess.run(
+            ["git", "ls-files", "*.yaml", "*.yml"],
+            cwd=REPO, capture_output=True, text=True, check=True).stdout.split()
+    except Exception:
+        tracked = [str(p.relative_to(REPO)) for p in REPO.rglob("*.yaml")
+                   if "/charts/" not in str(p) and "/.git/" not in str(p)]
+
+    for rel in sorted(tracked):
+        path = REPO / rel
+        if not path.exists() or "/charts/" in rel:
+            continue
+        try:
+            with path.open(encoding="utf-8") as fh:
+                list(yaml.load_all(fh, Loader=DuplicateKeyLoader))
+            passes.append(f"{rel} has no duplicate keys")
+        except yaml.constructor.ConstructorError as exc:
+            findings.append(
+                f"{rel}: {exc.problem} at {exc.problem_mark}\n"
+                f"    PyYAML accepts this and keeps the last value; Go's yaml -\n"
+                f"    kustomize, ArgoCD and the API server - refuses it. The\n"
+                f"    Application parks at ComparisonError and silently stops\n"
+                f"    syncing while still reporting the last good state."
+            )
+        except Exception:
+            # Anything else is the yaml-parse job's business, not this check's.
+            pass
+
+
 def load_docs(path: pathlib.Path):
     try:
         with path.open(encoding="utf-8") as fh:
@@ -214,6 +278,7 @@ def main() -> int:
     findings: list[str] = []
     passes: list[str] = []
 
+    check_duplicate_keys(findings, passes)
     check_wait_init(findings, passes)
     check_netpol_pairs(findings, passes)
 
