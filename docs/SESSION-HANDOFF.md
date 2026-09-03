@@ -4,7 +4,7 @@ State captured across outages and their recoveries. Newest first.
 
 ---
 
-# ✅ 2026-09-03 (evening) — immich ML restored; remux needs one dropdown
+# ✅ 2026-09-03 (evening) — immich ML and remux both restored
 
 ## immich machine learning — FIXED (c03ec64)
 The namespace denied **its own pods**. Default-deny ingress admitted only
@@ -16,7 +16,7 @@ NetworkPolicy so **probes passed**. Verified: `000 → 200 in 0.004s`.
 **The speed was the diagnosis.** A dead pod times out; `0.0002s` to the pod IP is
 a policy REJECT.
 
-## remux — ROOT CAUSE FOUND, needs an owner action
+## remux — FIXED (owner switched the provider mode)
 `/outpost.goauthentik.io/auth/traefik` 404s in the browser because **remux is the
 only provider in `proxy` mode** — the other ten are `forward_single`, and remux's
 Ingress is wired for forward-auth (`authentik-forward-auth` middleware, `/` →
@@ -24,10 +24,20 @@ remux:3000). Proxy mode expects the outpost to receive and forward the request
 itself, so the handshake dead-ends. Only surfaced after a cache clear because a
 live session skipped the flow.
 
-**Fix (one dropdown):** Authentik → Applications → Providers → `remux` → Mode:
-**Forward auth (single application)** → Update. External host stays
-`https://remux.sandstorm.chat`. A direct DB `UPDATE` was blocked by the
-permission classifier, which is the right outcome for the identity provider.
+**Fix applied:** Authentik → Providers → `remux` → Mode **Forward auth (single
+application)**. Confirmed working by the owner. The provider now reads
+`forward_single` and the edge behaves identically to lidarr and qui: `/` → 302 →
+the Authentik authorize endpoint, same as the other ten.
+
+A direct DB `UPDATE` was blocked by the permission classifier — the right
+outcome for the identity provider, and the UI was the safer path anyway.
+
+**If a remux-shaped bug recurs:** compare `mode` across providers first. One row
+differing from ten is the whole diagnosis:
+```sql
+SELECT p.name, pp.mode FROM authentik_providers_proxy_proxyprovider pp
+JOIN authentik_core_provider p ON p.id=pp.oauth2provider_ptr_id ORDER BY pp.mode;
+```
 
 ## An open question worth resolving
 A CI check for "namespace-wide default-deny with ≥2 workloads and no self-rule"
