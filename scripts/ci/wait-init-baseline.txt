@@ -31,7 +31,5 @@
 beets-import
 forgejo-oauth-source
 immich-extensions
-lidarr-mass-search-a
-lidarr-mass-search-b
 pelican-admin
 vaultwarden-data-backup

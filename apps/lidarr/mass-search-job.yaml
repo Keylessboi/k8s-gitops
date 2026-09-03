@@ -71,6 +71,35 @@ spec:
         runAsUser: 1000
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # kube-router programs this pod's policy chains ~1-2s after start.
+        # Until then, egress the NetworkPolicy explicitly ALLOWS is REJECTed,
+        # surfacing as "connection refused" rather than a timeout. This job's
+        # first act is GET /system/status, so it loses that race outright - it
+        # did exactly that on the 2026-09-03 re-cut, with both workers stuck on
+        # `retry 0 GET /system/status: [Errno 111] Connection refused`.
+        #
+        # These two Jobs were the highest-risk entries in
+        # scripts/ci/wait-init-baseline.txt precisely because a lost race at
+        # startup wastes a multi-day run. Debt paid.
+        - name: wait-for-lidarr
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              for attempt in $(seq 1 30); do
+                if nc -z lidarr.lidarr.svc.cluster.local 8686; then
+                  echo "lidarr reachable after ${attempt} attempt(s)"
+                  exit 0
+                fi
+                echo "attempt ${attempt}/30: lidarr not reachable yet"
+                sleep 2
+              done
+              echo "lidarr not reachable after 60s, proceeding anyway"
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 200m, memory: 64Mi}
       containers:
         - name: search
           image: python:3.12-slim
@@ -261,6 +290,35 @@ spec:
         runAsUser: 1000
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # kube-router programs this pod's policy chains ~1-2s after start.
+        # Until then, egress the NetworkPolicy explicitly ALLOWS is REJECTed,
+        # surfacing as "connection refused" rather than a timeout. This job's
+        # first act is GET /system/status, so it loses that race outright - it
+        # did exactly that on the 2026-09-03 re-cut, with both workers stuck on
+        # `retry 0 GET /system/status: [Errno 111] Connection refused`.
+        #
+        # These two Jobs were the highest-risk entries in
+        # scripts/ci/wait-init-baseline.txt precisely because a lost race at
+        # startup wastes a multi-day run. Debt paid.
+        - name: wait-for-lidarr
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              for attempt in $(seq 1 30); do
+                if nc -z lidarr.lidarr.svc.cluster.local 8686; then
+                  echo "lidarr reachable after ${attempt} attempt(s)"
+                  exit 0
+                fi
+                echo "attempt ${attempt}/30: lidarr not reachable yet"
+                sleep 2
+              done
+              echo "lidarr not reachable after 60s, proceeding anyway"
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 200m, memory: 64Mi}
       containers:
         - name: search
           image: python:3.12-slim
