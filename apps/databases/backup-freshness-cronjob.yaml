@@ -48,6 +48,36 @@ spec:
       template:
         spec:
           restartPolicy: Never
+          initContainers:
+            # Same kube-router race as pgdump-backup, restore-drill and
+            # lidarr-maintenance - the fourth place it applies. restic opens
+            # its S3 connection on its first line of work, so it loses the race
+            # outright, and with backoffLimit: 0 a single lost race is a failed
+            # check and a false BackupSnapshotStale page.
+            #
+            # busybox rather than the restic image: this only needs a TCP
+            # connect, and it is ~4 MB against restic's ~60 MB.
+            - name: wait-for-minio
+              image: busybox:1.37
+              command:
+                - sh
+                - -c
+                - |
+                  for attempt in $(seq 1 30); do
+                    if nc -z 192.168.1.67 9000; then
+                      echo "minio reachable after ${attempt} attempt(s)"
+                      exit 0
+                    fi
+                    echo "attempt ${attempt}/30: minio not reachable yet"
+                    sleep 2
+                  done
+                  # Proceed anyway: 60s of failures means MinIO really is down,
+                  # and this job's whole purpose is to report that - masking it
+                  # here would turn a real outage into a silent skip.
+                  echo "minio not reachable after 60s, proceeding anyway"
+              resources:
+                requests: {cpu: 10m, memory: 16Mi}
+                limits: {cpu: 200m, memory: 64Mi}
           containers:
             - name: check
               image: restic/restic:0.17.3

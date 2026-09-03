@@ -37,6 +37,20 @@ spec:
           kubernetes.io/metadata.name: prowlarr
     ports:
     - port: 8686
+  # Hermes drives Lidarr's API - "the whole point of running this", per its own
+  # NetworkPolicy comment. That policy has declared egress to lidarr:8686 since
+  # hermes was deployed, but this ingress rule was never added, so the flow was
+  # REJECTed for seven days: a python connect from the hermes pod returned
+  # ConnectionRefusedError [Errno 111], the REJECT signature rather than a
+  # timeout. Found by scripts/ci/check-invariants.py on its first run - the
+  # fourth time this repo has declared a cross-namespace flow on one side only.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: hermes
+    ports:
+    - port: 8686
+      protocol: TCP
       protocol: TCP
   # Octo (apps/downloads/octo.yaml) hands an album to Lidarr when Soulseek
   # cannot serve it. Note the direction: downloads -> lidarr already existed

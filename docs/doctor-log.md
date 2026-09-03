@@ -5,6 +5,37 @@ solved it, then what prevents a repeat. Newest first. If an incident
 repeats, link the entries — a repeated incident means the prevention
 failed and the entry needs revisiting.
 
+## 2026-09-03 — Hermes could never reach Lidarr; the NetworkPolicy was declared on one side only
+
+- **Symptom:** none visible. `hermes` reported Running 1/1 for seven days,
+  ArgoCD showed Synced/Healthy, and nothing alerted. It simply never did the
+  job it exists for.
+- **Root cause:** `apps/hermes/networkpolicy.yaml` declares egress to
+  `lidarr:8686`, with the comment "Lidarr's API - the whole point of running
+  this." `apps/lidarr/networkpolicy.yaml` allowed ingress from `kube-system`,
+  `lidarr` and `prowlarr` — never from `hermes`. A cross-namespace flow needs
+  the rule in BOTH namespaces; one side alone reads correct in review and drops
+  the traffic. Confirmed from inside the pod rather than inferred: a Python
+  `connect()` to `lidarr.lidarr.svc.cluster.local:8686` returned
+  `ConnectionRefusedError [Errno 111]` — the REJECT signature this log already
+  documents, not the timeout a missing route would give.
+- **Fix:** added a `hermes` namespaceSelector on port 8686 to lidarr's ingress.
+- **Prevention:** **written as a check this time.**
+  `scripts/ci/check-invariants.py` builds a graph of every NetworkPolicy's
+  cross-namespace peers and fails when an egress rule naming a namespace has no
+  matching ingress rule at the other end. This bug is what it found on its
+  first run — the trap's fourth occurrence, after the remux outpost, octo's
+  egress to `vpn:8888`, and the monitoring namespace's probes. The three
+  previous preventions were all written as prose in this file, and prose
+  protects only whoever happens to read it at the right moment.
+- **Confidence:** CONFIRMED — reproduced the block from the hermes pod and the
+  checker reports the pairing clean after the fix.
+- **Worth noting:** this is the failure mode with no symptom at all. Every
+  health signal was green for a week because nothing was crashing; the app was
+  simply inert. That is the same class as the sync server that had never
+  synced, and it is why the data-plane assertions in Tier 3 matter more than
+  another uptime check.
+
 ## 2026-09-03 — The new restore drill restarted the apiserver twice, then failed 13 good backups
 
 - **Symptom:** two separate faults from one new job. (1) While the first run of

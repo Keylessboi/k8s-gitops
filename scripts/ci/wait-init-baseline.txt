@@ -1,0 +1,37 @@
+# Known pre-existing Jobs and CronJobs without a wait-* initContainer.
+#
+# WHY A BASELINE AND NOT A FIX. When check-invariants.py was written it found
+# eight of these. One (backup-freshness) was new in the same change and was
+# fixed properly. The seven below predate the check, are currently working, and
+# each needs its own verification to fix safely.
+#
+# Failing CI on all seven the day the check lands is how a check stops being
+# read - the same reasoning .yamllint.yaml gives for tuning rules to the style
+# the repo already uses rather than shipping a 900-finding backlog. So the debt
+# is RECORDED here, visibly, and the check protects every NEW Job from day one.
+#
+# This file should only ever shrink. Removing a line is the fix; the checker
+# fails if a name here no longer has a finding, so a stale baseline cannot
+# quietly hide a job that was deleted or already fixed.
+#
+# To clear one: add a wait-* initContainer that polls whatever it connects to
+# first (see apps/databases/pgdump-cronjob.yaml for the pattern), or - if the
+# pod genuinely makes no early network call - annotate it with
+# homelab/no-wait-init and delete its line here.
+#
+# Risk is not uniform. Ranked by how much a lost race costs:
+#
+#   lidarr-mass-search-a/b  a ~40-day catalogue build; a lost race at startup
+#                           wastes the whole run. Highest value to fix.
+#   vaultwarden-data-backup writes to MinIO. Same shape as the pgdump failure.
+#   immich-extensions       runs once at install against Postgres.
+#   forgejo-oauth-source    runs once, calls the Forgejo API.
+#   pelican-admin           runs once, calls the Pelican API.
+#   beets-import            hourly and idempotent; a lost run costs an hour.
+beets-import
+forgejo-oauth-source
+immich-extensions
+lidarr-mass-search-a
+lidarr-mass-search-b
+pelican-admin
+vaultwarden-data-backup
