@@ -41,6 +41,10 @@ env:
   # ArgoCD version in apps/argocd.
   KUSTOMIZE_VERSION: "5.4.2"
   HELM_VERSION: "3.15.2"
+  KUBECONFORM_VERSION: "0.6.7"
+  # The cluster's actual server version (k3s v1.31.5+k3s1). Validating against
+  # a different one is how CI passes a manifest the API server then rejects.
+  K8S_VERSION: "1.31.5"
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -219,3 +223,179 @@ jobs:
           # a linter nobody reads.
           mapfile -t files < <(git ls-files '*.yaml' '*.yml')
           yamllint -c .yamllint.yaml -f github "${files[@]}"
+
+  # ---------------------------------------------------------------------------
+  # 4. Repo invariants that neither parsing nor rendering can express.
+  #
+  # Both checks exist because docs/doctor-log.md records the same mistake
+  # happening more than once. The log's own header says a repeat means the
+  # prevention failed - and in both cases the prevention was a sentence in a
+  # markdown file, which protects only whoever reads it at the right moment.
+  #
+  # This job found a real seven-day-old bug on its first run: hermes declared
+  # egress to lidarr:8686 ("the whole point of running this") while lidarr's
+  # ingress never allowed hermes, so the flow was REJECTed the whole time.
+  # ---------------------------------------------------------------------------
+  invariants:
+    name: repo invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install PyYAML
+        run: pip install --disable-pip-version-check "PyYAML==6.0.2"
+
+      - name: wait-init and NetworkPolicy pairing
+        run: python3 scripts/ci/check-invariants.py --list
+
+  # ---------------------------------------------------------------------------
+  # 5. Schema validation, strict.
+  #
+  # The check that `kustomize build` cannot do: rendering only proves the YAML
+  # assembles, not that the fields exist. On 2026-09-03 a pending Ghost patch
+  # put `scheme` at probe level instead of inside `httpGet`; it rendered fine,
+  # looked plausible in review, and the API server rejects it outright as an
+  # unknown field. --strict catches exactly that class in seconds.
+  #
+  # -ignore-missing-schemas is required and is the honest trade-off: this repo
+  # uses CRDs from ArgoCD, CNPG, the Prometheus operator, Doppler and Traefik,
+  # and no public catalogue carries all of them. Core resources - where the
+  # unknown-field mistakes actually happen - are fully checked.
+  # ---------------------------------------------------------------------------
+  schema:
+    name: kubeconform (strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned helm, kustomize and kubeconform
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          curl -sSfL -o /tmp/helm.tgz \
+            "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz"
+          tar -xzf /tmp/helm.tgz -C /tmp
+          install -m 0755 /tmp/linux-amd64/helm "$HOME/bin/helm"
+          curl -sSfL -o /tmp/kustomize.tgz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          tar -xzf /tmp/kustomize.tgz -C /tmp
+          install -m 0755 /tmp/kustomize "$HOME/bin/kustomize"
+          curl -sSfL -o /tmp/kubeconform.tgz \
+            "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          tar -xzf /tmp/kubeconform.tgz -C /tmp
+          install -m 0755 /tmp/kubeconform "$HOME/bin/kubeconform"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/cache@v4
+        with:
+          path: apps/*/charts
+          key: helm-charts-${{ hashFiles('apps/*/kustomization.yaml') }}
+          restore-keys: helm-charts-
+
+      - name: Validate every rendered manifest against the API schema
+        run: |
+          set -uo pipefail
+          rc=0
+          for dir in apps/*/; do
+            name="$(basename "$dir")"
+            [ -f "${dir}kustomization.yaml" ] || continue
+            # Rendering failures are the kustomize-build job's business; skip
+            # quietly here so one root cause does not paint two jobs red.
+            out="$(kustomize build --enable-helm "$dir" 2>/dev/null)" || continue
+            if ! printf '%s' "$out" \
+                 | kubeconform -strict -ignore-missing-schemas \
+                     -kubernetes-version "${K8S_VERSION}" \
+                     -summary -output text 2>&1 | tail -3; then
+              echo "::error file=${dir}kustomization.yaml::kubeconform rejected $name"
+              rc=1
+            fi
+          done
+          exit "$rc"
+
+  # ---------------------------------------------------------------------------
+  # 6. A fix must leave a record.
+  #
+  # docs/doctor-log.md is the single most valuable artefact in this repo: it is
+  # a labelled corpus of this cluster's real failure modes, and scripts/
+  # doctor.sh greps it by app name so a future diagnosis gets the prior art for
+  # free. That only holds if it keeps growing.
+  #
+  # Scoped narrowly on purpose. It fires only when a commit calls itself fix()
+  # AND touches apps/ - not on features, docs, or version bumps - because a
+  # check that asks for a log entry on every commit is a check people learn to
+  # word their way around.
+  # ---------------------------------------------------------------------------
+  fix-needs-log:
+    name: fix() updates the doctor's log
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need the base commit to diff against; a shallow clone has neither.
+          fetch-depth: 0
+
+      - name: A fix that changes apps/ must add to docs/doctor-log.md
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            # A push. Compare against the commit before this push. On the very
+            # first push to a branch `before` is all-zeroes, in which case
+            # there is nothing meaningful to diff and the check passes.
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+            case "$base" in
+              0000000000000000000000000000000000000000|"") echo "no previous commit to diff; skipping"; exit 0 ;;
+            esac
+          fi
+
+          if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "base commit $base is not in this clone; skipping"
+            exit 0
+          fi
+
+          msgs="$(git log --format=%s "$base..$head")"
+          files="$(git diff --name-only "$base" "$head")"
+
+          echo "commits:"; printf '%s\n' "$msgs" | sed 's/^/  /'
+
+          if ! printf '%s\n' "$msgs" | grep -qE '^fix(\(.*\))?!?:'; then
+            echo "no fix() commit in this range - nothing to enforce"
+            exit 0
+          fi
+          if ! printf '%s\n' "$files" | grep -q '^apps/'; then
+            echo "fix() present but nothing under apps/ changed - nothing to enforce"
+            exit 0
+          fi
+          if printf '%s\n' "$files" | grep -q '^docs/doctor-log\.md$'; then
+            echo "OK: doctor-log.md was updated alongside the fix"
+            exit 0
+          fi
+
+          echo "::error file=docs/doctor-log.md::a fix() commit changed apps/ without adding a doctor-log entry"
+          cat <<'MSG'
+
+          This range contains a fix() commit that changes apps/, but
+          docs/doctor-log.md was not touched.
+
+          Add an entry, newest first, with the headings from
+          .github/pull_request_template.md:
+
+              symptom, root cause, fix, prevention, confidence
+
+          Write the symptom in the words someone would actually use - the real
+          error text - because scripts/doctor.sh greps this file by app name
+          and an entry written for grep is prior art a future diagnosis gets
+          for free.
+
+          If this genuinely is not a fix, name the commit feat()/chore()/docs()
+          instead.
+          MSG
+          exit 1
