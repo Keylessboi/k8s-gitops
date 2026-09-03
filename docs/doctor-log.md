@@ -49,6 +49,46 @@ prose version of the prevention failed:
 - **Duplicate YAML keys** (1×, but silent) — PyYAML accepts them, Go's yaml does
   not. Validate with the same parser as the consumer.
 
+## 2026-09-03 — csi-nfs-controller's 135 restarts are a symptom, plus a sidecar that never worked
+
+- **Symptom:** `scripts/doctor.sh` surfaced `csi-nfs-controller` with **135
+  restarts** — the largest unexplained number in the cluster. Also
+  image-updater 39, doppler-operator 37, cnpg 36. Nobody had noticed any of them.
+- **Root cause, part 1 — the restarts are not a CSI bug.** Only three of the five
+  containers restart: `csi-provisioner` (48), `csi-resizer` (44),
+  `csi-snapshotter` (43). The `nfs` driver itself and the liveness probe have
+  **zero**. All three die the same way:
+  `Failed to renew lease ... Put .../leases/...: context deadline exceeded` →
+  `Stopped leading` → exit 255. CSI sidecars exit **by design** when they lose
+  leader election, and the kubelet restarts them.
+  So 135 restarts means 135 moments the API server was too slow to service a
+  lease renewal. This is the resource-exhaustion class wearing a different hat,
+  and the same count pattern across image-updater, doppler-operator and cnpg —
+  all leader-electing controllers — is the corroboration. The 16:03–16:06Z
+  terminations line up exactly with the restore drill that restarted the
+  apiserver twice earlier the same day.
+- **Root cause, part 2 — a sidecar that has never worked.** `csi-snapshotter`
+  additionally logs, continuously:
+  `failed to list *v1.VolumeSnapshotContent: the server could not find the
+  requested resource`. The VolumeSnapshot CRDs are not installed —
+  `kubectl get volumesnapshot` reports the resource type does not exist. The
+  sidecar has therefore been erroring since the day it was deployed.
+- **Fix:** `controller.enableSnapshotter: false`. Nothing here uses volume
+  snapshots and nothing is planned to — point-in-time recovery comes from CNPG
+  WAL archiving, file history from sanoid, off-site from restic and borgmatic.
+  Installing the CRDs plus a snapshot-controller to satisfy a sidecar nobody
+  uses would add moving parts to a cluster ADR-0007 froze.
+- **Prevention:** none needed for part 2 — it is a one-time configuration
+  correction. For part 1 the prevention is headroom, which is already ADR-0007's
+  decision #1 and its stated tripwire.
+- **Confidence:** CONFIRMED for both. The lease-renewal failures and the missing
+  CRDs are both read directly from the containers' own logs and the API server.
+- **The generalisable lesson:** a restart count is a *symptom*, and the useful
+  question is which container and with what exit reason.
+  `lastState.terminated` answered this in one field — the same field that
+  contained the whole Ghost diagnosis. A high restart count on a multi-container
+  pod says almost nothing until it is broken down per container.
+
 ## 2026-09-03 — Immich had no machine learning: the namespace denied its own pods
 
 - **Symptom:** owner reported "immich machine learning isn't working". Smart

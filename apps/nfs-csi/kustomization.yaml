@@ -45,6 +45,21 @@ helmCharts:
         # Controller does the provisioning. Keep it off the Pi.
         nodeSelector:
           homelab/node-class: compute
+        # The csi-snapshotter sidecar is deployed by default and has NEVER
+        # worked here: the VolumeSnapshot CRDs are not installed, so
+        # `kubectl get volumesnapshot` reports the resource type does not
+        # exist. The sidecar therefore logs
+        #   failed to list *v1.VolumeSnapshotContent: the server could not
+        #   find the requested resource
+        # in a loop, forever, and is one of the three containers contributing
+        # to this pod's 135 restarts.
+        #
+        # Nothing here uses volume snapshots and nothing is planned to: point
+        # -in-time recovery comes from CNPG WAL archiving, file history from
+        # sanoid on the NAS, and off-site from restic and borgmatic. Installing
+        # the CRDs plus a snapshot-controller to satisfy a sidecar nobody uses
+        # would add moving parts to a cluster that ADR-0007 froze.
+        enableSnapshotter: false
         resources:
           limits:
             cpu: 200m
