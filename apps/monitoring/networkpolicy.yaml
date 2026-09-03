@@ -52,6 +52,18 @@ spec:
     ports:
     - port: 9000
       protocol: TCP
+  # ntfy on travisbackupserver - the external heartbeat sink. Alertmanager
+  # POSTs the Watchdog alert here every 5 minutes so a machine OUTSIDE this
+  # cluster can notice when the cluster stops talking. Same 192.168.0.0/16
+  # exclusion applies: without naming it the POST is dropped, the heartbeat
+  # never arrives, and the dead-man switch fires permanently - a monitoring
+  # system that cries wolf about itself.
+  - to:
+    - ipBlock:
+        cidr: 192.168.1.206/32
+    ports:
+    - port: 2586
+      protocol: TCP
   # The Traefik load balancer, for the edge probes (edge-probes.yaml). Third
   # instance of the same trap: the catch-all egress below excludes
   # 192.168.0.0/16, so without this every one of the 22 probes fails at once

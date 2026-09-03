@@ -253,22 +253,34 @@ helmCharts:
 
               # Watchdog is kube-prometheus-stack's heartbeat: it fires ALWAYS,
               # by design, forever. Its purpose is to be sent somewhere
-              # EXTERNAL that alerts when it stops arriving.
+              # EXTERNAL that alerts when it STOPS arriving - and until
+              # 2026-09-03 it was routed to "null", which is the one thing it
+              # must never be. Discarding a heartbeat leaves the monitoring
+              # unable to report its own death, and "no alerts" is exactly what
+              # a healthy day looks like.
               #
-              # THIS IS STILL THE OPEN GAP, and muting it here is a stopgap,
-              # not the answer. Mailing it would nag every repeat_interval;
-              # discarding it - what this line does today - leaves the
-              # monitoring unable to report its own death. If Prometheus dies,
-              # the node locks up, or the SMTP credential silently expires,
-              # nothing arrives, and nothing arriving is exactly what a healthy
-              # day looks like.
+              # It now POSTs to ntfy on travisbackupserver (192.168.1.206), a
+              # machine that is NOT this cluster: the cluster is an LXC on the
+              # Proxmox host, that box is separate hardware with 7 weeks of
+              # uptime. A timer there checks the age of the newest message and
+              # notifies the owner if it stops - so if Prometheus dies, the node
+              # locks up, or the SMTP credential expires, something outside the
+              # failure domain notices.
               #
-              # Closing it needs a receiver on a machine that is NOT this
-              # cluster (travisbackupserver or vmhub-1 on the tailnet). Blocked
-              # on shell access to one of them; see docs/doctor-log.md.
-              - receiver: "null"
+              # The topic is machine-only; a phone subscribes to
+              # `homelab-alerts`, never to `homelab-heartbeat`, so this is
+              # silent in normal operation.
+              #
+              # repeat_interval 5m, not the route default of 12h: the whole
+              # value is in arriving often enough that absence is quickly
+              # meaningful. The watcher allows 20 minutes - four missed beats -
+              # before it says anything.
+              - receiver: "heartbeat-ntfy"
                 matchers:
                   - alertname = "Watchdog"
+                group_wait: 0s
+                group_interval: 5m
+                repeat_interval: 5m
               # InfoInhibitor exists only to suppress other alerts; it is never
               # itself actionable and has no recipient.
               - receiver: "null"
@@ -383,6 +395,14 @@ helmCharts:
           receivers:
             - name: "null"
             - name: "smart-email"
+            # The heartbeat sink. ntfy takes the POST body as the message text,
+            # so Alertmanager's JSON lands as the body - which is fine and
+            # deliberate: nothing reads the content, only the arrival time
+            # matters. send_resolved is off because Watchdog never resolves.
+            - name: "heartbeat-ntfy"
+              webhook_configs:
+                - url: "http://192.168.1.206:2586/homelab-heartbeat"
+                  send_resolved: false
               email_configs:
                 - to: "travis.fiorito@tuta.com"
                   send_resolved: true
