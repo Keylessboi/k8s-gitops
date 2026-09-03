@@ -1,0 +1,113 @@
+---
+# Seed Remux's admin account, idempotently, so a rebuild is reproducible.
+#
+# THE GAP THIS CLOSES. The `remux` Secret carries `admin-password` from Doppler
+# but was wired into nothing: the account was created once by hand through the
+# headless startup wizard (see docs/remux.md) and existed only as state on the
+# PVC. Delete that PVC and Remux comes back with the setup wizard open and no
+# account, with the password sitting in a Secret nobody reads.
+#
+# Mounting the Secret as an env var would NOT have fixed that. Remux is
+# Jellyfin-compatible and has no admin-seeding environment variable; the
+# account can only be created through the wizard API. So the fix is this Job,
+# which performs that bootstrap the same way a human would.
+#
+# IDEMPOTENT BY CONSTRUCTION. The wizard endpoints lock themselves once setup
+# completes - `GET /Startup/Configuration` then answers 403 "Setup wizard is
+# already completed". The Job checks that first and exits 0 without touching
+# anything, so it is safe on every sync.
+#
+# PascalCase payloads are load-bearing, and this bit once already: lowercase
+# keys deserialize as None and `POST /startup/user` silently no-ops with a 204,
+# leaving no account and no error.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: remux-admin
+  namespace: remux
+  annotations:
+    # PostSync so it runs after the Deployment is healthy, and delete-on-success
+    # so it does not accumulate.
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded,BeforeHookCreation
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      initContainers:
+        # kube-router programs this pod's policy ~1-2s after start, and this
+        # Job's first action is an HTTP call - the same race that cost three
+        # pg_dump runs. Also genuinely waits for Remux to be serving, since a
+        # PostSync hook can fire while the container is still opening its port.
+        - name: wait-for-remux
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              for attempt in $(seq 1 60); do
+                if nc -z remux.remux.svc.cluster.local 3000; then
+                  echo "remux reachable after ${attempt} attempt(s)"
+                  exit 0
+                fi
+                echo "attempt ${attempt}/60: remux not reachable yet"
+                sleep 2
+              done
+              echo "remux not reachable after 120s, proceeding anyway"
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 200m, memory: 64Mi}
+      containers:
+        - name: seed
+          image: curlimages/curl:8.11.1
+          env:
+            - name: REMUX
+              value: http://remux.remux.svc.cluster.local:3000
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: remux
+                  key: admin-password
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+
+              # 403 here means the wizard already ran. That is the normal case
+              # on every sync after the first, and it is a success, not a skip
+              # to be silent about.
+              code=$(curl -s -o /dev/null -w "%{http_code}" -m 20 "$REMUX/Startup/Configuration")
+              echo "GET /Startup/Configuration -> $code"
+              if [ "$code" = "403" ]; then
+                echo "REMUX_ADMIN_ALREADY_SEEDED"
+                exit 0
+              fi
+              if [ "$code" != "200" ]; then
+                echo "unexpected status $code from the startup wizard; refusing to guess"
+                exit 1
+              fi
+
+              echo "wizard is open - seeding the admin account"
+              # PascalCase. See the header: lowercase keys silently no-op.
+              curl -sf -m 30 -X POST "$REMUX/startup/configuration" \
+                -H 'Content-Type: application/json' \
+                -d '{"UICulture":"en-US","MetadataCountryCode":"US","PreferredMetadataLanguage":"en"}' \
+                -o /dev/null
+              curl -sf -m 30 -X POST "$REMUX/startup/user" \
+                -H 'Content-Type: application/json' \
+                -d "{\"Name\":\"admin\",\"Password\":\"${ADMIN_PASSWORD}\"}" \
+                -o /dev/null
+              curl -sf -m 30 -X POST "$REMUX/startup/complete" -o /dev/null
+
+              # Prove it, rather than trusting three 204s.
+              code=$(curl -s -o /dev/null -w "%{http_code}" -m 20 "$REMUX/Startup/Configuration")
+              if [ "$code" != "403" ]; then
+                echo "wizard did not lock after completion (got $code) - account may not exist"
+                exit 1
+              fi
+              echo "REMUX_ADMIN_SEEDED"
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 300m, memory: 128Mi}

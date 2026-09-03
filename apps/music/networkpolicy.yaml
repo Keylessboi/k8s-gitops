@@ -15,8 +15,9 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
       ports:
+        # 8337 beets, 8089 the cert-manager HTTP-01 solver. Port 3000 was
+        # Octo-Fiesta's and was removed with it on 2026-09-03.
         - {port: 8337, protocol: TCP}
-        - {port: 3000, protocol: TCP}
         - {port: 8089, protocol: TCP}
     - from:
         - namespaceSelector:

@@ -157,7 +157,6 @@ If a second operator is ever added, replace the relevant row rather than adding 
 
 ## Not Published
 
-Prowlarr, FlareSolverr, Readarr, the book downloader, Beets, Octo-Fiesta and qBittorrent's WebUI have no Ingress by design. Reach them over Tailscale or port-forward, e.g.:
 
 ```bash
 kubectl port-forward -n prowlarr svc/prowlarr 9696:9696

@@ -30,6 +30,8 @@ resources:
   - aiostreams-pvc.yaml
   - networkpolicy.yaml
   - deployment.yaml
+  # PostSync: seeds the admin account from the Doppler secret, idempotently.
+  - admin-job.yaml
   - aiostreams-deployment.yaml
   - aiostreams-service.yaml
   - ingress.yaml

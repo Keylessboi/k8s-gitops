@@ -6,7 +6,6 @@
 #                 Its configuration lives in beets-config.yaml rather than in
 #                 the PVC, and beets-import-cronjob.yaml is what actually runs
 #                 `beet import` - the image itself only ever serves the web UI.
-#   Octo-Fiesta - Subsonic proxy for an external catalogue.
 #
 # Deliberately NOT included:
 #   Funkwhale     - deployed 2026-09-01 and REMOVED 2026-09-03: it served
@@ -43,4 +42,3 @@ resources:
   - beets-config.yaml
   - beets.yaml
   - beets-import-cronjob.yaml
-  - octo-fiesta.yaml

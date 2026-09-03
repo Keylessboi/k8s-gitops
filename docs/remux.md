@@ -65,7 +65,13 @@ mode. If native clients are wanted later, carve the API paths out of
 forward-auth (Remux's own login becomes the gate — the Jellyfin arrangement)
 or front clients individually.
 
-## Headless bootstrap (already done)
+## Headless bootstrap
+
+**This is now automated** by `apps/remux/admin-job.yaml`, an idempotent ArgoCD
+PostSync hook that performs the steps below from the Doppler secret. It exits
+early when `GET /Startup/Configuration` returns 403 (wizard already complete),
+so it is safe on every sync. The manual procedure is kept here because it is
+what the Job does and what you would do by hand if it ever failed.
 
 1. Startup wizard via the API: `POST /startup/configuration`,
    `POST /startup/user` (admin, password from Doppler `REMUX_ADMIN_PASSWORD`),
@@ -77,7 +83,11 @@ or front clients individually.
 2. AIOStreams addon created via `POST /addons` (above). Catalogs enabled via
    `POST /addons/{id}/catalogs` (all 8 enabled).
 3. Authentik forward-auth provider created via `ak shell` (cluster state, not
-   git): ProxyProvider `remux` (mode proxy, external_host
+   git): ProxyProvider `remux` (**mode `forward_single`** — it was created as
+   `proxy`, which is what broke the login on 2026-09-03: proxy mode expects the
+   outpost to receive and forward the request itself, while this app's Ingress
+   is wired for forward-auth. Every other provider here is `forward_single`.
+   external_host
    `https://remux.sandstorm.chat`, internal_host
    `http://remux.remux.svc.cluster.local:3000`) + Application slug `remux`.
    Recreate after a cluster rebuild with the same two objects.
