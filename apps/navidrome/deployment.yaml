@@ -42,7 +42,22 @@ spec:
           type: RuntimeDefault
       containers:
         - name: navidrome
-          image: deluan/navidrome:0.58.0
+          # 0.63.2, up from 0.58.0. The reason is SECONDARY ARTISTS: Navidrome
+          # models featured and collaborating performers as "participations"
+          # (roles), which postdates 0.58 - on the old version those artists
+          # exist only as text inside a track's credits and are not browsable.
+          # 18 of the 24 names that looked "missing" from the starred export
+          # were exactly this.
+          #
+          # Participations populate on a FULL RESCAN, not on upgrade alone, and
+          # 0.59 shipped a rewritten scanner - so expect one long scan after
+          # this lands.
+          #
+          # Rollback: set this back to 0.58.0 and restore
+          # /data/navidrome.db.pre-0.63-upgrade (taken 2026-09-03, 79.5 MB) over
+          # /data/navidrome.db. Navidrome is SQLite-only, so it is the one
+          # documented exception to the Postgres rule in CONTRIBUTING.md.
+          image: deluan/navidrome:0.63.2
           env:
             - name: ND_LOGLEVEL
               value: info
