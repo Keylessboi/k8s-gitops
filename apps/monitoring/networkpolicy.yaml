@@ -52,6 +52,18 @@ spec:
     ports:
     - port: 9000
       protocol: TCP
+  # The Traefik load balancer, for the edge probes (edge-probes.yaml). Third
+  # instance of the same trap: the catch-all egress below excludes
+  # 192.168.0.0/16, so without this every one of the 22 probes fails at once
+  # and every published service reads as down. The address is pinned by the
+  # MetalLB annotation on the Traefik service, so it is stable by construction
+  # - the same guarantee the CoreDNS split-horizon block relies on.
+  - to:
+    - ipBlock:
+        cidr: 192.168.1.240/32
+    ports:
+    - port: 443
+      protocol: TCP
   # node-exporter, which runs with hostNetwork - so its address is the node's
   # own LAN address, not a pod address, and the same 192.168.0.0/16 exclusion
   # below drops the scrape. It listens on *:9100 and answers fine from the

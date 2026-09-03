@@ -1,0 +1,128 @@
+---
+# Daily assertion that the restic backup chain is actually producing snapshots.
+#
+# THE GAP THIS FILLS. BackupTooOld in apps/monitoring/backup-alerts.yaml reads
+# cnpg_collector_last_available_backup_timestamp, which is barman's PHYSICAL
+# base backup. Nothing watches the restic repository - the LOGICAL pg_dump
+# chain, and the one that actually protects the Vaultwarden vault. Between them
+# the two backup systems had exactly one alerting eye, pointed at the other one.
+#
+# KubeJobFailed covers the case where pgdump-backup crashes. It does not cover
+# the case that has already happened here: on 2026-08-29 MinIO ran for ~20h
+# with zero drives online while every write failed, and the failure was found
+# by accident. A job can exit 0 having written nothing if the far end accepts
+# the connection and discards the data, and "green everywhere, no data" is the
+# single most-repeated shape in docs/doctor-log.md.
+#
+# So this asks the only question that cannot be faked from this side: what does
+# the repository say is in it, right now?
+#
+# Deliberately NOT included, having considered them:
+#   * Navidrome song count > 0 - the library is mid-rebuild by design, so the
+#     count is a moving target and any threshold is arbitrary. It would assert
+#     something nobody actually knows the right value for.
+#   * CouchDB _users exists - a one-off initialisation bug, fixed and verified
+#     on 2026-09-03. A permanent daily check for a thing that happens once at
+#     install is noise, and the edge probe in apps/monitoring/edge-probes.yaml
+#     already fails if CouchDB stops answering 401.
+# Both would have been checks written because they were easy to write rather
+# than because anything is going to go wrong with them.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-freshness
+  namespace: databases
+spec:
+  # 09:20 daily. The pgdump CronJob runs at :40 every 6h, so by 09:20 the most
+  # recent run (06:40) has had two and a half hours to finish a job that takes
+  # about five minutes.
+  schedule: "20 9 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # A failure here is a finding about the repository, not a flake worth
+      # retrying - and retrying only delays the alert.
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: check
+              image: restic/restic:0.17.3
+              env:
+                - name: RESTIC_REPOSITORY
+                  value: s3:http://192.168.1.67:9000/cnpg-backups/restic
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom: {secretKeyRef: {name: pgdump-s3, key: access-key}}
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom: {secretKeyRef: {name: pgdump-s3, key: secret-key}}
+                - name: RESTIC_PASSWORD
+                  valueFrom: {secretKeyRef: {name: pgdump-s3, key: restic-password}}
+                # pgdump runs every 6h. 26h allows four consecutive misses
+                # before complaining, which is wide enough that a single slow
+                # or skipped run is not an alert and narrow enough that a
+                # genuinely stalled chain is caught the next morning.
+                - name: MAX_AGE_HOURS
+                  value: "26"
+                # The 2026-09-03 snapshot carried 18 dumps plus globals.sql. A
+                # snapshot that suddenly contains far fewer files restored
+                # cleanly but backed up almost nothing - which is precisely the
+                # "exit 0 having written nothing" shape this job exists for.
+                - name: MIN_FILES
+                  value: "12"
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+
+                  echo "=== newest pgdump snapshot ==="
+                  restic snapshots --tag pgdump --latest 1 --json > /tmp/snap.json
+                  cat /tmp/snap.json
+
+                  # busybox has no jq. The time field is ISO-8601 and the only
+                  # "time" key in a one-element array, so sed is enough and
+                  # avoids adding an image just to parse one field.
+                  snap_time=$(sed -n 's/.*"time":"\([^"]*\)".*/\1/p' /tmp/snap.json | head -1)
+                  if [ -z "$snap_time" ]; then
+                    echo "FAIL: no pgdump snapshot in the repository at all"
+                    exit 1
+                  fi
+
+                  # Trim fractional seconds and zone, which `date -d` in
+                  # busybox will not parse.
+                  clean=$(echo "$snap_time" | sed 's/\..*//; s/Z$//')
+                  snap_epoch=$(date -u -D "%Y-%m-%dT%H:%M:%S" -d "$clean" +%s)
+                  now_epoch=$(date -u +%s)
+                  age_h=$(( (now_epoch - snap_epoch) / 3600 ))
+
+                  echo "newest snapshot: ${snap_time} (${age_h}h old, limit ${MAX_AGE_HOURS}h)"
+
+                  files=$(restic ls latest --tag pgdump 2>/dev/null | grep -c '\.dump$' || true)
+                  echo "dump files in snapshot: ${files} (minimum ${MIN_FILES})"
+
+                  rc=0
+                  if [ "$age_h" -gt "$MAX_AGE_HOURS" ]; then
+                    echo "FAIL: newest snapshot is ${age_h}h old"
+                    rc=1
+                  fi
+                  if [ "$files" -lt "$MIN_FILES" ]; then
+                    echo "FAIL: snapshot holds only ${files} dumps"
+                    rc=1
+                  fi
+
+                  # Repository integrity. --read-data would re-download every
+                  # pack and is far too heavy for a daily job; the default
+                  # check verifies structure and that every referenced pack
+                  # exists, which is what catches a repository truncated or
+                  # partially destroyed by a storage fault underneath it.
+                  echo "=== repository structure ==="
+                  restic check || rc=1
+
+                  [ "$rc" -eq 0 ] && echo "BACKUP_FRESHNESS_PASSED" || echo "BACKUP_FRESHNESS_FAILED"
+                  exit "$rc"
+              resources:
+                requests: {cpu: 25m, memory: 128Mi}
+                limits: {cpu: "1", memory: 512Mi}

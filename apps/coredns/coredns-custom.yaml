@@ -34,6 +34,18 @@ data:
     sandstorm.chat:53 {
       errors
       hosts {
+        # Every host with an Ingress, kept in step with `kubectl get ingress -A`.
+        # A published name MISSING here does not fail loudly: it falls through
+        # to the upstream resolver, returns the public address, and hairpins
+        # back through the router - where Traefik answers with TRAEFIK DEFAULT
+        # CERT instead of the Let's Encrypt one. Anything doing TLS verification
+        # over that path fails with an opaque certificate error. That is how
+        # Vaultwarden's SSO broke.
+        #
+        # It also silently breaks the edge probes in
+        # apps/monitoring/edge-probes.yaml, which resolve these names from
+        # inside the cluster: an absent name reads as a hard probe failure that
+        # looks identical to the service being down.
         192.168.1.240 authentik.sandstorm.chat
         192.168.1.240 forgejo.sandstorm.chat
         192.168.1.240 argocd.sandstorm.chat
@@ -49,7 +61,16 @@ data:
         192.168.1.240 qui.sandstorm.chat
         192.168.1.240 grafana.sandstorm.chat
         192.168.1.240 pelican.sandstorm.chat
-        192.168.1.240 jellyfin.sandstorm.chat
+        # Added 2026-09-03: all published, none previously resolvable in-cluster.
+        192.168.1.240 remux.sandstorm.chat
+        192.168.1.240 bitmagnet.sandstorm.chat
+        192.168.1.240 convertx.sandstorm.chat
+        192.168.1.240 blog.sandstorm.chat
+        192.168.1.240 obsidian.sandstorm.chat
+        192.168.1.240 alertmanager.sandstorm.chat
+        192.168.1.240 invidious.sandstorm.chat
+        # jellyfin removed 2026-09-03 (decommissioned in eb910dc); funkwhale
+        # was never listed and is gone as of d066e8c.
         fallthrough
       }
       forward . /etc/resolv.conf

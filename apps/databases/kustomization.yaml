@@ -45,6 +45,10 @@ resources:
   # has restored is a hypothesis, and this chain has already failed silently
   # once (MinIO, ~20h with zero drives online).
   - restore-drill-cronjob.yaml
+  # Daily: does the restic repository actually contain a recent, complete
+  # snapshot? Nothing else watches the logical backup chain - BackupTooOld
+  # reads barman, not restic.
+  - backup-freshness-cronjob.yaml
   # Physical backups: barman base backup daily, which is what makes the
   # continuously archived WALs restorable.
   - scheduledbackup.yaml

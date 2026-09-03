@@ -133,3 +133,23 @@ spec:
               40 days, so nothing currently proves the backups are restorable.
               Check the CronJob in the databases namespace - suspended, failing
               to schedule, or being deleted before it can run.
+
+        # The daily restic freshness assertion
+        # (apps/databases/backup-freshness-cronjob.yaml). Named Backup* so it
+        # reaches a human: an empty or stale backup repository is invisible
+        # from every other direction, which is how MinIO managed ~20h of
+        # silently failing writes on 2026-08-29.
+        - alert: BackupSnapshotStale
+          expr: kube_job_status_failed{exported_namespace="databases", job_name=~"backup-freshness-.*"} > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "restic backup repository is stale, incomplete or damaged"
+            description: >-
+              The daily freshness check failed. It asserts three things and the
+              job output says which one gave way: the newest pgdump snapshot is
+              under 26h old, it holds at least 12 dump files, and `restic check`
+              passes. Read it with
+              kubectl -n databases logs job/<name>. Check MinIO on the NAS first
+              (http://192.168.1.67:9000/minio/health/cluster must return 200).

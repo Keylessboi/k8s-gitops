@@ -1,0 +1,179 @@
+---
+# Continuous probes of every published URL, from inside the cluster.
+#
+# WHO THIS IS FOR. Not the owner - these do not page anyone. The workflow this
+# cluster is tuned for is "the owner notices something is broken, says so, and
+# a model diagnoses it", and the expensive part of that loop is establishing
+# WHEN it broke. These probes exist so the answer is a query rather than an
+# investigation: `probe_success{instance="https://immich.sandstorm.chat/"}`
+# gives a to-the-minute history, and the ALERTS series below turns that into
+# "since 14:20, which is eleven minutes after the 14:09 ArgoCD sync".
+#
+# That correlation is the single biggest token saving available here, which is
+# why coverage went from 1 target (MinIO) to all 22.
+#
+# WHAT IS ASSERTED. Each target is grouped by the status code it SHOULD return,
+# measured live on 2026-09-03 rather than assumed. The modules are defined in
+# kustomization.yaml. Asserting the exact code catches a class that a plain
+# up/down check cannot: if a forward-auth route starts returning 200 instead of
+# 302, its authentication gate has fallen off and the application is exposed to
+# the internet - a 2xx probe would report that as healthy.
+#
+# Probing over https also validates the certificate on every run, so an expiry
+# or a renewal failure surfaces here as well.
+#
+# TWO WAYS THIS BREAKS SILENTLY, both already paid for once:
+#
+#   1. DNS. These resolve through CoreDNS, so every name must be in the hosts
+#      block of apps/coredns/coredns-custom.yaml. A missing name falls through
+#      to the public resolver, hairpins through the router, and gets
+#      TRAEFIK DEFAULT CERT - a TLS failure indistinguishable from the service
+#      being down. Seven names were missing when these probes were written.
+#
+#   2. NetworkPolicy. apps/monitoring/networkpolicy.yaml excludes
+#      192.168.0.0/16 from its catch-all egress, so 192.168.1.240:443 has to
+#      be named explicitly or every probe fails at once and every service looks
+#      dead. Same trap as the MinIO probe and the smartctl scrape.
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: edge-open
+  namespace: monitoring
+  labels:
+    # The Prometheus CR's probeSelector requires this and silently ignores
+    # anything without it.
+    release: kps
+spec:
+  interval: 60s
+  module: http_2xx
+  prober:
+    # No scheme: the operator rejects prober URLs with one and skips the probe.
+    url: blackbox-exporter.monitoring.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        # Applications that serve their own login page or are public.
+        - https://vaultwarden.sandstorm.chat/
+        - https://immich.sandstorm.chat/
+        - https://kiwix.sandstorm.chat/
+        - https://blog.sandstorm.chat/
+        - https://forgejo.sandstorm.chat/
+        # argocd answers 200 from inside the cluster and 403 from the internet
+        # - the IP allowlist runs ahead of everything else. This probe rides
+        # the LAN address, so 200 is correct here and is NOT evidence that the
+        # allowlist is off.
+        - https://argocd.sandstorm.chat/
+      labels:
+        probe_group: edge
+---
+# Everything behind Authentik forward-auth. 302 is the healthy answer.
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: edge-forwardauth
+  namespace: monitoring
+  labels:
+    release: kps
+spec:
+  interval: 60s
+  module: http_302
+  prober:
+    url: blackbox-exporter.monitoring.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - https://authentik.sandstorm.chat/
+        - https://nextcloud.sandstorm.chat/
+        - https://navidrome.sandstorm.chat/
+        - https://remux.sandstorm.chat/
+        - https://grafana.sandstorm.chat/
+        - https://books.sandstorm.chat/
+        - https://bookdl.sandstorm.chat/
+        - https://lidarr.sandstorm.chat/
+        - https://prowlarr.sandstorm.chat/
+        - https://bitmagnet.sandstorm.chat/
+        - https://qui.sandstorm.chat/
+        - https://convertx.sandstorm.chat/
+        - https://alertmanager.sandstorm.chat/
+        - https://invidious.sandstorm.chat/
+        - https://pelican.sandstorm.chat/
+      labels:
+        probe_group: edge
+---
+# Obsidian LiveSync. CouchDB answers unauthenticated requests with 401 by
+# design - the plugin speaks the replication protocol with credentials, so
+# there is no forward-auth in front of it. A 200 here would mean the vault
+# database went open to the internet.
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: edge-couchdb
+  namespace: monitoring
+  labels:
+    release: kps
+spec:
+  interval: 60s
+  module: http_401
+  prober:
+    url: blackbox-exporter.monitoring.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - https://obsidian.sandstorm.chat/
+      labels:
+        probe_group: edge
+---
+# Rules over the probes above.
+#
+# These deliberately do NOT reach the owner. The Alertmanager route in
+# kustomization.yaml sends everything unmatched to the "null" receiver, and
+# nothing here is named to escape it - on purpose. "Immich is 404" is something
+# the owner notices before any alert would help, and the value of these rules
+# is the ALERTS series they leave behind, which Prometheus retains for 15 days
+# and which answers "when did it start" in one query.
+#
+# EndpointWrongStatus is the interesting one. probe_success already goes to 0
+# when the status code is wrong, so this rule is not about detection - it is
+# about making the *reason* legible in the alert name a model will read.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: edge-probes
+  namespace: monitoring
+  labels:
+    release: kps
+spec:
+  groups:
+    - name: edge-probes
+      rules:
+        - alert: EndpointDown
+          expr: probe_success{probe_group="edge"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.instance }} has not answered correctly for 5m"
+            description: >-
+              The blackbox probe for {{ $labels.instance }} is failing. This
+              means the endpoint did not return the status code it is asserted
+              to return, not necessarily that it is unreachable - check
+              probe_http_status_code for the same instance to see what it
+              actually said. If EVERY edge probe is failing at once, suspect
+              the monitoring namespace's egress to 192.168.1.240:443 or a name
+              missing from the CoreDNS hosts block before suspecting the apps.
+
+        # Certificate expiry, free from the same probe. cert-manager renews
+        # these unattended, so a broken renewal is invisible until the day a
+        # certificate actually expires and every browser refuses the site.
+        - alert: EndpointCertExpiringSoon
+          expr: >-
+            (probe_ssl_earliest_cert_expiry{probe_group="edge"} - time()) / 86400 < 14
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "TLS certificate for {{ $labels.instance }} expires in {{ $value | printf \"%.0f\" }} days"
+            description: >-
+              cert-manager renews at 30 days remaining, so under 14 means
+              renewal has been failing for a fortnight. Check the Certificate
+              and CertificateRequest resources in the app's namespace.

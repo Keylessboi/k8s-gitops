@@ -41,6 +41,8 @@ resources:
   - temperature-alerts.yaml
   - backup-alerts.yaml
   - minio-probe.yaml
+  # Probes every published URL, asserting the status code each SHOULD return.
+  - edge-probes.yaml
   - dashboard-disk-health.yaml
   - dashboard-backups.yaml
   - dashboard-app-detail.yaml
@@ -523,6 +525,54 @@ helmCharts:
       # add a target nothing consumes.
       serviceMonitor:
         enabled: false
+      # Modules. The point of edge-probes.yaml is not "did it answer" but "did
+      # it answer WHAT IT SHOULD", and the stock http_2xx module cannot say
+      # that: most of this cluster's routes correctly return 302 (the Authentik
+      # forward-auth redirect), which http_2xx scores as a failure, and
+      # Obsidian correctly returns 401 because clients speak CouchDB directly.
+      #
+      # Asserting the exact code is what makes these probes catch the
+      # interesting failures rather than only the obvious ones. If a
+      # forward-auth route starts answering 200, the gate has fallen off and
+      # the app is exposed - a 2xx check would call that healthy.
+      #
+      # follow_redirects is FALSE on the 302 module on purpose. Following it
+      # lands on the Authentik flow, which returns 200, so the assertion would
+      # silently become "authentik is up" for fifteen different routes.
+      #
+      # Helm deep-merges maps, so naming http_2xx here keeps it identical to
+      # the chart default rather than dropping it (minio-probe.yaml uses it).
+      config:
+        modules:
+          http_2xx:
+            prober: http
+            timeout: 5s
+            http:
+              valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+              follow_redirects: true
+              preferred_ip_protocol: ip4
+              ip_protocol_fallback: false
+          # Forward-auth routes: an unauthenticated GET / must redirect.
+          http_302:
+            prober: http
+            timeout: 5s
+            http:
+              valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+              valid_status_codes: [302]
+              follow_redirects: false
+              preferred_ip_protocol: ip4
+              ip_protocol_fallback: false
+          # Obsidian LiveSync: CouchDB answers unauthenticated requests with
+          # 401 by design. 200 here would mean the database went open.
+          http_401:
+            prober: http
+            timeout: 5s
+            http:
+              valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+              valid_status_codes: [401]
+              follow_redirects: false
+              preferred_ip_protocol: ip4
+              ip_protocol_fallback: false
       nodeSelector:
         homelab/node-class: compute
       resources:
@@ -586,6 +636,35 @@ helmCharts:
             }
             loki.source.kubernetes "pods" {
               targets    = discovery.relabel.pods.output
+              forward_to = [loki.write.default.receiver]
+            }
+            // Kubernetes Events, shipped to Loki so they outlive the ~1h the
+            // API server keeps them.
+            //
+            // This block's absence had a measurable price. On 2026-09-03 three
+            // consecutive pg_dump runs failed; by the time anyone looked, the
+            // Events explaining WHY had already aged out of etcd, so the only
+            // remaining way to learn the cause was to re-run the job and
+            // reproduce the failure. That is the most expensive possible
+            // diagnosis, and it was caused by a missing four-line component.
+            //
+            // Events are also where the answers to most "why is this pod not
+            // running" questions live - image pull failures, scheduling
+            // refusals, probe failures, volume mount errors, evictions - none
+            // of which appear in any container's own logs, because the
+            // container never started.
+            //
+            // NOTE FOR A SECOND NODE: Alloy is a DaemonSet, and this component
+            // watches the whole cluster rather than one node, so every event
+            // would be shipped once per node. On this single-node cluster that
+            // is exactly one copy. If the NAS is ever joined, move this to a
+            // singleton (a separate Deployment-mode Alloy) or events will
+            // double.
+            loki.source.kubernetes_events "cluster_events" {
+              // Empty = all namespaces.
+              namespaces = []
+              job_name   = "kubernetes-events"
+              log_format = "logfmt"
               forward_to = [loki.write.default.receiver]
             }
             loki.write "default" {
