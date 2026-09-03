@@ -149,27 +149,31 @@ spec:
           ports:
             - name: http
               containerPort: 2368
-          # / serves the newest post and returns 200 on a fresh install (the
-          # Ghost welcome page). Verified from inside the pod with curl before
-          # these timings were committed.
+          # The X-Forwarded-Proto header is load-bearing, not decoration.
           #
-          # Liveness ONLY - there is deliberately no readiness probe. This
-          # node's kubelet probes readiness with https despite a scheme-less
-          # httpGet: fresh pods twice logged 'Readiness probe failed: Get
-          # "https://10.42.x.x:2368/": http: server gave HTTP response to
-          # HTTPS client' while the pod spec said scheme=HTTP (the default),
-          # the kustomization has no patches, and the liveness probe of the
-          # exact same shape succeeded as http every 60s (0 restarts in 25h).
-          # Reproduced on a brand-new pod to rule out stale state. The result
-          # was 25h+ of Ready=False with the Service's endpoints empty - the
-          # same failure class as the over-tight-probe lesson below, with the
-          # kubelet as the culprit. A misbehaving probe empties the Service
-          # for nothing: Ghost either serves or the container dies and
-          # liveness restarts it.
+          # `url` is https://blog.sandstorm.chat, so Ghost 301s any request it
+          # believes arrived over plaintext - and it builds that redirect from
+          # the request's own host, emitting Location: https://<podIP>:2368/.
+          # The kubelet follows probe redirects, so it then TLS-handshakes
+          # against the plaintext port and logs 'http: server gave HTTP
+          # response to HTTPS client'. That read as a kubelet bug and was
+          # documented here as one; it is not. The scheme field cannot fix it
+          # either - the initial GET already goes out as http, and the failure
+          # happens one hop later on the redirect.
+          #
+          # Sending X-Forwarded-Proto: https makes Ghost consider the request
+          # already secure, so it serves 200 directly and no redirect is
+          # emitted. Verified from inside the pod: bare GET / -> 301 to
+          # https://127.0.0.1:2368/; the same GET with this header -> 200.
+          # Without it the probe fails every cycle and liveness restarts the
+          # container every ~6 minutes (it had accumulated 523 restarts).
           livenessProbe:
             httpGet:
               path: /
               port: http
+              httpHeaders:
+                - name: X-Forwarded-Proto
+                  value: https
             initialDelaySeconds: 60
             periodSeconds: 60
             timeoutSeconds: 10

@@ -45,6 +45,41 @@ spec:
         spec:
           restartPolicy: OnFailure
           initContainers:
+            # kube-router needs ~1-2s after a pod starts to program its per-pod
+            # policy chains. Until then egress that the NetworkPolicy allows is
+            # REJECTed, which surfaces as "connection refused" rather than a
+            # timeout. `dump` opens its psql connection on its first line of
+            # real work, so it loses that race - three lost races in a row
+            # exhaust backoffLimit and the whole backup run fails. Same root
+            # cause and same remedy as lidarr's maintenance CronJob.
+            - name: wait-for-postgres
+              image: ghcr.io/tensorchord/cloudnative-vectorchord:16-0.4.1
+              env:
+                - name: PGHOST
+                  value: app-databases-rw.databases.svc.cluster.local
+              command:
+                - bash
+                - -c
+                - |
+                  for attempt in $(seq 1 30); do
+                    if pg_isready -q -h "$PGHOST"; then
+                      echo "postgres ready after ${attempt} attempt(s)"
+                      exit 0
+                    fi
+                    echo "attempt ${attempt}/30: postgres not accepting connections yet"
+                    sleep 2
+                  done
+                  # Proceed anyway: 60s of failures means the cluster itself is
+                  # down, and the dump's own error output is the right place to
+                  # show that rather than masking it here.
+                  echo "postgres not ready after 60s, proceeding anyway"
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 500m
+                  memory: 128Mi
             - name: dump
               # Same image as the cluster, so pg_dump matches the server
               # version exactly.
