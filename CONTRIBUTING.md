@@ -132,9 +132,26 @@ every way that matters:
 - It forces `strategy: Recreate` and blocks any future replica, because two pods
   cannot share the file.
 
-Eleven apps already use the shared Postgres. **Still on SQLite and owing a
-migration:** `remux` (a 295 MB `db.sqlite`), `aiostreams`, `convertx`, `ghost`.
-Migrate when each is next touched; do not add a twelfth.
+Eleven apps already use the shared Postgres. The four on SQLite were audited on
+2026-09-03 — the rule is conditional on support, so it applies to exactly one of
+them:
+
+| App | Supports Postgres? | Status |
+|---|---|---|
+| `aiostreams` | **Yes** — `DATABASE_URI` accepts `postgres://user:pass@host:port/db` | **Owes a migration.** Blocked only on two Doppler values; see below. |
+| `ghost` | No — Ghost 5.x supports MySQL 8 and SQLite only | Exempt. The MySQL upgrade path is already documented in its Deployment. |
+| `remux` | No — Jellyfin-compatible, SQLite only | Exempt. 295 MB `db.sqlite`; back it up before any upgrade. |
+| `convertx` | No — Bun app using `bun:sqlite` | Exempt. |
+
+**To migrate aiostreams**, add `AIOSTREAMS_DB_USER` and `AIOSTREAMS_DB_PASSWORD`
+to Doppler (`kubernetes/prd`); then it needs a `Database` CR and managed role in
+`apps/databases`, a `DopplerSecret`, `DATABASE_URI` switched to the
+`postgres://` form, and a `remux → databases:5432` NetworkPolicy pair (both
+sides). Note it does not migrate its existing SQLite content, so the AIOStreams
+addon Remux consumes has to be re-created afterwards — which is why this is a
+deliberate scheduled change rather than something to slip into an unrelated PR.
+
+Do not add a twelfth SQLite app.
 
 ### 2. Sensitive data lives on the NAS
 

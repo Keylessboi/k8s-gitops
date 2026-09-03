@@ -4,6 +4,52 @@ State captured across outages and their recoveries. Newest first.
 
 ---
 
+# ✅ 2026-09-03 (night) — yt-dlp shim built, Octo-Fiesta gone, remux bootstrap automated
+
+## yt-dlp shim: built and WORKING
+Upstream ships it `build:`-only with no published image (four candidate paths
+probed, all absent or 403), so Octo's YouTube source had never worked. Built
+from the upstream Dockerfile + `app.py` **and `gate.py`** (app.py imports gate at
+module scope), imported into the node's containerd, deployed as
+`octo-yt-dlp-shim` in `downloads`.
+
+**Verified end to end:** `/health` → `{"ok":true}`, reachable across the
+namespace, and `yt-dlp` resolved a real YouTube title **through the AirVPN
+proxy** — yt-dlp 2026.08.19, deno 2.9.6 for the JS signature challenges.
+
+⚠️ **The image is the one piece of state outside git.** Forgejo's registry needs
+a token that does not exist (the instance is OIDC-only, no local admin), so the
+image was side-loaded and `imagePullPolicy: IfNotPresent` is load-bearing —
+`docker.io/library/octo-yt-dlp-shim` is not a real registry path. **A node
+rebuild loses it.** Fix: create a Forgejo access token, push, change the tag.
+
+## Octo-Fiesta removed
+Deployment, Service, kustomization entry, its port-3000 ingress rule, and the
+access-procedures row. Not to be confused with `octo` in `downloads`, which stays.
+
+## remux admin bootstrap automated
+The `remux` Secret held `admin-password` and was wired into nothing — the
+account existed only as PVC state. **Mounting it as env would not have helped:**
+remux is Jellyfin-compatible and has no admin-seeding env var. So it is now an
+idempotent PostSync Job that runs the wizard API, exits 0 on the 403 that means
+"already seeded", and verifies the lock afterwards. PascalCase payloads are
+load-bearing and documented.
+
+## Architectural audit — the Postgres rule applies to exactly one app
+| App | Postgres? | Status |
+|---|---|---|
+| `aiostreams` | **Yes** (`DATABASE_URI` takes `postgres://`) | **Owes a migration** |
+| `ghost` | No (MySQL 8 or SQLite) | Exempt |
+| `remux` | No (Jellyfin-compatible, SQLite only) | Exempt |
+| `convertx` | No (Bun `bun:sqlite`) | Exempt |
+
+**aiostreams is blocked on you:** add `AIOSTREAMS_DB_USER` and
+`AIOSTREAMS_DB_PASSWORD` to Doppler (`kubernetes/prd`). Note it will not carry
+its existing SQLite content across, so the AIOStreams addon Remux consumes must
+be re-created after — a scheduled change, not a drive-by.
+
+---
+
 # ✅ 2026-09-03 (late) — work list cleared; three self-inflicted lessons
 
 ## Done
