@@ -99,9 +99,24 @@ spec:
           replacement: cnpg
 ---
 # Authentik serves metrics on a container port that no Service publishes, so
-# this has to be a PodMonitor. Server and worker both expose 9300 and report
-# different things - the server has request latency and login outcomes, the
-# worker has task and outpost state.
+# this has to be a PodMonitor.
+#
+# Scoped to component=server, which is a correction. This selector used to
+# match `name: authentik` alone, on the belief that server and worker both
+# serve 9300 and report different things. The worker does not - not on
+# 2025.12.4. Verified from inside the running worker: 9300 AND 9000 both
+# return ECONNREFUSED on its own loopback, so it opens no HTTP listener at
+# all, even though the chart sets AUTHENTIK_LISTEN__HTTP and
+# AUTHENTIK_LISTEN__METRICS on it. The same test against the server pod
+# returns 9300 OPEN. The worker is a Celery consumer here and simply ignores
+# those variables; they are chart boilerplate, not evidence of a listener.
+#
+# That was almost certainly true once and stopped being true across the
+# 2025.6.4 -> 2025.12.4 upgrade (a 6-month calver leap). The cost of leaving
+# it: a permanently firing TargetDown that can never clear, which is exactly
+# the kind of unfixable noise that gets a whole alert pipeline routed to
+# "null". If worker task state is wanted later, it has to come from the
+# server's metrics or the task API - not from scraping the worker.
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
@@ -113,6 +128,7 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: authentik
+      app.kubernetes.io/component: server
   namespaceSelector:
     matchNames: [authentik]
   podMetricsEndpoints:
@@ -121,7 +137,8 @@ spec:
       relabelings:
         - targetLabel: job
           replacement: authentik
-        # server vs worker, which is otherwise only visible in the pod name.
+        # Kept although the selector now admits only the server: it keeps the
+        # series shape stable if a second component ever starts serving 9300.
         - sourceLabels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
           targetLabel: component
 ---

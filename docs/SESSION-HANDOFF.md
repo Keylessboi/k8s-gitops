@@ -4,6 +4,107 @@ State captured across outages and their recoveries. Newest first.
 
 ---
 
+# ✅ 2026-09-03 — three silent failures fixed, alerting un-muted, octo deployed
+
+## The one-line state
+All 35 apps Synced/Healthy (lidarr `Progressing` = the mass-search, expected). Every
+Deployment available. **The theme of the day: everything that was broken was reporting
+healthy.** Ghost, pg_dump and Obsidian were all green in ArgoCD while broken.
+
+## 🐞 Fixed (full detail in docs/doctor-log.md)
+- **ghost — 523 restarts, dying every ~6 min.** `url` is https, so Ghost 301s a plaintext
+  `GET /` to `https://<podIP>:2368/`; the kubelet follows probe redirects and TLS-
+  handshakes the plaintext port. **The 2026-08-31 entry blaming the kubelet was wrong**,
+  and `scheme: HTTP` cannot fix it (the live pod already had it while failing; and the
+  uncommitted patch put `scheme` at probe level, which the API server rejects outright as
+  an unknown field). Fix: `X-Forwarded-Proto: https` probe header. Verified in-pod: bare
+  `GET /` → 301, same GET with the header → 200. **70+ min at 0 restarts.**
+- **pgdump-backup — 3 consecutive failed runs, backups 27h stale.** Same kube-router
+  policy-programming race as lidarr's maintenance CronJob (2026-08-29): `psql` connects on
+  the first line and is REJECTed as "connection refused"; 3 lost races exhaust
+  `backoffLimit`. Fix: `wait-for-postgres` initContainer polling `pg_isready`, mirroring
+  `wait-for-lidarr`. A manual run reproduced failure AND recovery and landed a fresh
+  **1.17 GiB** snapshot. ⚠️ **The first unattended run is 06:40Z — still unproven.**
+- **obsidian — deployed but never initialised.** `_all_dbs` held only `obsidiannotes`
+  (doc_count 0). Missing `[couchdb] single_node = true` (so `_users`/`_replicator` were
+  never created) and `enable_cors` (so the `[cors]` block was inert — 3.x reads it from
+  `[chttpd]`; the file's `[httpd]` governs only the legacy 5986 interface). Fixed and
+  verified: system DBs exist, preflight from `app://obsidian.md` returns 204.
+  **Trap:** ArgoCD synced the corrected ConfigMap and reported Healthy while CouchDB kept
+  the old settings — it reads `local.d/*.ini` only at startup. Needed an explicit
+  `rollout restart`.
+- **Authentik portal:** deleted the orphaned `jellyfin` Application + OAuth2Provider (dead
+  since eb910dc); hid the two duplicate tiles (`bookdl`, `qui-oidc` — the native-OIDC twins
+  of `book-downloader`/`qui`) with `blank://blank`; filled 6 missing icons from the selfhst
+  set, each URL checked for 200 first. **`remux` is still iconless — no upstream icon
+  exists and inventing one would misrepresent a different product. Owner's pick.**
+- Cleared 123 evicted pod records from the Aug 31 DiskPressure storm, and 6 superseded
+  failed Job records (music, vaultwarden). The lidarr/databases equivalents were blocked
+  by the safety classifier; they rotate out via `failedJobsHistoryLimit`.
+
+## 🔔 Alerting un-muted (Tier 0) — commit c8e17fa
+**165 alert rules were being evaluated and discarded.** The Alertmanager default receiver
+was `null`; only six matchers escaped. That is why ghost crash-looped behind a firing
+`KubePodCrashLooping` nobody could see. **Delivery was never broken** —
+`alertmanager_notifications_total{integration="email"}` is 84 with **zero** failures.
+Default is now `smart-email`. Four narrow silences guard it, and the rule for adding more
+is: mute only what is STRUCTURALLY unable to be true, or a documented deliberate state.
+- `KubeScheduler/ControllerManager/ProxyDown` — k3s embeds all three in the server binary
+  with no separate metrics endpoints; they fire permanently and can never clear.
+- `KubeJobNotCompleted` scoped to `lidarr-mass-search-*` only — the ~40-day catalog build.
+- `InfoInhibitor` joins `Watchdog`.
+- `KubeJobFailed` lost its `exported_namespace=databases` scope. **Keep the label note: it
+  is `exported_namespace`, NOT `namespace` — a matcher on `namespace` silently matches
+  nothing.**
+- **`CPUThrottlingHigh` was deliberately left routed** (it was only pending, and muting
+  unconfirmed noise is how this file reached `null` in the first place). If it nags, add
+  it to the same silence block.
+
+## 🎵 octo deployed — commit 7c6684b
+`winters27/octo`, a Subsonic discovery proxy in front of Navidrome (search past the
+library, preview, heart-to-keep via Soulseek/Lidarr). In `downloads`, **not** `music`,
+because `music` has a blanket `0.0.0.0/0` egress rule and `downloads` has the killswitch.
+Reuses the existing slskd rather than deploying a second.
+- **Airtight re-verified:** direct IPv4 rc=7, IPv6 rc=7, proxied exit **23.130.104.134**
+  (never the WAN 74.101.53.75). One gluetun cluster-wide.
+- **A real netpol bug was found and fixed:** `downloads` egress to vpn:8888 was missing
+  even though `apps/vpn/networkpolicy.yaml` had always admitted it — the both-sides trap
+  again.
+- `/rest/ping.view` returns 200 with `"type":"navidrome"`. **No Ingress, on purpose** —
+  octo serves its admin UI on the same port as the Subsonic API, so a naive Ingress
+  publishes an unauthenticated admin panel. A correct edge needs the ADR-0003 shape
+  (`/rest` carve-out + `strip-auth-headers`); getting it wrong is a full admin bypass.
+
+## ⛔ Open — blocked on the owner
+1. **slskd is on its built-in default `slskd`/`slskd` web credentials** (`slskd.yml` sets
+   only the API key, never `web.authentication`; confirmed by logging in and getting a
+   JWT). Needs a real password in Doppler, referenced by both slskd and octo.
+2. **octo → Lidarr is inert**: `lidarr-api` lives in the `lidarr` namespace and Secrets do
+   not cross. Sync that Doppler value into `downloads`. Netpol is already open both ends;
+   `octo → lidarr:8686` returns 200 today.
+3. **Last.fm API key** absent → no radio/discovery. Add to a Secret named `octo`.
+4. **YouTube preview inoperative** — upstream's `yt-dlp-shim` is `build:` only, no
+   published image (four ghcr paths probed, all absent). Needs a build+registry pipeline.
+5. **Funkwhale is completely empty** — 0 tracks/albums/artists/uploads, 1 user, 4 libraries,
+   following no remote library. Federation only ever gives you what specific pods choose to
+   share. Decision pending: follow some public libraries, or decommission.
+   **Octo-Fiesta is inert too** — zero provider credentials, and it will never support
+   Apple Music. Both are pure overhead on a node at 93%.
+
+## 📋 Next: the reliability tiers
+Full reasoning, with all 18 doctor-log incidents classified:
+https://claude.ai/code/artifact/eb1855da-698b-47fc-b191-5341287f9c8b
+Tier 0 (alert routing) is **done**. Remaining, in order: **capacity** (deleting the two
+dead apps is free and is the only lever that reduces incident *count* rather than
+detection time); **blackbox probes on all 23 URLs + data-plane assertions** (backup
+freshness, `_users` exists, song count > 0) to close the healthy-but-wrong gap;
+**Events→Loki + `scripts/doctor.sh` + runbook annotations** (events expire in ~1h — that
+cost a full failure reproduction today); and **CI + a contribution workflow**.
+**Verdict on Cilium: no.** Of 18 incidents it addresses 1, costs hundreds of MB on a 93%
+node, and a CNI swap on a live single node risks total pod-network loss.
+
+---
+
 # ✅ 2026-08-31 (session close) — gluetun consolidation DEPLOYED and verified airtight
 
 ## The final state (verified before handoff)
