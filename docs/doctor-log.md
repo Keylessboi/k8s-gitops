@@ -115,18 +115,22 @@ prose version of the prevention failed:
 - **Confidence:** CONFIRMED for the diagnosis (reproduced twice, both by Service
   name and pod IP). See the open question before treating the general rule as
   settled.
-- **OPEN QUESTION — do not treat this as a general rule yet.** A check that
-  flagged "namespace-wide default-deny ingress with ≥2 workloads and no
-  self-rule" immediately flagged **remux**, which has the *identical* shape:
-  `app-isolation`, `podSelector: {}`, ingress rules for `kube-system` and
-  `authentik` only, two workloads. But `remux → aiostreams:3000` **returns 200**,
-  repeatedly. So the same configuration blocks in `immich` and permits in
-  `remux`, on the same node, and I could not explain why. The check was removed
-  rather than shipped: a rule that fires on a working configuration is the noisy
-  expert-system this repo has already decided not to build, and it would have
-  taught the next reader to ignore CI. Worth resolving — the difference may be
-  kube-router chain ordering, or something about `policyTypes: [Ingress]` versus
-  `[Ingress, Egress]` — but it needs an explanation before it becomes a rule.
+- **RESOLVED, same day — the check was right and I was wrong to withdraw it.**
+  The check was first withdrawn because it flagged **remux**, where
+  `remux → aiostreams:3000` returns 200, which looked like a false positive.
+  Testing the *other* direction settled it: `aiostreams → remux:3000` is
+  REJECTed, and the live policy admits only `kube-system` and `authentik`. So
+  remux genuinely was missing the rule; one direction happening to work does not
+  make a missing rule correct, and "it works" is not the same claim as "it is
+  allowed".
+  Two measurement traps were burned through on the way, both worth remembering:
+  the first remux test used `curl` inside a container with `HTTP_PROXY` set, so
+  it silently traversed the VPN gateway instead of the direct path; and the pod
+  that appeared to prove the point had an explicit `NO_PROXY` entry the other
+  did not. **When testing a NetworkPolicy from inside a pod, pass
+  `--noproxy '*'` or the measurement is not testing what you think.**
+  The intra-namespace rule is now added to remux as well, and the check is
+  shipped in `scripts/ci/check-invariants.py` (331 checks).
 
 ## 2026-09-03 — A duplicate YAML key parked lidarr at ComparisonError; the local check could not see it
 

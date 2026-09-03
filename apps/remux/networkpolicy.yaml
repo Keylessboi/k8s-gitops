@@ -40,6 +40,20 @@ spec:
               kubernetes.io/metadata.name: authentik
       ports:
         - {port: 3000, protocol: TCP}
+    # This namespace talking to itself: remux <-> aiostreams, both on 3000.
+    #
+    # Added 2026-09-03 after the same omission cost immich all of its machine
+    # learning. Measured here before and after: `aiostreams -> remux:3000` was
+    # REJECTed outright while `remux -> aiostreams:3000` succeeded, an asymmetry
+    # the policy text does not explain and which is not worth relying on either
+    # way. A default-deny ingress policy denies pod-to-pod inside its own
+    # namespace, and every rule above is about traffic arriving from elsewhere.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: remux
+      ports:
+        - {port: 3000, protocol: TCP}
   egress:
     # DNS. CoreDNS resolves addon and API hostnames; namespace-qualified.
     - to:

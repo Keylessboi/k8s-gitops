@@ -222,6 +222,76 @@ def check_wait_init(findings: list[str], passes: list[str]) -> None:
         )
 
 
+def check_intra_namespace(findings: list[str], passes: list[str]) -> None:
+    """A default-deny ingress policy blocks pod-to-pod inside its OWN namespace.
+
+    Easy to miss, because every other rule in a networkpolicy.yaml is about
+    letting traffic in from elsewhere. Immich lost all machine learning to this
+    on 2026-09-03 - immich-server could not reach immich-machine-learning:3003,
+    and nothing showed it: both pods Running with 0 restarts, ArgoCD Synced and
+    Healthy, edge probe 200, no alert. The kubelet is exempt from
+    NetworkPolicy, so the probes passed.
+
+    Only flagged when the app runs more than one workload; a single-pod app has
+    nothing to talk to.
+
+    This check was written, withdrawn, and reinstated the same day. It flagged
+    remux, whose `remux -> aiostreams` traffic demonstrably worked, so it looked
+    like a false positive. It was not: the reverse direction,
+    `aiostreams -> remux`, was REJECTed, and the live policy admits only
+    kube-system and authentik. One direction happening to work does not make a
+    missing rule correct.
+    """
+    for app_dir in sorted(p for p in APPS.iterdir() if p.is_dir()):
+        if app_dir.name == "argocd":
+            continue
+        own_ns = app_namespace(app_dir)
+        if not own_ns:
+            continue
+
+        workloads, policies = 0, []
+        for path in sorted(app_dir.glob("*.yaml")):
+            for doc in load_docs(path):
+                kind = doc.get("kind")
+                if kind in ("Deployment", "StatefulSet", "DaemonSet"):
+                    workloads += 1
+                elif kind == "NetworkPolicy":
+                    policies.append((path, doc))
+
+        if workloads < 2 or not policies:
+            continue
+
+        for path, doc in policies:
+            spec = doc.get("spec") or {}
+            if "Ingress" not in (spec.get("policyTypes") or []):
+                continue
+            if spec.get("podSelector"):          # scoped, not namespace-wide
+                continue
+            allows_self = False
+            for rule in spec.get("ingress") or []:
+                if not rule.get("from"):
+                    allows_self = True           # empty from = allow all
+                for peer in rule.get("from") or []:
+                    sel = (peer.get("namespaceSelector") or {}).get("matchLabels") or {}
+                    if sel.get(NS_LABEL) == own_ns:
+                        allows_self = True
+                    if peer.get("podSelector") is not None and not peer.get("namespaceSelector"):
+                        allows_self = True       # bare podSelector = same-ns
+            rel = path.relative_to(REPO)
+            if allows_self:
+                passes.append(f"{rel}: {own_ns} allows its own pods to talk")
+            else:
+                findings.append(
+                    f"{rel}: namespace '{own_ns}' runs {workloads} workloads behind a\n"
+                    f"    default-deny ingress policy with NO rule allowing its own\n"
+                    f"    namespace. Pod-to-pod traffic inside it is REJECTed.\n"
+                    f"    Invisible to every health signal: pods stay Running, ArgoCD\n"
+                    f"    stays Healthy, probes pass (the kubelet is exempt).\n"
+                    f"    Fix: add an ingress rule with a namespaceSelector for\n"
+                    f"    '{own_ns}', or scope podSelector if isolation is intended."
+                )
+
+
 def check_netpol_pairs(findings: list[str], passes: list[str]) -> None:
     # namespace -> {"egress_to": {ns...}, "ingress_from": {ns...}}
     graph: dict[str, dict[str, set]] = {}
@@ -281,6 +351,7 @@ def main() -> int:
     check_duplicate_keys(findings, passes)
     check_wait_init(findings, passes)
     check_netpol_pairs(findings, passes)
+    check_intra_namespace(findings, passes)
 
     if args.list:
         print(f"--- {len(passes)} checks passed ---")
