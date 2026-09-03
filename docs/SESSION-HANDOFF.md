@@ -4,6 +4,39 @@ State captured across outages and their recoveries. Newest first.
 
 ---
 
+# ✅ 2026-09-03 (evening) — immich ML restored; remux needs one dropdown
+
+## immich machine learning — FIXED (c03ec64)
+The namespace denied **its own pods**. Default-deny ingress admitted only
+`kube-system` on 8089/2283, so `immich-server` could not reach
+`immich-machine-learning:3003`. Invisible everywhere: pods Running 0 restarts,
+ArgoCD Synced/Healthy, edge probe 200, no alert — the kubelet is exempt from
+NetworkPolicy so **probes passed**. Verified: `000 → 200 in 0.004s`.
+
+**The speed was the diagnosis.** A dead pod times out; `0.0002s` to the pod IP is
+a policy REJECT.
+
+## remux — ROOT CAUSE FOUND, needs an owner action
+`/outpost.goauthentik.io/auth/traefik` 404s in the browser because **remux is the
+only provider in `proxy` mode** — the other ten are `forward_single`, and remux's
+Ingress is wired for forward-auth (`authentik-forward-auth` middleware, `/` →
+remux:3000). Proxy mode expects the outpost to receive and forward the request
+itself, so the handshake dead-ends. Only surfaced after a cache clear because a
+live session skipped the flow.
+
+**Fix (one dropdown):** Authentik → Applications → Providers → `remux` → Mode:
+**Forward auth (single application)** → Update. External host stays
+`https://remux.sandstorm.chat`. A direct DB `UPDATE` was blocked by the
+permission classifier, which is the right outcome for the identity provider.
+
+## An open question worth resolving
+A CI check for "namespace-wide default-deny with ≥2 workloads and no self-rule"
+would have caught immich — but it **also flags remux, whose intra-namespace
+traffic demonstrably works (200)**. Same shape, opposite behaviour, same node,
+unexplained. The check was **deliberately not shipped**; see docs/doctor-log.md.
+
+---
+
 # ✅ 2026-09-03 (afternoon) — reliability tiers 0-6 built; two live bugs found by the new checks
 
 ## The one-line state
