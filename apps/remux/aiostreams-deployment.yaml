@@ -82,6 +82,22 @@ spec:
               value: http://vpn-gateway.vpn.svc.cluster.local:8888
             - name: HTTPS_PROXY
               value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            # KNOWN LIMITATION, 2026-09-03. These proxy variables are honoured
+            # by the stream-query path but NOT by the anime-database fetcher,
+            # which logs
+            #   ECONNREFUSED 140.82.114.3:443  (github.com)
+            # in a loop. 140.82.114.3 is GitHub, and the connection is DIRECT -
+            # the killswitch in networkpolicy.yaml correctly denies it, because
+            # the only permitted egress is the VPN gateway.
+            #
+            # So this is the app bypassing its own proxy configuration, not a
+            # policy gap, and it is deliberately NOT "fixed" by allowing direct
+            # egress to GitHub: that would punch a hole in the VPN killswitch
+            # for an optional anime-metadata refresh. Stream queries - the
+            # reason this runs at all - are unaffected.
+            #
+            # If it ever matters, the fix belongs upstream (make the fetcher use
+            # the proxy) or in a sidecar that mirrors the database locally.
             - name: NO_PROXY
               value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16"
             - name: TZ

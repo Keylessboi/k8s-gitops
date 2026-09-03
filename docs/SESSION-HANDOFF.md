@@ -4,6 +4,59 @@ State captured across outages and their recoveries. Newest first.
 
 ---
 
+# ✅ 2026-09-03 (late) — work list cleared; three self-inflicted lessons
+
+## Done
+- **Video transcoding disabled** on remux (`EnableVideoTranscoding=false`,
+  audio transcode and remuxing left on — remuxing is a container swap, no
+  re-encode). Applied through the Jellyfin-compatible API, verified by re-read.
+- **Mass-search re-cut.** First run finished (13,253 + 18,060 = 31,313 albums,
+  ~69h) and **it worked** — 145 of the newest 200 history events are `grabbed`.
+  New split from a fresh enumeration: 36,032 wanted, median **29650**.
+  A `354–29650`, B `29651+`. Worker B confirmed `18,014 left` ≈ exactly half.
+- **wait-init added to both mass-search workers** — the kube-router race hit
+  them live on the re-cut (`retry 0 GET /system/status: [Errno 111]`). Both
+  baseline entries removed.
+- **csi-nfs 135 restarts explained.** Not a CSI bug: three sidecars lose leader
+  election when the API server is slow and exit 255 by design. Separately the
+  `csi-snapshotter` had **never worked** (VolumeSnapshot CRDs not installed) —
+  now disabled.
+- **remux intra-namespace netpol fixed** and the check **reinstated** (331).
+- **Six absent artists added** (ids 1163–1168) + explicit ArtistSearch queued.
+- **Navidrome 0.58.0 → 0.63.2** for secondary artists. Migrated cleanly.
+- **CONTRIBUTING: six standing rules** (Postgres over SQLite, sensitive data on
+  the NAS, S3→NFS→local-path, shared infra, both-sides netpol, state the cost of
+  unattended jobs).
+
+## ⚠️ THE ONE THING LEFT: click Full Scan in Navidrome
+Participations (secondary artists) populate **only on a full scan**, and 0.63
+runs `fullScan=false` on its own. **Navidrome → Settings → Full Scan**, once.
+The upgrade is done; this is the last step to make featured/collaborating
+artists browsable. Rollback if ever needed: tag `0.58.0` +
+`/data/navidrome.db.pre-0.63-upgrade` (79.5 MB, taken before the upgrade).
+
+## Three mistakes worth keeping
+1. **`grep -o '"id":'` on Lidarr JSON counted 3.7× too many** (each record
+   embeds an artist with its own id) and put the median at 67008 instead of
+   29650. Third double-count of the day. **Parse, don't grep.**
+2. **Testing a NetworkPolicy with `curl` inside a pod that has `HTTP_PROXY` set
+   measures the proxy, not the policy.** That produced a fake "false positive"
+   which nearly got a correct CI check deleted. Use `--noproxy '*'`.
+3. **`navidrome scan --full` from the CLI while the server runs → `database is
+   locked`.** SQLite single-writer contention — the exact failure named in
+   CONTRIBUTING rule #1, written hours earlier. Cleared by restarting the pod.
+
+## Still open
+- `yt-dlp-shim` image (needs a build + push to Forgejo)
+- Navidrome favourites re-import, once the catalog fills
+- aiostreams' anime-DB refresh: the app bypasses its own proxy and the VPN
+  killswitch correctly denies it. Documented, deliberately not "fixed".
+- Octo-Fiesta keep-or-delete
+- The remux Doppler secret is **not mounted** into its Deployment, so a rebuild
+  would seed no admin account.
+
+---
+
 # ✅ 2026-09-03 (evening) — immich ML and remux both restored
 
 ## immich machine learning — FIXED (c03ec64)
