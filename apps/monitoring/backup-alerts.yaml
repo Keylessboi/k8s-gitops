@@ -84,3 +84,52 @@ spec:
               and will eventually refuse writes (SlowDownWrite). Check MinIO
               on the NAS first - /minio/health/cluster must return 200 - then
               the archiver process on the database pod.
+
+        # The restore drill (apps/databases/restore-drill-cronjob.yaml) is the
+        # only thing in this cluster that proves the dumps are restorable
+        # rather than merely present. BackupTooOld above watches that backups
+        # HAPPEN; this watches that they WORK, which is a different claim and
+        # the one that matters on the day it matters.
+        #
+        # Named Backup* deliberately: that prefix is what the Alertmanager
+        # route in apps/monitoring/kustomization.yaml delivers to a human.
+        # Under the current routing almost everything else reaches a model on
+        # report instead, and this belongs in the small set that does not -
+        # nobody discovers an unrestorable backup by using the cluster.
+        #
+        # LABEL TRAP, verified live: kube-state-metrics' own namespace is what
+        # lands in `namespace` (monitoring), while the object's namespace lands
+        # in `exported_namespace`. Matching on namespace="databases" here would
+        # silently match nothing and this alert would never fire.
+        - alert: BackupRestoreDrillFailed
+          expr: kube_job_status_failed{exported_namespace="databases", job_name=~"restore-drill-.*"} > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Monthly restore drill FAILED - backups may not be restorable"
+            description: >-
+              The restore drill could not restore one or more database dumps
+              from the newest restic snapshot. This does not mean data is lost;
+              it means the recovery path is unproven and must be checked now.
+              Read the job output for the per-database table:
+              kubectl -n databases logs job/<name> -c verify. A FAIL row names
+              the database whose dump did not come back.
+
+        # A drill that stops running fails open: no failed Job exists, so the
+        # rule above stays quiet forever and the silence reads as success.
+        # 40 days allows one missed monthly run plus slack before complaining.
+        - alert: BackupRestoreDrillStale
+          expr: >-
+            time() - kube_cronjob_status_last_successful_time{exported_namespace="databases", cronjob="restore-drill"}
+            > 40 * 24 * 3600
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Restore drill has not passed in {{ $value | humanizeDuration }}"
+            description: >-
+              The monthly restore drill has not completed successfully in over
+              40 days, so nothing currently proves the backups are restorable.
+              Check the CronJob in the databases namespace - suspended, failing
+              to schedule, or being deleted before it can run.

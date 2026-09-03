@@ -1,0 +1,316 @@
+---
+# Prove the parachute opens: restore every backed-up database, monthly.
+#
+# A backup nobody has restored is a hypothesis. This cluster's backup chain
+# has already failed silently once - MinIO ran with zero drives online for
+# ~20h while every write failed, and it was found by accident - so the
+# hypothesis is not idle.
+#
+# This supersedes restore-verify-job.yaml.example as the routine check. That
+# file stays for on-demand single-database work and records the first real
+# drill (52 objects, 26 tables, matching live vaultwarden). What it could not
+# do is run without someone remembering to run it, and this log's own lesson
+# is that a prevention written as prose protects whoever reads it at the right
+# moment, while a prevention written as a check protects always.
+#
+# Differences from the manual job, all deliberate:
+#
+#   * EVERY database, not just vaultwarden - but in TWO STAGES, because the
+#     naive version of this job is dangerous on this cluster.
+#
+#     Stage 1 runs on every dump: stream the whole archive through
+#     `pg_restore -f -` and discard the output. That decompresses and walks
+#     every data block, so truncation or bit-rot anywhere in the file is
+#     caught - and it touches neither Postgres nor the disk. This is the
+#     check that actually proves the bytes sitting in MinIO are good.
+#
+#     Stage 2 materialises the dump into a scratch database and counts
+#     tables. It is SKIPPED for dumps over MAX_RESTORE_BYTES and whenever the
+#     data volume is below MIN_FREE_MB.
+#
+#     The cap is not caution for its own sake. The first run of this job
+#     restored bitmagnet - a 1.31 GB dump that expands to ~5.5 GB - into a
+#     scratch database on a node that idles at 92% of 13.8 GB RAM, and the
+#     k3s apiserver restarted twice while it ran. Applications stayed up
+#     (containerd keeps pods running across an apiserver restart) and the
+#     cluster recovered on its own in ~20s each time, but the point stands:
+#     a drill that destabilises the cluster it is checking has done more
+#     damage than the failure it was looking for. This log already records
+#     three outages caused by probes and none prevented by them; this job
+#     will not be the fourth. Raise the cap after the headroom work, not
+#     before.
+#
+#     Today that means 17 of 18 dumps are fully restored and bitmagnet is
+#     integrity-checked only - an acceptable trade, since bitmagnet is a
+#     regenerable DHT crawl index rather than irreplaceable state.
+#   * Scratch databases are named drill_<db> and dropped at the end, and the
+#     cleanup refuses to touch any name lacking that prefix. Restoring on a
+#     schedule into a live cluster is only safe if it is structurally
+#     incapable of landing on a real database.
+#   * It fails LOUDLY, but on the RIGHT condition. The first version asserted
+#     "tables > 0", which failed CNPG's default `app` database - genuinely
+#     empty, correctly restored, reported as broken. The assertion is now
+#     "restored tables >= tables the archive's own TOC claims", so an empty
+#     database passes and a dump that silently loses tables does not.
+#     A missing globals.sql and a surviving scratch database are also hard
+#     failures - and BackupRestoreDrillFailed
+#     in apps/monitoring/backup-alerts.yaml turns that into an email. The
+#     alert is named Backup* on purpose: that is the prefix the Alertmanager
+#     route already delivers to a human, and "the backups cannot be restored"
+#     is precisely the class of failure nobody discovers by using the cluster.
+#
+# Monthly rather than quarterly. The cost is ~2 minutes of CPU; the thing it
+# guards against is silent rot in a chain whose failure mode is invisible
+# until the day it matters.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: restore-drill
+  namespace: databases
+spec:
+  # 03:20 on the 1st. Offset from the pgdump run at :40 so the two never
+  # contend for the same database connection slots.
+  schedule: "20 3 1 * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # No retries. A failed drill is a finding, not a flake - retrying it
+      # three times only delays the alert and muddies which run was real.
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          initContainers:
+            # Same kube-router race as pgdump-backup and lidarr-maintenance.
+            # This is the third place it applies; it hit lidarr, was written up
+            # with the correct prevention as a sentence, and then hit pg_dump
+            # five days later because nobody re-read the sentence. Any pod
+            # whose first real action is a network connection needs this.
+            - name: wait-for-postgres
+              image: ghcr.io/tensorchord/cloudnative-vectorchord:16-0.4.1
+              env:
+                - name: PGHOST
+                  value: app-databases-rw.databases.svc.cluster.local
+              command:
+                - bash
+                - -c
+                - |
+                  for attempt in $(seq 1 30); do
+                    if pg_isready -q -h "$PGHOST"; then
+                      echo "postgres ready after ${attempt} attempt(s)"
+                      exit 0
+                    fi
+                    echo "attempt ${attempt}/30: postgres not accepting connections yet"
+                    sleep 2
+                  done
+                  echo "postgres not ready after 60s, proceeding anyway"
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {cpu: 500m, memory: 128Mi}
+            # Pull the newest pgdump snapshot out of restic. Restoring the
+            # whole snapshot rather than one --include path is what lets the
+            # verify step below discover the database list from the dumps
+            # themselves instead of carrying a hardcoded copy that drifts.
+            - name: fetch
+              image: restic/restic:0.17.3
+              env:
+                - name: RESTIC_REPOSITORY
+                  value: s3:http://192.168.1.67:9000/cnpg-backups/restic
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom: {secretKeyRef: {name: pgdump-s3, key: access-key}}
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom: {secretKeyRef: {name: pgdump-s3, key: secret-key}}
+                - name: RESTIC_PASSWORD
+                  valueFrom: {secretKeyRef: {name: pgdump-s3, key: restic-password}}
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  echo "=== newest pgdump snapshot ==="
+                  restic snapshots --tag pgdump --compact --latest 1
+                  restic restore latest --tag pgdump --target /restore
+                  echo "=== recovered files ==="
+                  ls -la /restore/work/
+              volumeMounts:
+                - name: restore
+                  mountPath: /restore
+              resources:
+                requests: {cpu: 50m, memory: 128Mi}
+                limits: {cpu: "1", memory: 1Gi}
+          containers:
+            - name: verify
+              # Same image as the cluster so pg_restore matches the server.
+              image: ghcr.io/tensorchord/cloudnative-vectorchord:16-0.4.1
+              env:
+                - name: PGHOST
+                  value: app-databases-rw.databases.svc.cluster.local
+                - name: PGUSER
+                  valueFrom: {secretKeyRef: {name: app-databases-superuser, key: username}}
+                - name: PGPASSWORD
+                  valueFrom: {secretKeyRef: {name: app-databases-superuser, key: password}}
+              command:
+                - bash
+                - -c
+                - |
+                  set -euo pipefail
+
+                  DUMPDIR=/restore/work
+                  PREFIX=drill_
+                  # Dumps larger than this are integrity-checked but NOT
+                  # materialised into a scratch database. See the header.
+                  MAX_RESTORE_BYTES=$((300 * 1024 * 1024))
+                  # Refuse to materialise anything if the data volume is
+                  # already this full. The drill must never be the reason
+                  # Postgres runs out of disk.
+                  MIN_FREE_MB=12000
+
+                  failures=0; checked=0; restored=0; readonly_only=0
+
+                  # Every drop goes through this, so the job is structurally
+                  # incapable of deleting a real database even if a name is
+                  # malformed.
+                  drop_scratch() {
+                    case "$1" in
+                      ${PREFIX}*)
+                        psql -q -tAc "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='$1';" postgres >/dev/null 2>&1 || true
+                        psql -q -tAc "DROP DATABASE IF EXISTS \"$1\";" postgres >/dev/null 2>&1 || true
+                        ;;
+                      *) echo "REFUSING to drop '$1': not ${PREFIX}-prefixed"; return 1 ;;
+                    esac
+                  }
+
+                  free_mb() {
+                    psql -tAc "SELECT 1;" postgres >/dev/null 2>&1 || true
+                    df -Pm "$DUMPDIR" | awk 'NR==2 {print $4}'
+                  }
+
+                  echo "=== snapshot contents ==="
+                  ls -la "$DUMPDIR"
+
+                  # globals.sql carries the login roles. A restore without it
+                  # comes back with no roles and every application fails to
+                  # connect, so its absence is a real failure even though every
+                  # individual dump would still restore.
+                  if [ -s "$DUMPDIR/globals.sql" ]; then
+                    echo "globals.sql present ($(wc -l < "$DUMPDIR/globals.sql") lines)"
+                  else
+                    echo "FAIL: globals.sql missing or empty - a restore would have no login roles"
+                    failures=$((failures + 1))
+                  fi
+
+                  shopt -s nullglob
+                  dumps=("$DUMPDIR"/*.dump)
+                  if [ ${#dumps[@]} -eq 0 ]; then
+                    echo "FAIL: snapshot contains no .dump files at all"
+                    exit 1
+                  fi
+
+                  printf '\n%-18s %9s %7s %7s %8s %s\n' DATABASE SIZE TOCTBL TABLES MODE RESULT
+                  printf -- '-%.0s' {1..66}; printf '\n'
+
+                  for dump in "${dumps[@]}"; do
+                    db="$(basename "$dump" .dump)"
+                    scratch="${PREFIX}${db}"
+                    checked=$((checked + 1))
+                    bytes=$(stat -c %s "$dump")
+                    human=$(numfmt --to=iec --suffix=B "$bytes" 2>/dev/null || echo "${bytes}")
+                    result=OK; mode=full
+
+                    # STAGE 1, always: stream the entire archive through
+                    # pg_restore to SQL text and discard it. This decompresses
+                    # and walks every data block, so truncation or corruption
+                    # anywhere in the file fails here - and it touches neither
+                    # Postgres nor the disk. This is the check that actually
+                    # proves the bytes in MinIO are good.
+                    if ! sql_bytes=$(pg_restore -f - "$dump" 2>/dev/null | wc -c) || [ "$sql_bytes" -eq 0 ]; then
+                      printf '%-18s %9s %7s %7s %8s %s\n' "$db" "$human" "-" "-" "read" "FAIL"
+                      echo "    archive did not decompress cleanly end-to-end"
+                      failures=$((failures + 1))
+                      continue
+                    fi
+
+                    # How many tables the archive CLAIMS to contain. Comparing
+                    # against this rather than against ">0" is what stops an
+                    # intentionally empty database (CNPG's default 'app') from
+                    # being reported as a failure.
+                    #
+                    # COUNT BY FIELD, NOT BY SUBSTRING. pg_restore --list emits
+                    # a `TABLE` entry AND a `TABLE DATA` entry for every table,
+                    # and "TABLE DATA" contains the substring "TABLE " - so a
+                    # grep for it counts every table exactly twice and reports
+                    # a perfectly good dump as having lost half its tables.
+                    # The first run of this check did precisely that: 13 of 17
+                    # databases "failed" with TOCTBL exactly 2x TABLES.
+                    # In --list output the tag is field 4, and the field after
+                    # it is the schema for TABLE and the literal DATA for
+                    # TABLE DATA, which separates them unambiguously.
+                    toc_tables=$(pg_restore --list "$dump" 2>/dev/null \
+                      | awk '/^[0-9]+;/ && $4=="TABLE" && $5!="DATA" {n++} END {print n+0}')
+                    toc_tables=${toc_tables:-0}
+
+                    # STAGE 2, conditionally: materialise it. Skipped for large
+                    # dumps and when the volume is short on space, because a
+                    # drill that fills the production data volume or pushes a
+                    # 92%-memory node into an apiserver restart has done more
+                    # damage than the failure it was looking for.
+                    avail=$(free_mb)
+                    if [ "$bytes" -gt "$MAX_RESTORE_BYTES" ]; then
+                      mode=read; readonly_only=$((readonly_only + 1))
+                    elif [ "$avail" -lt "$MIN_FREE_MB" ]; then
+                      mode=read-lowdisk; readonly_only=$((readonly_only + 1))
+                      echo "    NOTE: only ${avail} MB free, below ${MIN_FREE_MB} MB floor - not materialising"
+                    fi
+
+                    if [ "$mode" = full ]; then
+                      drop_scratch "$scratch"
+                      psql -q -tAc "CREATE DATABASE \"$scratch\";" postgres >/dev/null
+                      # Ownership and extension warnings are expected against a
+                      # scratch database and are not what this drill tests; the
+                      # table count below is the assertion that matters.
+                      pg_restore --no-owner --no-privileges -d "$scratch" "$dump" >/dev/null 2>&1 || true
+                      # BASE TABLE only: information_schema.tables also counts
+                      # views, which have their own TOC tag and would otherwise
+                      # inflate this side of the comparison.
+                      tables=$(psql -q -d "$scratch" -tAc \
+                        "SELECT count(*) FROM information_schema.tables WHERE table_type='BASE TABLE' AND table_schema NOT IN ('pg_catalog','information_schema');")
+                      drop_scratch "$scratch"
+                      restored=$((restored + 1))
+                      if [ "$tables" -lt "$toc_tables" ]; then
+                        result=FAIL
+                        failures=$((failures + 1))
+                      fi
+                    else
+                      tables="-"
+                    fi
+
+                    printf '%-18s %9s %7s %7s %8s %s\n' "$db" "$human" "$toc_tables" "$tables" "$mode" "$result"
+                  done
+
+                  echo
+                  echo "=== leftover scratch databases (must be none) ==="
+                  leftover=$(psql -q -tAc "SELECT count(*) FROM pg_database WHERE datname LIKE '${PREFIX}%';" postgres)
+                  echo "$leftover"
+                  if [ "$leftover" -ne 0 ]; then
+                    echo "FAIL: ${leftover} scratch database(s) survived cleanup"
+                    failures=$((failures + 1))
+                  fi
+
+                  echo
+                  echo "checked: ${checked}  fully restored: ${restored}  read-only verified: ${readonly_only}  failures: ${failures}"
+                  if [ "$failures" -ne 0 ]; then
+                    echo "RESTORE_DRILL_FAILED"
+                    exit 1
+                  fi
+                  echo "RESTORE_DRILL_PASSED"
+              volumeMounts:
+                - name: restore
+                  mountPath: /restore
+              resources:
+                requests: {cpu: 100m, memory: 256Mi}
+                limits: {cpu: "1", memory: 1Gi}
+          volumes:
+            - name: restore
+              emptyDir: {}

@@ -5,6 +5,50 @@ solved it, then what prevents a repeat. Newest first. If an incident
 repeats, link the entries — a repeated incident means the prevention
 failed and the entry needs revisiting.
 
+## 2026-09-03 — The new restore drill restarted the apiserver twice, then failed 13 good backups
+
+- **Symptom:** two separate faults from one new job. (1) While the first run of
+  `restore-drill` was materialising the bitmagnet dump, the k3s apiserver
+  refused connections on :6443 twice, ~20 s each time. (2) Once it completed,
+  it reported 13 of 17 databases as FAILED.
+- **Root cause:** two unrelated mistakes, both mine, both in the checker rather
+  than in anything it was checking.
+  (1) `bitmagnet.dump` is **1.31 GB** and expands to **~5.5 GB** restored. The
+  node idles at **92 % of 13.8 GB**, so restoring it pushed memory hard enough
+  to knock over the apiserver. Applications never went down — containerd keeps
+  pods running across an apiserver restart, and `authentik` served 302 in
+  0.46 s throughout — and k3s recovered unaided both times, but the drill was
+  the trigger.
+  (2) The FAILures were an artefact of counting. `pg_restore --list` emits a
+  `TABLE` entry **and** a `TABLE DATA` entry per table, and the string
+  `TABLE DATA` contains the substring `TABLE `, so `grep -cE "TABLE "` counted
+  every table exactly twice. The tell was in the output and unmissable once
+  looked at: TOCTBL was **exactly 2× TABLES on all 13 rows** — 414/207,
+  260/130, 58/29. Nothing was wrong with any backup.
+- **Fix:** the drill is now two-staged. Stage 1 streams every archive through
+  `pg_restore -f -` and discards the output, which walks every data block and
+  so proves the bytes are readable end to end while touching neither Postgres
+  nor the disk. Stage 2 materialises into a scratch database only when the dump
+  is under `MAX_RESTORE_BYTES` (300 MB) and the data volume has more than
+  `MIN_FREE_MB` (12 GB) free. Counting is now by TOC *field* — `awk '$4=="TABLE"
+  && $5!="DATA"'` — compared against `table_type='BASE TABLE'` so views cannot
+  inflate the other side. Re-run clean: 17 checked, 16 fully restored, bitmagnet
+  integrity-verified, **0 failures**, every TOCTBL equal to its TABLES.
+- **Prevention:** a diagnostic that destabilises what it diagnoses is a net
+  negative, and this log already carries three outages caused by probes and
+  none prevented by them — this job came within one run of being the fourth.
+  Any new unattended job that touches the database must state its worst-case
+  disk and memory cost *before* it is scheduled, and cap it. Raise the 300 MB
+  cap only after the headroom work in ADR-0005, not before.
+  On counting: never `grep -c` a substring that is a prefix of a longer tag in
+  the same output. This is the second double-count in two days — the artist
+  census read 1752 instead of 879 by grepping `"artistName"` across nested
+  objects. Both were caught by the ratio being suspiciously round; when a count
+  is exactly 2× or 3× what it should be, suspect the counter before the data.
+  A drill killed mid-run leaks its scratch database (`drill_bitmagnet`, 5.5 GB,
+  dropped by hand) — the `drill_` prefix guard is what made that safe to clean
+  up, and the leftover check now fails the run if any survive.
+
 ## 2026-09-03 — Authentik's My Applications page: duplicate tiles, dead entry, 9 missing icons
 
 - **Symptom:** the application library read as a "battle zone" — the same
@@ -83,6 +127,13 @@ failed and the entry needs revisiting.
   a wait-init. This race has now bitten two of them; treat "connection refused
   from a just-started pod, where the NetworkPolicy clearly allows it" as this
   cause until proven otherwise. Worth auditing new CronJobs for it.
+- **Confirmed unattended 2026-09-03:** the manual run only proved the fix under
+  supervision. Two scheduled runs have now completed on their own — 06:40Z in
+  4m37s and 12:40Z in 4m39s — writing all 18 dumps plus `globals.sql`. The
+  three failed job records from before the fix were deleted, so the namespace
+  no longer carries a permanently-firing `KubeJobFailed`. The prevention was
+  applied a third time in `restore-drill-cronjob.yaml`, which is the audit this
+  entry asked for.
 
 ## 2026-09-03 — Obsidian LiveSync was never actually initialised
 

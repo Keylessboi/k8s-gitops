@@ -41,6 +41,10 @@ resources:
   - extensions-job.yaml
   # Logical backups: the ones that actually protect the vault.
   - pgdump-cronjob.yaml
+  # Monthly proof that those dumps can actually be restored. A backup nobody
+  # has restored is a hypothesis, and this chain has already failed silently
+  # once (MinIO, ~20h with zero drives online).
+  - restore-drill-cronjob.yaml
   # Physical backups: barman base backup daily, which is what makes the
   # continuously archived WALs restorable.
   - scheduledbackup.yaml

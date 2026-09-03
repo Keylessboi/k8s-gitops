@@ -175,7 +175,11 @@ Vaultwarden's actual vault lives in Postgres, so it is inside the first two laye
 
 The pipeline fails loudly: `BackupTooOld`, `WALArchiverFailing` and a MinIO cluster-health probe alert by email, and the **Backups** Grafana dashboard shows last-backup age, WAL archive state and probe status. The 2026-08-29 outage — MinIO serving from a shadowed boot-disk path with zero drives for ~20 h — and every other failure the cluster has seen is documented in [docs/doctor-log.md](doctor-log.md).
 
-Restoring is not theoretical — `apps/databases/restore-verify-job.yaml.example` restores a dump into a scratch database and counts what came back. It is an example file rather than a CronJob so it never runs unattended.
+Restoring is not theoretical, and since 2026-09-03 it is not manual either. `apps/databases/restore-drill-cronjob.yaml` runs on the 1st of each month and proves the chain in two stages: every dump is streamed through `pg_restore` and discarded, which walks every data block and so proves the bytes in MinIO are readable; dumps under 300 MB are additionally restored into a `drill_`-prefixed scratch database and their table count compared against the archive's own table of contents. Last run: **17 checked, 16 fully restored, 1 integrity-verified, 0 failures.**
+
+Two safeguards are load-bearing. Cleanup only ever drops `drill_`-prefixed databases, so the job cannot touch a real one; and large dumps are deliberately *not* materialised, because the first run restored bitmagnet's 1.31 GB dump (~5.5 GB on disk) and restarted the apiserver twice on a node that idles at 92% memory. Raise the cap after the headroom work, not before.
+
+If the drill fails, `BackupRestoreDrillFailed` emails you — it is one of the few alerts that still does. `apps/databases/restore-verify-job.yaml.example` remains for on-demand single-database work.
 
 ```bash
 kubectl create -f apps/databases/restore-verify-job.yaml.example

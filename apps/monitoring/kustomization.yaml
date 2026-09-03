@@ -251,11 +251,19 @@ helmCharts:
 
               # Watchdog is kube-prometheus-stack's heartbeat: it fires ALWAYS,
               # by design, forever. Its purpose is to be sent somewhere
-              # EXTERNAL that alerts when it stops arriving - which is what
-              # apps/monitoring/heartbeat-*.yaml now does over a webhook, not
-              # over email. Mailing it would nag every repeat_interval; routing
-              # it nowhere would leave the monitoring unable to report its own
-              # death. Neither is what this does - see the heartbeat receiver.
+              # EXTERNAL that alerts when it stops arriving.
+              #
+              # THIS IS STILL THE OPEN GAP, and muting it here is a stopgap,
+              # not the answer. Mailing it would nag every repeat_interval;
+              # discarding it - what this line does today - leaves the
+              # monitoring unable to report its own death. If Prometheus dies,
+              # the node locks up, or the SMTP credential silently expires,
+              # nothing arrives, and nothing arriving is exactly what a healthy
+              # day looks like.
+              #
+              # Closing it needs a receiver on a machine that is NOT this
+              # cluster (travisbackupserver or vmhub-1 on the tailnet). Blocked
+              # on shell access to one of them; see docs/doctor-log.md.
               - receiver: "null"
                 matchers:
                   - alertname = "Watchdog"
