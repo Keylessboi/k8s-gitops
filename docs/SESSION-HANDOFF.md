@@ -4,6 +4,66 @@ State captured across outages and their recoveries. Newest first.
 
 ---
 
+# ✅ 2026-09-03 (afternoon) — reliability tiers 0-6 built; two live bugs found by the new checks
+
+## The one-line state
+Node memory **92% → 89%** (Funkwhale removed). All apps Synced/Healthy except lidarr
+`Progressing` (the mass-search, expected). 23 edge probes green. Backups proven
+restorable. **Two real bugs were found by tooling written today**, one of them seven
+days old and completely silent.
+
+## What landed (main is at 54ae20b)
+
+| Tier | What | State |
+|---|---|---|
+| 0 | Alert routing **inverted** — default back to `null`, only the physical set reaches a human | done, verified in Alertmanager's live config |
+| 1 | Monthly restore drill + daily backup-freshness check | done |
+| 1 | Watchdog heartbeat + external probe | **BLOCKED** — no shell on any off-cluster host |
+| 2 | `scripts/doctor.sh <app>` | done |
+| 3 | 22 edge probes, Events→Loki, restic freshness | done, 23 targets green |
+| 4 | Symptom index in the doctor's log; Funkwhale deleted | done |
+| 5 | `check-invariants.py`, CONTRIBUTING, PR template | done; **workflow file needs `gh auth refresh -h github.com -s workflow`** |
+| 6 | ADR-0007, platform freeze | done |
+
+## 🐞 Two live bugs, both found by the new tooling
+- **hermes could never reach lidarr — seven days, no symptom.** `apps/hermes` declared
+  egress to `lidarr:8686` ("the whole point of running this"); lidarr's ingress never
+  allowed hermes. Pod Running 1/1, ArgoCD Synced/Healthy the entire time. Confirmed from
+  inside the pod (`ConnectionRefusedError [Errno 111]` — REJECT, not timeout), fixed, and
+  re-verified CONNECTED. **Fourth occurrence** of the one-sided-NetworkPolicy trap; the
+  first three preventions were prose, this one is a check.
+- **`csi-nfs-controller` has 135 restarts** — surfaced by `doctor.sh` and *not yet
+  investigated*. Also image-updater 39, doppler-operator 37, cnpg 36. Nobody knew.
+
+## ⚠️ Two mistakes I made, both now guarded
+- The restore drill's first run restored bitmagnet (1.31 GB dump → 5.5 GB) and **restarted
+  the apiserver twice** on a 92%-memory node. Apps stayed up, k3s recovered in ~20s each
+  time. Drill now caps materialisation at 300 MB and requires 12 GB free.
+- A **duplicate YAML key** in the hermes fix parked lidarr at `ComparisonError`. It passed
+  my local `yaml.safe_load_all` check because **PyYAML accepts duplicate keys and keeps
+  the last**; Go's yaml refuses. Now a third invariant check. *Validate with the same
+  parser as the consumer.*
+
+## ⛔ Blocked on the owner
+1. **`ssh-copy-id -i ~/.ssh/id_ed25519.pub root@travisbackupserver`** — unblocks the
+   Tier 1 heartbeat and the external probe. No off-cluster host currently accepts a
+   non-interactive key; `vmhub-1` has Tailscale SSH but wants an interactive check.
+2. **`gh auth refresh -h github.com -s workflow`** then `git push origin ci-workflow:main`
+   — the CI jobs (invariants, kubeconform, fix-needs-log) are written, tested and sitting
+   on the local `ci-workflow` branch. The token has `repo` but not `workflow`.
+3. Decide on **Octo-Fiesta** (no provider credentials) — the last easy headroom.
+
+## 📋 Still open
+- **Music:** re-cut the mass-search split (time-sensitive — anything added since 29 Aug
+  is never searched), secondary artists (needs the Navidrome upgrade), build the
+  `yt-dlp-shim` image, add the 6 absent artists, re-run the favourites import later.
+- **remux** "No webpage was found" — server side is provably healthy; suspect a cached
+  308. Needs a private-window test.
+- `csi-nfs-controller`'s 135 restarts.
+- The 7 baselined Jobs in `scripts/ci/wait-init-baseline.txt`.
+
+---
+
 # ✅ 2026-09-03 — three silent failures fixed, alerting un-muted, octo deployed
 
 ## The one-line state
