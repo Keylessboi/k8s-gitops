@@ -93,7 +93,6 @@ The full published-URL table, logins and port-forward recipes are in [docs/RUNDO
 |---|---|
 | [docs/RUNDOWN.md](docs/RUNDOWN.md) | Day-to-day cluster operation: published services, adding a person, the torrent stack and VPN, `/data` layout, books, music, backups, edge security, breakage response |
 | [docs/access-procedures.md](docs/access-procedures.md) | Access paths only: service URLs, SSH, kubeconfig, credential locations, emergency bypasses, restore procedure |
-| [docs/PLAN-GAPS.md](docs/PLAN-GAPS.md) | Phase 1 / Phase 2 requirements checked against the running cluster |
 | [docs/kindle-koreader-setup.md](docs/kindle-koreader-setup.md) | Jailbroken Kindle + KOReader against Calibre-Web-Automated |
 | [docs/doctor-log.md](docs/doctor-log.md) | Incident journal: symptom, root cause, fix, prevention — for every failure the cluster has seen |
 | [docs/adr/](docs/adr/) | Architecture decision records — why a thing was decided, kept next to the decision rather than in a commit message |
