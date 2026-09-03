@@ -259,17 +259,25 @@ helmCharts:
               # unable to report its own death, and "no alerts" is exactly what
               # a healthy day looks like.
               #
-              # It now POSTs to ntfy on travisbackupserver (192.168.1.206), a
-              # machine that is NOT this cluster: the cluster is an LXC on the
-              # Proxmox host, that box is separate hardware with 7 weeks of
-              # uptime. A timer there checks the age of the newest message and
-              # notifies the owner if it stops - so if Prometheus dies, the node
-              # locks up, or the SMTP credential expires, something outside the
-              # failure domain notices.
+              # It now POSTs to a receiver on the PROXMOX HOST (192.168.1.153),
+              # which relays a staleness alarm to ntfy on travisbackupserver
+              # over Tailscale.
               #
-              # The topic is machine-only; a phone subscribes to
-              # `homelab-alerts`, never to `homelab-heartbeat`, so this is
-              # silent in normal operation.
+              # Why not straight to travisbackupserver: that box is on wlo1
+              # behind the room's WiFi router, on a SEPARATE 192.168.1.0/24 -
+              # same numbering, different L2 segment. The cluster cannot route
+              # to it ("no route to host", not a policy REJECT) and its own
+              # local subnet route shadows the tailnet route back. Verified
+              # both directions 2026-09-03. pve can reach both, so it relays.
+              #
+              # HONEST COVERAGE, because a monitoring component that overstates
+              # itself is worse than none: pve is a different failure domain
+              # from LXC 200, so this catches the container OOMing, swap thrash
+              # locking the API server, k3s crashing, and Prometheus or
+              # Alertmanager dying - every one of which is a real doctor-log
+              # entry. It does NOT catch pve itself dying or a power cut. That
+              # is covered from genuinely outside by the edge probe on
+              # travisbackupserver, which walks the public internet path.
               #
               # repeat_interval 5m, not the route default of 12h: the whole
               # value is in arriving often enough that absence is quickly
@@ -395,13 +403,13 @@ helmCharts:
           receivers:
             - name: "null"
             - name: "smart-email"
-            # The heartbeat sink. ntfy takes the POST body as the message text,
-            # so Alertmanager's JSON lands as the body - which is fine and
-            # deliberate: nothing reads the content, only the arrival time
-            # matters. send_resolved is off because Watchdog never resolves.
+            # The heartbeat sink: a 40-line stdlib HTTP receiver on pve that
+            # touches a file. Nothing reads the body - only the arrival time
+            # matters - so the payload format is irrelevant. send_resolved is
+            # off because Watchdog never resolves.
             - name: "heartbeat-ntfy"
               webhook_configs:
-                - url: "http://192.168.1.206:2586/homelab-heartbeat"
+                - url: "http://192.168.1.153:9099/beat"
                   send_resolved: false
               email_configs:
                 - to: "travis.fiorito@tuta.com"

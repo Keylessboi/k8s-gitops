@@ -52,17 +52,22 @@ spec:
     ports:
     - port: 9000
       protocol: TCP
-  # ntfy on travisbackupserver - the external heartbeat sink. Alertmanager
-  # POSTs the Watchdog alert here every 5 minutes so a machine OUTSIDE this
-  # cluster can notice when the cluster stops talking. Same 192.168.0.0/16
-  # exclusion applies: without naming it the POST is dropped, the heartbeat
-  # never arrives, and the dead-man switch fires permanently - a monitoring
-  # system that cries wolf about itself.
+  # The heartbeat receiver on the Proxmox host. Alertmanager POSTs Watchdog
+  # here every 5 minutes; a timer on that host relays a staleness alarm to
+  # ntfy over Tailscale, so something outside LXC 200 notices when the cluster
+  # goes quiet.
+  #
+  # 192.168.1.153, not travisbackupserver's .206: that box is on a separate
+  # L2 segment reusing the same /24 and is simply unroutable from here.
+  #
+  # Same 192.168.0.0/16 exclusion as the rules above - without naming this the
+  # POST is dropped, the heartbeat never arrives, and the dead-man switch fires
+  # permanently, which is a monitoring system crying wolf about itself.
   - to:
     - ipBlock:
-        cidr: 192.168.1.206/32
+        cidr: 192.168.1.153/32
     ports:
-    - port: 2586
+    - port: 9099
       protocol: TCP
   # The Traefik load balancer, for the edge probes (edge-probes.yaml). Third
   # instance of the same trap: the catch-all egress below excludes
