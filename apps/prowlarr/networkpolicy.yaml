@@ -83,6 +83,23 @@ spec:
     ports:
     - port: 3333
       protocol: TCP
+  # qBittorrent's WebUI, so Prowlarr can push a manual grab to a download
+  # client. Lidarr and Readarr each drive qBittorrent directly and do not need
+  # this - the automated path already works - but a "Grab" from Prowlarr's own
+  # search UI has nowhere to go without it.
+  #
+  # The downloads side ALREADY allowed prowlarr on 8080; only this half was
+  # missing, so the flow failed with a bare 000. Note the asymmetry with the
+  # hermes/lidarr bug on 2026-09-03: there the egress existed and the ingress
+  # did not; here it is the other way round. Both halves are required and
+  # neither implies the other.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: downloads
+    ports:
+    - port: 8080
+      protocol: TCP
   # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
   # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so
   # the old rule was a no-op. Every NetworkPolicy in this repo was missing real
