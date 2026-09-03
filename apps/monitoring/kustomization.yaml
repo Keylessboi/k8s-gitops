@@ -202,15 +202,53 @@ helmCharts:
             group_wait: 30s
             group_interval: 5m
             repeat_interval: 12h
-            # Everything unmatched still goes nowhere, exactly as the chart
-            # default did - this change does not start emailing other apps.
-            receiver: "null"
+            # THE DEFAULT IS THE POINT. Everything unmatched used to land in
+            # "null", which meant 165 rules were evaluated and discarded: ghost
+            # crash-looped 523 times behind a firing KubePodCrashLooping nobody
+            # could see, and four ephemeral-storage eviction loops took SSO down
+            # cluster-wide with the node alerts firing into the void.
+            #
+            # Email delivery was never the problem - alertmanager_notifications
+            # _total{integration="email"} is 81 with zero failures - so opening
+            # this default costs nothing but the silences declared below.
+            #
+            # The rule for adding a silence: only mute what is STRUCTURALLY
+            # unable to be true, or a documented deliberate state. Anything
+            # muted because it is merely inconvenient is how a signal chain
+            # rots back into "null".
+            receiver: "smart-email"
             routes:
               # The dead-man's-switch alert must stay muted, or it emails every
               # repeat_interval forever.
               - receiver: "null"
                 matchers:
                   - alertname = "Watchdog"
+              # InfoInhibitor exists only to suppress other alerts; it is never
+              # itself actionable and has no recipient.
+              - receiver: "null"
+                matchers:
+                  - alertname = "InfoInhibitor"
+              # k3s ships the scheduler, controller-manager and kube-proxy
+              # INSIDE the server binary, with no separate metrics endpoints for
+              # kube-state-metrics to scrape. These three therefore fire
+              # permanently and can never clear on this distribution - they are
+              # false by construction, not by configuration. All three are
+              # firing right now. Muting them is a precondition for opening the
+              # default above: leave them in and the first day delivers four
+              # useless emails, which is how the previous owner of this file
+              # ended up routing everything to "null" in the first place.
+              - receiver: "null"
+                matchers:
+                  - alertname =~ "KubeSchedulerDown|KubeControllerManagerDown|KubeProxyDown"
+              # The two lidarr mass-search Jobs are a deliberate ~40-day catalog
+              # build (apps/lidarr/mass-search-job.yaml documents the run), so
+              # "job has not completed" is the intended state for weeks, not a
+              # fault. Scoped to those two names only - any OTHER job that stops
+              # completing still emails.
+              - receiver: "null"
+                matchers:
+                  - alertname = "KubeJobNotCompleted"
+                  - job_name =~ "lidarr-mass-search-.*"
               # Every rule in smartctl-alerts.yaml is named Smart*.
               - receiver: "smart-email"
                 matchers:
@@ -244,19 +282,23 @@ helmCharts:
                 matchers:
                   - alertname =~ "MinIO.*"
                 repeat_interval: 4h
-              # The chart's default KubeJobFailed rule already fires
-              # cluster-wide - during the 2026-08-29 outage it was firing for
-              # pgdump and silently landing in the null receiver below. Route
-              # it, but only for the databases namespace so unrelated apps'
-              # job failures do not start emailing. The label is
-              # exported_namespace, NOT namespace: kube-state-metrics' own
+              # KubeJobFailed was scoped to the databases namespace back when
+              # the default receiver was "null" and a narrow allow-list was the
+              # only way to hear anything. With the default now emailing, the
+              # scope has inverted meaning: every namespace is heard, and this
+              # entry survives only to keep the 12h cadence on job failures
+              # (the chart default would otherwise nag at the route's 12h
+              # anyway - kept explicit so the intent is legible).
+              #
+              # Keep the label note, it is a real trap: it is
+              # exported_namespace, NOT namespace. kube-state-metrics' own
               # namespace label is renamed on scrape, so the alert carries the
-              # kube-state-metrics pod's namespace in `namespace` and the job's
-              # namespace in `exported_namespace`.
+              # kube-state-metrics pod's namespace in `namespace` and the failed
+              # job's namespace in `exported_namespace`. Anything matching on
+              # `namespace` here silently matches nothing.
               - receiver: "smart-email"
                 matchers:
                   - alertname = "KubeJobFailed"
-                  - exported_namespace = "databases"
                 repeat_interval: 12h
           receivers:
             - name: "null"
