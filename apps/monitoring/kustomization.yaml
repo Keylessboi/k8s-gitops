@@ -202,24 +202,60 @@ helmCharts:
             group_wait: 30s
             group_interval: 5m
             repeat_interval: 12h
-            # THE DEFAULT IS THE POINT. Everything unmatched used to land in
-            # "null", which meant 165 rules were evaluated and discarded: ghost
-            # crash-looped 523 times behind a firing KubePodCrashLooping nobody
-            # could see, and four ephemeral-storage eviction loops took SSO down
-            # cluster-wide with the node alerts firing into the void.
+            # THE DEFAULT IS "null" ON PURPOSE, AND THAT IS NOT THE OLD BUG.
             #
-            # Email delivery was never the problem - alertmanager_notifications
-            # _total{integration="email"} is 81 with zero failures - so opening
-            # this default costs nothing but the silences declared below.
+            # Read c8e17fa's comment before changing this. That commit opened
+            # the default to email because 165 rules were being evaluated and
+            # discarded - ghost crash-looped 523 times behind a firing
+            # KubePodCrashLooping nobody could see. Opening it was right for
+            # the problem as understood that day, and it is being narrowed
+            # again for a reason that is NOT "the emails were annoying".
             #
-            # The rule for adding a silence: only mute what is STRUCTURALLY
-            # unable to be true, or a documented deliberate state. Anything
-            # muted because it is merely inconvenient is how a signal chain
-            # rots back into "null".
-            receiver: "smart-email"
+            # The reason is that this cluster has two audiences and only one
+            # of them has an inbox:
+            #
+            #   * The OWNER is paged only for failures they could not discover
+            #     by using the system. Heat, a dying disk, a dead node, a
+            #     backup that silently stopped. These need hands or they need
+            #     someone to know the safety net is gone.
+            #
+            #   * A MODEL gets everything else, and gets it by PULL, not push.
+            #     The workflow is: the owner notices immich returns 404, says
+            #     so, and the model diagnoses. Nothing has to be mailed for
+            #     that to work - it has to be RECORDED and cheap to retrieve.
+            #
+            # KubePodCrashLooping still fires, is still evaluated, and is still
+            # queryable: Prometheus retains the ALERTS series for 15 days, so
+            # "was anything firing when immich broke?" stays answerable long
+            # after the fact. Delivery and retention are separate concerns and
+            # only delivery needs to be quiet. Nothing below reduces what this
+            # cluster knows - only who gets woken up about it.
+            #
+            # The test for adding a route to "smart-email" is therefore NOT
+            # "is this bad?" - almost everything here is bad. It is:
+            #
+            #     Would the owner fail to notice this by simply using the
+            #     cluster, AND does knowing require a human?
+            #
+            # Job failures fail that test (a model handles them on report).
+            # A NAS disk at 60C passes it (invisible until it dies).
+            receiver: "null"
             routes:
-              # The dead-man's-switch alert must stay muted, or it emails every
-              # repeat_interval forever.
+              # --- Structurally false or deliberate: keep muted --------------
+              #
+              # These four are redundant now that the default is "null" - they
+              # would land there anyway. They are kept because each one encodes
+              # a fact that is expensive to rediscover, and because the moment
+              # anyone opens the default again they are load-bearing. Deleting
+              # them would delete the knowledge with them.
+
+              # Watchdog is kube-prometheus-stack's heartbeat: it fires ALWAYS,
+              # by design, forever. Its purpose is to be sent somewhere
+              # EXTERNAL that alerts when it stops arriving - which is what
+              # apps/monitoring/heartbeat-*.yaml now does over a webhook, not
+              # over email. Mailing it would nag every repeat_interval; routing
+              # it nowhere would leave the monitoring unable to report its own
+              # death. Neither is what this does - see the heartbeat receiver.
               - receiver: "null"
                 matchers:
                   - alertname = "Watchdog"
@@ -233,41 +269,75 @@ helmCharts:
               # kube-state-metrics to scrape. These three therefore fire
               # permanently and can never clear on this distribution - they are
               # false by construction, not by configuration. All three are
-              # firing right now. Muting them is a precondition for opening the
-              # default above: leave them in and the first day delivers four
-              # useless emails, which is how the previous owner of this file
-              # ended up routing everything to "null" in the first place.
+              # firing right now.
               - receiver: "null"
                 matchers:
                   - alertname =~ "KubeSchedulerDown|KubeControllerManagerDown|KubeProxyDown"
               # The two lidarr mass-search Jobs are a deliberate ~40-day catalog
               # build (apps/lidarr/mass-search-job.yaml documents the run), so
               # "job has not completed" is the intended state for weeks, not a
-              # fault. Scoped to those two names only - any OTHER job that stops
-              # completing still emails.
+              # fault.
               - receiver: "null"
                 matchers:
                   - alertname = "KubeJobNotCompleted"
                   - job_name =~ "lidarr-mass-search-.*"
-              # Every rule in smartctl-alerts.yaml is named Smart*.
+
+              # --- The physical set: these reach a human ---------------------
+
+              # Every rule in smartctl-alerts.yaml is named Smart*. A failing
+              # or wearing-out disk is invisible from the application side
+              # right up until data is gone.
               - receiver: "smart-email"
                 matchers:
                   - alertname =~ "Smart.*"
                 # Disk problems are slow-moving; a daily nag is plenty.
                 repeat_interval: 24h
               # Temperature rules (temperature-alerts.yaml) are all named Temp*.
-              # Reuse the same email receiver - no second SMTP config - so the
-              # owner is emailed when a disk, NVMe or the host CPU runs too hot.
+              # Heat is the owner's stated example of a thing that SHOULD
+              # interrupt them: it is a physical errand (a fan, a filter, a
+              # window) and nothing in the software layer will ever show it.
               - receiver: "smart-email"
                 matchers:
                   - alertname =~ "Temp.*"
-                # Heat is slow-moving too; a daily nag is plenty.
                 repeat_interval: 24h
+              # Hardware, from node-exporter. A degraded array or a failed
+              # array member is the same class as Smart*: physical, invisible,
+              # and it silently removes the redundancy everything else assumes.
+              - receiver: "smart-email"
+                matchers:
+                  - alertname =~ "NodeRAIDDegraded|NodeRAIDDiskFailure"
+                repeat_interval: 24h
+              # The node is gone or unreachable. The owner would notice this
+              # eventually - everything stops - but it is a physical errand and
+              # the sooner the better. Verified names: kube-prometheus-stack
+              # ships KubeNodeNotReady and KubeNodeUnreachable (there is no
+              # alert literally called "NodeDown").
+              - receiver: "smart-email"
+                matchers:
+                  - alertname =~ "KubeNodeNotReady|KubeNodeUnreachable"
+                repeat_interval: 1h
+              # Disk nearly full. Deliberately the ALMOST-OUT-OF pair only, not
+              # the *FillingUp predictive variants: the predictive rules fire on
+              # 6h/24h trend extrapolation and are the noisy half of this
+              # family. Out of space is where resource exhaustion turns into an
+              # outage - four incidents in the log, the worst blast radius of
+              # any class - and no amount of using the cluster reveals it in
+              # advance.
+              - receiver: "smart-email"
+                matchers:
+                  - alertname =~ "NodeFilesystemAlmostOutOfSpace|NodeFilesystemAlmostOutOfFiles"
+                repeat_interval: 4h
               # Backup-pipeline rules (backup-alerts.yaml): BackupTooOld is
               # named Backup*, but the WAL archiver rule is WALArchiverFailing
               # - it watches WAL shipping, not backups as such - so the regex
               # unions both prefixes instead of bending the alert name to fit
               # the route.
+              #
+              # This one is the clearest case for the "could not discover it
+              # yourself" test. A stopped backup changes NOTHING observable:
+              # every app stays up and every page still loads. MinIO ran with
+              # zero drives online for ~20h while every write failed and it was
+              # found by accident. This must reach a human.
               - receiver: "smart-email"
                 matchers:
                   - alertname =~ "Backup.*|WALArchiver.*"
@@ -277,29 +347,29 @@ helmCharts:
                 repeat_interval: 4h
               # Blackbox probe rules for MinIO (minio-probe.yaml) are all
               # named MinIO*. Same receiver; a 503 on /minio/health/cluster is
-              # the exact signature of the 2026-08-29 outage.
+              # the exact signature of the 2026-08-29 outage. MinIO is the
+              # substrate the backups land on, so this is the backup route's
+              # early warning.
               - receiver: "smart-email"
                 matchers:
                   - alertname =~ "MinIO.*"
                 repeat_interval: 4h
-              # KubeJobFailed was scoped to the databases namespace back when
-              # the default receiver was "null" and a narrow allow-list was the
-              # only way to hear anything. With the default now emailing, the
-              # scope has inverted meaning: every namespace is heard, and this
-              # entry survives only to keep the 12h cadence on job failures
-              # (the chart default would otherwise nag at the route's 12h
-              # anyway - kept explicit so the intent is legible).
+
+              # --- Deliberately NOT routed, and why -------------------------
               #
-              # Keep the label note, it is a real trap: it is
-              # exported_namespace, NOT namespace. kube-state-metrics' own
-              # namespace label is renamed on scrape, so the alert carries the
-              # kube-state-metrics pod's namespace in `namespace` and the failed
-              # job's namespace in `exported_namespace`. Anything matching on
-              # `namespace` here silently matches nothing.
-              - receiver: "smart-email"
-                matchers:
-                  - alertname = "KubeJobFailed"
-                repeat_interval: 12h
+              # KubeJobFailed / KubePodCrashLooping / TargetDown / KubePodNotReady
+              #   Real, useful, and firing - six KubeJobFailed right now. They
+              #   go to the model on report, not to an inbox. This is the whole
+              #   point of the inversion above.
+              #
+              # NodeMemoryMajorPagesFaults / NodeMemoryHighUtilization /
+              # KubeMemoryOvercommit
+              #   Firing continuously and correctly: the node genuinely sits at
+              #   ~93% of 13.8 GB. Routing a permanently-true alert is how the
+              #   whole pipeline ends up back at "null" - the reader learns to
+              #   ignore it, then ignores the disk alert next to it. These get
+              #   routed only once headroom work makes them capable of being
+              #   false. Until then it is a capacity problem, not a paging one.
           receivers:
             - name: "null"
             - name: "smart-email"
