@@ -1,0 +1,97 @@
+---
+# The yt-dlp shim Octo needs for YouTube playback.
+#
+# WHY THIS EXISTS AS A LOCAL IMAGE. Upstream (winters27/octo) ships the shim as
+# `build: ./yt-dlp-shim` with NO published image - ghcr.io/winters27/
+# octo-yt-dlp-shim, winters27/ytdlp-shim, winters27/octo/shim and
+# winters27/octo-shim were all probed and are absent or 403. Octo's
+# YouTube__ShimUrl has therefore pointed at a Service that did not exist, and
+# YouTube was the one Octo source that could never work.
+#
+# Built on 2026-09-03 from the upstream Dockerfile plus app.py and gate.py
+# (gate.py matters: app.py imports it at module scope, so omitting it is a
+# ModuleNotFoundError at startup and total loss of playback).
+#
+# imagePullPolicy: IfNotPresent is LOAD-BEARING, not a default. The image was
+# imported straight into the node's containerd
+# (`k3s ctr images import`) because Forgejo's registry needs a token that does
+# not exist yet, and `docker.io/library/octo-yt-dlp-shim` is not a real
+# registry path - with Always, the kubelet tries Docker Hub and the pod
+# ImagePullBackOffs forever.
+#
+# THIS IS THE ONE PIECE OF STATE OUTSIDE GIT and it should not stay that way:
+# a node rebuild loses the image and this Deployment will not start. The fix is
+# a Forgejo access token, then push and change the tag here. Until then this is
+# documented debt rather than a silent trap.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: octo-yt-dlp-shim
+  namespace: downloads
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: octo-yt-dlp-shim
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: octo-yt-dlp-shim
+    spec:
+      containers:
+        - name: shim
+          image: docker.io/library/octo-yt-dlp-shim:2026.09.03
+          # See the header. Always would break this outright.
+          imagePullPolicy: IfNotPresent
+          env:
+            # Same VPN path Octo itself uses. yt-dlp and requests both honour
+            # the lowercase and uppercase forms, so YouTube traffic exits
+            # AirVPN rather than the home WAN - which is the entire reason the
+            # downloads namespace has a killswitch.
+            - name: HTTP_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: HTTPS_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: http_proxy
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: https_proxy
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,.svc.cluster.local"
+            - name: no_proxy
+              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,.svc.cluster.local"
+          ports:
+            - name: http
+              containerPort: 8080
+          # No probes, deliberately. This repo's log records three outages
+          # caused by probes and none prevented by them, and the house rule is
+          # to prefer no probe to one whose timings have not been measured
+          # against the real endpoint. gunicorn either binds 8080 or the
+          # container exits; there is nothing a probe would add here.
+          resources:
+            requests:
+              cpu: 25m
+              memory: 128Mi
+            limits:
+              # yt-dlp spawns ffmpeg and a deno JS runtime for YouTube's
+              # signature challenges; 1Gi is headroom for one concurrent
+              # extraction on a node that idles near 90%.
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: octo-yt-dlp-shim
+  namespace: downloads
+spec:
+  selector:
+    app.kubernetes.io/name: octo-yt-dlp-shim
+  ports:
+    # Must stay 8080 and must stay this name: Octo reaches it at
+    # http://octo-yt-dlp-shim.downloads.svc.cluster.local:8080, set in
+    # octo.yaml's YouTube__ShimUrl.
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
