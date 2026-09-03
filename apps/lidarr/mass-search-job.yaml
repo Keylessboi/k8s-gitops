@@ -21,6 +21,28 @@
 # split, and update both jobs' RANGE_START/RANGE_END (and delete their
 # cursor files on the lidarr-config PVC, .mass-search-cursor-a/-b).
 #
+# RE-CUT 2026-09-03. The first run finished: worker A searched 13,253 albums
+# in 63.3h, worker B 18,060 in 69.2h - 31,313 total. Both reported ALL DONE.
+# Lidarr then still listed 36,032 wanted, because "missing" means "no file
+# yet": grabs are still downloading and importing, and many albums simply have
+# no release anywhere. History confirms the run worked - 145 of the newest 200
+# events are `grabbed`, the newest minutes old.
+#
+# The old split (A 2083-26194, B 26195+) was cut on 2026-08-29 and each worker
+# enumerates /wanted/missing ONCE at startup, so everything added after that
+# was invisible to the run - 9th Wonder's albums (ids 50745-50788) sat inside
+# B's open-ended range and were never searched. That is the bug this re-cut
+# fixes, and it is why the ranges must be re-cut rather than the jobs merely
+# restarted.
+#
+# New split from a fresh enumeration: 36,032 wanted, median album id 29650.
+#   A: 354..29650      B: 29651..open
+#
+# COUNTING NOTE, because this bit three times in one day: get the median by
+# PARSING the JSON, never by `grep -o '"id":'`. Each record embeds the artist
+# object, which carries its own `id`, so a bare grep returned 3,703 matches for
+# 1,000 albums and put the median at 67008 instead of 29650.
+#
 # The two inline scripts must stay in lockstep; they differ only in
 # env. (A shared ConfigMap would not help: a Job's pod template is
 # frozen at creation, so every script change means recreating the Jobs
@@ -193,9 +215,9 @@ spec:
             - name: CURSOR_PATH
               value: /config/.mass-search-cursor-a
             - name: RANGE_START
-              value: "2083"
+              value: "354"
             - name: RANGE_END
-              value: "26194"
+              value: "29650"
             - name: LIDARR_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -367,7 +389,7 @@ spec:
             - name: CURSOR_PATH
               value: /config/.mass-search-cursor-b
             - name: RANGE_START
-              value: "26195"
+              value: "29651"
             - name: LIDARR_API_KEY
               valueFrom:
                 secretKeyRef:
