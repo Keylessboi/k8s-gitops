@@ -5,6 +5,34 @@ solved it, then what prevents a repeat. Newest first. If an incident
 repeats, link the entries — a repeated incident means the prevention
 failed and the entry needs revisiting.
 
+## 2026-09-03 — Authentik's My Applications page: duplicate tiles, dead entry, 9 missing icons
+
+- **Symptom:** the application library read as a "battle zone" — the same
+  service appearing twice, an entry for a decommissioned app, and blank tiles.
+- **Root cause:** three separate things. (1) The apps that carry a *native*
+  OIDC provider alongside an existing forward-auth app — `bookdl` beside
+  `book-downloader`, `qui-oidc` beside `qui` — each had an `https://` launch
+  URL, and Authentik shows every app whose launch URL starts with http(s). Both
+  pairs point at one host, so each rendered two tiles for one service. The
+  pairing itself is deliberate (forward-auth gates the edge, native OIDC gives
+  the app an identity); only the second *tile* was wrong. (2) `jellyfin` still
+  had an Application and OAuth2Provider after the app was decommissioned in
+  eb910dc, with redirect URIs at a host that no longer resolves. (3) Nine apps
+  had `meta_icon` empty.
+- **Fix:** deleted the orphaned jellyfin Application and OAuth2Provider; set
+  the two native-OIDC twins' launch URL to `blank://blank`, the documented way
+  to keep an app usable while hiding its tile; filled icons from the
+  `cdn.jsdelivr.net/gh/selfhst/icons` set already used by the other apps, after
+  confirming each URL returns 200 rather than assuming the name.
+- **Prevention:** whenever a service gets a native OIDC provider *in addition
+  to* forward-auth, set the new Application's launch URL to `blank://blank` at
+  creation — the tile is otherwise duplicated. Decommissioning an app means
+  deleting its Authentik Application and provider too; the git manifests going
+  away does not touch cluster state. Check an icon URL resolves before saving
+  it: a 404 icon renders as a blank tile and looks identical to no icon.
+  `remux` is still iconless — the selfhst set has no Remux icon and inventing
+  one (Jellyfin's, say) would misrepresent a different product.
+
 ## 2026-09-03 — Ghost restarted every 6 minutes for 523 restarts; the probe followed a redirect into TLS
 
 - **Symptom:** `ghost` reported Running 1/1 and served the edge fine, but had
@@ -79,6 +107,18 @@ failed and the entry needs revisiting.
   the effective `_node/_local/_config` — before calling it deployed. Verify a
   section's keys landed where the running version reads them, not where an
   older docs page put them.
+- **Second trap, worth its own line:** ArgoCD synced the corrected ConfigMap
+  and reported Synced/Healthy while CouchDB carried on with the old settings —
+  it only reads `local.d/*.ini` at startup, and nothing rolls the pod when a
+  mounted ConfigMap changes. The fix needed an explicit
+  `kubectl rollout restart deploy/obsidian`. After any change to
+  `livesync-config`, restart the deployment or the change is live in git,
+  live in the API, and inert in the process.
+- **Verified after the fix:** `_all_dbs` → `["_replicator","_users",
+  "obsidiannotes"]`; `[chttpd] enable_cors: "true"`; and a preflight
+  `OPTIONS /obsidiannotes` with `Origin: app://obsidian.md` returns 204 with
+  `Access-Control-Allow-Origin: app://obsidian.md` and
+  `Allow-Methods: GET, PUT, POST, HEAD, DELETE`.
 
 ## 2026-08-29 — Wings image pulls tripped kubelet DiskPressure; CNPG primary evicted
 
