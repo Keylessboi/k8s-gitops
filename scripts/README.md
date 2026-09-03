@@ -1,7 +1,7 @@
 # scripts/
 
-Four scripts. None of them run automatically — everything here is either a
-bootstrap step that must precede ArgoCD, or a break-glass procedure. Each file
+None of these run automatically — each is either a bootstrap step that must
+precede ArgoCD, a break-glass procedure, or a read-only diagnostic. Every file
 carries a full explanation in its own header comment; this is the index.
 
 | Script | When you run it | Destructive? |
@@ -10,6 +10,37 @@ carries a full explanation in its own header comment; this is the index.
 | [`install-smartctl-exporter.sh`](install-smartctl-exporter.sh) | Once per bare-metal host (Proxmox, NAS) | No |
 | [`setup-image-updater-key.sh`](setup-image-updater-key.sh) | Once, to give ArgoCD Image Updater push access | No |
 | [`restore.sh`](restore.sh) | Disaster recovery only | **Yes — paths 1 and 2 destroy cluster state** |
+| [`doctor.sh`](doctor.sh) | First command when something is wrong | No — reads only |
+
+## doctor.sh
+
+```bash
+scripts/doctor.sh immich     # one application
+scripts/doctor.sh            # the whole cluster, briefly
+```
+
+Collects, in one shot, everything that mattered in past incidents: pod state,
+restart counts with the **last termination reason and exit code**, ArgoCD sync
+revision and any out-of-sync resources, the edge probe's verdict and the actual
+status code, alerts firing for that namespace, recent Events, the current logs
+plus the *previous* container's logs if it restarted, and any matching entry in
+`docs/doctor-log.md`.
+
+It resolves an app name to its namespace even when they differ — `qui` finds
+`downloads`, `blog` finds `ghost`, `bookdl` finds `books`.
+
+**It does not tell you what is wrong, and that is deliberate.** No probable
+cause, no suggested fix, no symptom→remedy table. A script that names the fault
+becomes an expert system with a bug for every case it half-covers, and its
+confident wrong answers are worse than silence. The evidence is in this repo:
+the obvious reading of the Ghost crash loop was "the kubelet is probing HTTPS",
+which is what the first doctor-log entry concluded, and it was wrong. Any rules
+table would have sent the next reader down that same dead end.
+
+Correlation is safe and is what this does instead: restart times next to sync
+times next to events, plus prior art retrieved by grep. Every section says so
+explicitly when it *cannot* collect its data — a missing section must never
+look like an empty one.
 
 ## bootstrap-argocd.sh
 
