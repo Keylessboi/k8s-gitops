@@ -5,6 +5,81 @@ solved it, then what prevents a repeat. Newest first. If an incident
 repeats, link the entries — a repeated incident means the prevention
 failed and the entry needs revisiting.
 
+## 2026-09-03 — Ghost restarted every 6 minutes for 523 restarts; the probe followed a redirect into TLS
+
+- **Symptom:** `ghost` reported Running 1/1 and served the edge fine, but had
+  accumulated **523 restarts**, the newest minutes old. Events showed
+  `Liveness probe failed: Get "https://10.42.0.176:2368/": http: server gave
+  HTTP response to HTTPS client`. The container exited 0/`Completed` every
+  ~360s — exactly `initialDelaySeconds 60 + periodSeconds 60 × failureThreshold
+  5` — i.e. liveness SIGTERMed it and Ghost shut down cleanly.
+- **Root cause:** *not* the kubelet, which is what the manifest's own comment
+  had concluded. `url` is `https://blog.sandstorm.chat`, so Ghost 301s any
+  request it believes arrived over plaintext, and it builds that redirect from
+  the request's own host — `Location: https://127.0.0.1:2368/`, verified
+  in-pod. The kubelet follows probe redirects, so the second hop TLS-handshakes
+  against the plaintext port and fails. The first GET does leave as http, so
+  **`scheme: HTTP` cannot fix this** — the live pod already carried
+  `scheme: HTTP` (the API server defaults it) while failing every cycle.
+- **Fix:** send `X-Forwarded-Proto: https` as a probe header
+  (`apps/ghost/deployment.yaml`). Ghost then treats the request as already
+  secure and returns 200 with no redirect. Verified in-pod: bare `GET /` → 301;
+  same GET with the header → `200 OK`.
+- **Prevention:** when a probe error names a scheme the spec did not ask for,
+  check for a redirect before blaming the kubelet — `wget -S --spider` from
+  inside the pod shows it in one command. Any app configured with an external
+  https `url` (Ghost, and anything else that force-redirects) needs either this
+  header or a probe path that does not redirect. The stale readiness-probe
+  story in that manifest came from the same misdiagnosis; a readiness probe of
+  this shape is safe to reinstate now that the redirect is understood.
+
+## 2026-09-03 — pg_dump backups failed 3 runs running; the dump lost the kube-router race
+
+- **Symptom:** `pgdump-backup` showed `FailureTarget/BackoffLimitExceeded` for
+  its last three scheduled runs. The newest good restic snapshot was
+  **27h stale** — the job that protects the Vaultwarden vault.
+- **Root cause:** the same kube-router NetworkPolicy programming race already
+  documented for Lidarr's maintenance CronJob (2026-08-29 entry below). The
+  `dump` initContainer opens its `psql` connection on its first line of real
+  work; until kube-router has programmed the per-pod policy chains (~1–2s),
+  allowed egress is **REJECTed**, surfacing as `connection refused` rather than
+  a timeout. Captured verbatim from a manual run's previous attempt:
+  `psql: error: connection to server at "app-databases-rw..." (10.43.96.131),
+  port 5432 failed: Connection refused`. With `backoffLimit: 2`, three lost
+  races in a row fail the whole run.
+- **Fix:** a `wait-for-postgres` initContainer that polls `pg_isready` (30
+  attempts, 2s apart) ahead of `dump`, mirroring lidarr's `wait-for-lidarr`.
+  Same image as the dump, so no extra pull. A manual run reproduced both the
+  failure and the recovery and landed a fresh **1.17 GiB** snapshot.
+- **Prevention:** any Job or CronJob whose first action is a network call needs
+  a wait-init. This race has now bitten two of them; treat "connection refused
+  from a just-started pod, where the NetworkPolicy clearly allows it" as this
+  cause until proven otherwise. Worth auditing new CronJobs for it.
+
+## 2026-09-03 — Obsidian LiveSync was never actually initialised
+
+- **Symptom:** the endpoint answered 401 (CouchDB auth working) and ArgoCD
+  called it Healthy, so it looked deployed — but no vault had ever synced.
+  `_all_dbs` returned only `["obsidiannotes"]`, and that database held
+  `doc_count: 0`.
+- **Root cause:** two directives missing from `livesync.ini`. (1) No
+  `[couchdb] single_node = true`, which is what makes CouchDB 3.x create
+  `_users`, `_replicator` and `_global_changes` on startup — without `_users`
+  the server cannot authenticate a non-admin. (2) No `enable_cors`, so the
+  `[cors]` block (origins, credentials) was **inert**: CouchDB 3.x reads
+  `enable_cors` from `[chttpd]` — default.ini says these options "moved from
+  [httpd]" — and the file's `[httpd]` section only governs the legacy
+  127.0.0.1:**5986** interface, not the 5984 port Obsidian talks to. The
+  effective config confirmed it: `[chttpd]` had no `enable_cors` key at all.
+- **Fix:** added `single_node = true`, `[chttpd] enable_cors = true`, and
+  explicit CORS `headers`/`methods` (CouchDB's default method list stops at
+  GET/HEAD/POST; replication also issues PUT and DELETE).
+- **Prevention:** "Ingress answers 401" only proves a listener is up. For a
+  sync backend, check the data plane — `_all_dbs` for the system databases and
+  the effective `_node/_local/_config` — before calling it deployed. Verify a
+  section's keys landed where the running version reads them, not where an
+  older docs page put them.
+
 ## 2026-08-29 — Wings image pulls tripped kubelet DiskPressure; CNPG primary evicted
 
 - **Symptom:** while pre-pulling game-server Docker images on the node
