@@ -69,3 +69,21 @@ spec:
   resources:
     requests:
       storage: 100Mi
+---
+# Octo's settings file. Small - a single JSON document the admin UI writes and
+# ASP.NET hot-reloads - but it holds every choice made in that UI (the
+# per-heart source order, the Lidarr profile ids, the learned Navidrome admin
+# token), none of which is in this repo. An emptyDir would silently reset all
+# of it on every pod roll.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: octo-config
+  namespace: downloads
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 1Gi

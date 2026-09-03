@@ -31,6 +31,25 @@ spec:
     ports:
     - port: 4533
       protocol: TCP
+  # Octo (apps/downloads/octo.yaml) is a Subsonic proxy that sits in FRONT of
+  # Navidrome: everything it does not answer itself is forwarded here, so
+  # without this rule Octo is not a degraded experience, it is a blank one.
+  # It runs in downloads rather than alongside Navidrome because that is the
+  # only namespace whose policy denies direct internet egress - the egress
+  # half of this flow is in apps/downloads/networkpolicy.yaml and both are
+  # required.
+  #
+  # Note that ND_REVERSEPROXYWHITELIST is 10.42.0.0/16, so a pod admitted here
+  # can assert a username via X-authentik-username. Octo is trusted to that
+  # extent deliberately - it is the front door for these clients - and this
+  # rule is what keeps the set of such pods small.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: downloads
+    ports:
+    - port: 4533
+      protocol: TCP
   egress:
   # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
   # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so

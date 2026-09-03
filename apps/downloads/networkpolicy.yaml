@@ -61,6 +61,19 @@ spec:
           protocol: TCP
         - port: 8080
           protocol: TCP
+    # Octo's Subsonic/admin port. There is deliberately no Ingress for it
+    # (see the header of octo.yaml), so today this only admits the kubelet's
+    # `kubectl port-forward`, which is how it is reached and verified. It is
+    # also the rule a Traefik route would need if the owner ever decides on an
+    # edge design - which requires a /rest carve-out and a header-strip
+    # middleware, not just an Ingress object.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 5274
+          protocol: TCP
   egress:
     # k3s apiserver, reachable only by ipBlock.
     - to:
@@ -114,10 +127,17 @@ spec:
         protocol: TCP
       - port: 8000
         protocol: TCP
-    # The shared VPN gateway's Shadowsocks proxy. qBittorrent's SOCKS5
-    # tracker/peer traffic, slskd's Soulseek connections, and seedboxapi's
-    # MAM API calls all go through here. This is the only path to the
-    # public internet - the killswitch.
+    # The shared VPN gateway. qBittorrent's SOCKS5 tracker/peer traffic,
+    # slskd's Soulseek connections, and seedboxapi's MAM API calls go through
+    # Shadowsocks (8388); Octo's Last.fm and metadata calls go through
+    # gluetun's HTTP proxy (8888), because .NET's HttpClient speaks HTTP
+    # CONNECT natively and has no SOCKS support worth relying on. This is the
+    # only path to the public internet - the killswitch.
+    #
+    # 8888 was missing until Octo needed it, and its absence was silent in the
+    # usual way: the vpn namespace's own policy has always admitted 8888 from
+    # here, so the ingress half looked correct while every proxied request
+    # died on this side with a bare connection refused. Both ends, always.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -125,6 +145,29 @@ spec:
       ports:
         - {port: 8388, protocol: TCP}
         - {port: 8388, protocol: UDP}
+        - {port: 8888, protocol: TCP}
+    # Octo proxies everything it does not answer itself through to Navidrome,
+    # and calls it again to trigger a rescan once a track lands. The matching
+    # ingress rule is in apps/navidrome/networkpolicy.yaml.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: navidrome
+      ports:
+        - port: 4533
+          protocol: TCP
+    # Octo's fallback acquisition path: hand an album to Lidarr instead of
+    # fetching it from Soulseek. Matching ingress in
+    # apps/lidarr/networkpolicy.yaml. Open ahead of the credential - the API
+    # key is not yet synced into this namespace - so that enabling Lidarr is a
+    # Secret change and not a policy change on two sides.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: lidarr
+      ports:
+        - port: 8686
+          protocol: TCP
     # MinIO on the NAS, for JuiceFS-backed volumes.
     - to:
         - ipBlock:

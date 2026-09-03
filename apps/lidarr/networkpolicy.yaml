@@ -38,6 +38,21 @@ spec:
     ports:
     - port: 8686
       protocol: TCP
+  # Octo (apps/downloads/octo.yaml) hands an album to Lidarr when Soulseek
+  # cannot serve it. Note the direction: downloads -> lidarr already existed
+  # the other way round (Lidarr driving slskd on 5030), and that rule does
+  # nothing for this flow - a NetworkPolicy allow is per-direction and per-end,
+  # so this ingress and the egress in apps/downloads/networkpolicy.yaml are
+  # both required. Opened ahead of the API key, which is still only in this
+  # namespace's `lidarr-api` Secret, so turning the feature on is a Doppler
+  # sync and not a policy edit.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: downloads
+    ports:
+    - port: 8686
+      protocol: TCP
   egress:
   # Postgres. The *arr apps keep their main and log databases in the shared
   # CNPG cluster rather than local SQLite.

@@ -1,0 +1,365 @@
+---
+# Octo: a Subsonic proxy that sits IN FRONT of Navidrome.
+#
+# Clients point at Octo (5274), not Navidrome. Octo answers /rest itself for
+# the enriched paths - search that reaches past the library, Last.fm radio,
+# YouTube stream previews, and "heart to keep" which acquires a permanent FLAC
+# via Soulseek or hands the album to Lidarr - and proxies everything else
+# straight through to Navidrome.
+#
+# WHY THE downloads NAMESPACE AND NOT music/navidrome:
+# Octo makes outbound calls to the public internet on its own account
+# (Last.fm, Deezer metadata, and - once a shim exists - YouTube). The owner's
+# hard requirement is that no such traffic ever leaves via the home WAN. Only
+# this namespace enforces that: apps/downloads/networkpolicy.yaml is the
+# killswitch (no 0.0.0.0/0 egress at all, the VPN gateway is the single exit),
+# whereas the music namespace carries a blanket 0.0.0.0/0 rule on 443/80 and
+# would put Octo straight onto the home address. Living here also makes
+# Octo -> slskd an in-namespace call that the existing policy already permits,
+# with no second slskd and no cross-namespace hole.
+#
+# DELIBERATELY NO INGRESS. Octo serves its admin UI on the SAME port as the
+# Subsonic API, and Subsonic clients cannot follow an OAuth redirect (the
+# reason apps/navidrome/subsonic-ingress.yaml exists at all - see
+# docs/adr/0003-navidrome-header-auth.md). A correct edge would therefore need
+# a /rest carve-out plus the header-strip middleware, and getting that wrong
+# is not a leak of listening history, it is an unauthenticated admin bypass.
+# That design is an open decision for the owner; until it is made, Octo is
+# reachable only in-cluster and by port-forward.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: octo
+  namespace: downloads
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate: the single pod owns /app/config, where the
+  # admin UI writes the settings file that ASP.NET hot-reloads. Two pods
+  # writing it during a roll is a corrupt settings file, not a migration.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: octo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: octo
+    spec:
+      # Pod-level so it also covers the init container. Without it the pod
+      # runs seccomp Unconfined: this node's kubelet has seccompDefault=false,
+      # so nothing applies a profile unless a manifest asks. Octo is an
+      # ordinary ASP.NET web service and needs none of the syscalls
+      # RuntimeDefault denies.
+      #
+      # fsGroup is deliberately NOT set, for the same reason the qbittorrent
+      # pod refuses it: the `data` volume below is the whole media library
+      # (~880 artist directories over NFS), and fsGroup makes the kubelet walk
+      # and chown it before the container may start. That walk is O(files) and
+      # surfaces only as a pod stuck in ContainerCreating with a 'context
+      # deadline exceeded'. The library is already 1000:1000, the container
+      # runs as 1000:1000, and the one volume that genuinely needs fixing -
+      # the freshly provisioned config PVC - is handled by the init container
+      # below, scoped to that directory alone.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # The nfs-csi StorageClass sets no mountPermissions, so a newly
+        # provisioned directory arrives root-owned and Octo - which runs as
+        # 1000 - cannot create its settings file in it. The admin UI then
+        # fails to save with no obvious cause. This is the same fix the slskd
+        # init container applies to its own config PVC, scoped to one nearly
+        # empty directory so it stays cheap and never becomes the full-library
+        # chown that fsGroup would cause.
+        - name: config-perms
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              chown 1000:1000 /app/config
+              echo "octo config volume ownership set"
+          securityContext:
+            # Explicit: this has to be root to chown, and the app container
+            # below sets runAsNonRoot for itself rather than at pod level so
+            # that this stays possible.
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+      containers:
+        - name: octo
+          # Digest-pinned per repo convention. Multi-arch (amd64/arm64);
+          # the tag 2026.08.24 is the newest published release.
+          image: ghcr.io/winters27/octo:2026.08.24@sha256:30496b2c0e53e74944211b1e6f6b9eb8369062f14ba89cdc93eb84b048fa3ced
+          securityContext:
+            # 1000:1000 matches every other writer in this stack - slskd,
+            # qBittorrent and Lidarr all run as 1000 - so files Octo drops in
+            # the library are owned by the same uid that later imports,
+            # hardlinks and rescans them. The image itself declares APP_UID
+            # 1654 but sets no USER, i.e. it would otherwise run as root and
+            # leave 0644 root-owned files that uid 1000 could neither hardlink
+            # (fs.protected_hardlinks=1) nor move - the exact failure that
+            # broke Soulseek imports before slskd was pinned to 1000.
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+            - name: TZ
+              value: UTC
+
+            # --- Egress through the VPN gateway ---
+            #
+            # This is how the airtight requirement is actually met. The
+            # downloads NetworkPolicy denies direct internet egress outright,
+            # so without a proxy Octo's Last.fm and metadata calls would simply
+            # fail; with it they exit through AirVPN like everything else here.
+            # gluetun's HTTP proxy (8888) rather than its Shadowsocks port
+            # (8388) because .NET's HttpClient speaks HTTP CONNECT natively and
+            # has no SOCKS support worth relying on.
+            #
+            # .NET reads these in both cases (http_proxy then HTTP_PROXY), so
+            # the uppercase forms alone are sufficient.
+            - name: HTTP_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: HTTPS_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            # Cluster-internal calls must NOT go through the tunnel: Navidrome
+            # and slskd are reachable directly, and proxying them would route
+            # in-cluster traffic out to AirVPN and back, which the VPN
+            # namespace's own policy drops anyway (it excludes RFC1918).
+            #
+            # .NET matches no_proxy entries as HOSTNAME suffixes, not CIDRs, so
+            # it is the .svc.cluster.local suffix that does the real work here.
+            # The CIDRs are kept for any child process or library that does
+            # understand them, and cost nothing.
+            - name: NO_PROXY
+              value: localhost,127.0.0.1,.svc,.cluster.local,.svc.cluster.local,10.42.0.0/16,10.43.0.0/16,192.168.0.0/16
+
+            # --- Navidrome upstream ---
+            #
+            # Nested ASP.NET configuration keys use the double-underscore
+            # form. The UPPER_SNAKE names in upstream's .env.example are
+            # compose-level inputs that expand into exactly these; there is no
+            # compose here, so the real keys are set directly.
+            - name: Subsonic__Url
+              value: http://navidrome.navidrome.svc.cluster.local:4533
+            # Upstream defaults this to true, which asks Navidrome where its
+            # library lives and adopts that path. Turned off on purpose: the
+            # answer is /music either way (Navidrome's ND_MUSICFOLDER is
+            # /music and so is the mount below), and auto-detection needs the
+            # Navidrome admin credentials that are not wired up yet - so
+            # leaving it on only adds a failure mode with no upside.
+            - name: Subsonic__AutoDetectDownloadPath
+              value: "false"
+            # Optional. With these set Octo can trigger authenticated library
+            # rescans itself after a download lands; without them it waits to
+            # learn an admin token from the first admin sign-in through it.
+            # optional: true, so the absence of the Secret is a degraded
+            # feature rather than a pod that will not start.
+            - name: Subsonic__AdminUsername
+              valueFrom:
+                secretKeyRef:
+                  name: octo
+                  key: navidrome-admin-username
+                  optional: true
+            - name: Subsonic__AdminPassword
+              valueFrom:
+                secretKeyRef:
+                  name: octo
+                  key: navidrome-admin-password
+                  optional: true
+            # Where a kept track is filed. Must match the /music mount below,
+            # which is the same directory Navidrome scans.
+            - name: Library__DownloadPath
+              value: /music
+            # Hearts acquire via Soulseek first; Lidarr is the fallback and is
+            # inert until its API key is present (see below).
+            - name: Subsonic__DownloadSource
+              value: Soulseek
+            - name: Subsonic__FolderStructure
+              value: Organized
+
+            # --- Soulseek, via the slskd that already runs in this namespace ---
+            #
+            # slskd is a container in the qbittorrent pod, fronted by the slskd
+            # Service. Do not deploy a second one: it holds the Soulseek
+            # account, the share cache and the AirVPN-forwarded listen port,
+            # and two clients on one account is a ban, not redundancy.
+            - name: Soulseek__BaseUrl
+              value: http://slskd.downloads.svc.cluster.local:5030
+            # These are slskd's WEB API credentials, not the Soulseek network
+            # account - Octo posts them to /api/v0/session for a JWT. Our
+            # slskd.yml (rendered in qbittorrent.yaml) configures only an API
+            # key for Lidarr and never overrides web.authentication, so slskd
+            # is still on its built-in slskd/slskd defaults; verified by
+            # posting them and getting a 200 with a token. They are literals
+            # rather than a Secret because they are a published default, not a
+            # credential - and slskd has no Ingress, with 5030 admissible only
+            # from this namespace, lidarr and books. Setting a real password in
+            # slskd.yml and moving both sides to the `slskd` Secret is a
+            # worthwhile follow-up.
+            - name: Soulseek__Username
+              value: slskd
+            - name: Soulseek__Password
+              value: slskd
+            - name: Soulseek__PreferredExtension
+              value: flac
+            # Upstream's own note: Soulseek results only become readable from
+            # slskd around the 20s mark, and at 6s every heart silently fell
+            # back to a YouTube MP3 while lossless copies sat unseen.
+            - name: Soulseek__SearchWaitSeconds
+              value: "30"
+
+            # --- Lidarr (optional fallback for hearts) ---
+            #
+            # Wired but INERT. Secrets do not cross namespaces and the API key
+            # lives in `lidarr-api` in the lidarr namespace, so this
+            # secretKeyRef finds nothing here and Octo starts with an empty
+            # key, which it treats as "Lidarr not configured". To enable it,
+            # sync the same Doppler value into a Secret in this namespace;
+            # the NetworkPolicy path (downloads -> lidarr :8686, both ends) is
+            # already open, so that is the only remaining step.
+            - name: Lidarr__BaseUrl
+              value: http://lidarr.lidarr.svc.cluster.local:8686
+            - name: Lidarr__ApiKey
+              valueFrom:
+                secretKeyRef:
+                  name: lidarr-api
+                  key: api-key
+                  optional: true
+            # Lidarr's root folder as Lidarr itself knows it - the restored
+            # database uses this exact path, so a handoff that named anything
+            # else would be rejected as an unknown root folder.
+            - name: Lidarr__RootFolderPath
+              value: /data/media/music
+
+            # --- Last.fm radio ---
+            #
+            # Optional; without a key the radio and similar-artist features
+            # are unavailable and the rest of Octo is unaffected. This is the
+            # main reason the proxy env above exists - it is Octo's only
+            # routine call to the public internet today.
+            - name: LastFm__ApiKey
+              valueFrom:
+                secretKeyRef:
+                  name: octo
+                  key: lastfm-api-key
+                  optional: true
+
+            # --- YouTube preview: NOT OPERATIONAL ---
+            #
+            # This points at a Service that does not exist, on purpose.
+            # Upstream's yt-dlp shim is `build: ./yt-dlp-shim` and has NO
+            # published image - ghcr.io/winters27/octo-yt-dlp-shim,
+            # winters27/ytdlp-shim, winters27/octo/shim and
+            # winters27/octo-shim were all probed and are absent or 403. The
+            # alternatives are both worse than a broken feature: building an
+            # unreviewed python+ffmpeg+Deno image here, or having a pod fetch
+            # app.py from the internet at runtime.
+            #
+            # Consequence: YouTube stream preview of unowned tracks does not
+            # work. Search, Last.fm radio, the Navidrome passthrough and
+            # "heart to keep" via Soulseek all do. Publish or vendor the shim
+            # image and this name resolves with no other change.
+            - name: YouTube__ShimUrl
+              value: http://octo-yt-dlp-shim.downloads.svc.cluster.local:8080
+          ports:
+            - name: http
+              # The container listens on 8080 (ASPNETCORE_URLS=http://+:8080);
+              # 5274 is only what upstream's compose publishes it as. The
+              # Service below keeps that external number.
+              containerPort: 8080
+          # TCP, not HTTP. No unauthenticated 200 path on this build has been
+          # verified, and inventing one is how the ghost 523-restart loop
+          # happened: a probe that followed a redirect into an error page and
+          # killed a healthy container every interval. If it is listening, it
+          # is up.
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 5
+            failureThreshold: 5
+          # Modest on purpose: the node sits at ~93% memory. A .NET server's
+          # GC will happily grow into whatever ceiling it is given, so the
+          # limit is the real setting here.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            # The library, narrowed to the music directory, exactly as
+            # Navidrome mounts it - so a path Octo writes is a path Navidrome
+            # scans. NOT readOnly: acquiring a track is the point.
+            - name: data
+              mountPath: /music
+              subPath: media/music
+            # The same volume again, unnarrowed. slskd downloads into
+            # /data/torrents/soulseek and reports that absolute path back over
+            # its API; upstream's compose hides this by pointing slskd's
+            # download directory at /music too, which is not an option here
+            # (Lidarr imports out of the torrents tree and hardlinks cannot
+            # cross a mount). Mounting /data as well means the path slskd
+            # names is a path Octo can actually open, and the move into
+            # /music stays a rename within one filesystem rather than a copy.
+            - name: data
+              mountPath: /data
+            # Settings persistence. The admin UI writes here and ASP.NET
+            # hot-reloads the file, so it must outlive the pod.
+            - name: config
+              mountPath: /app/config
+      volumes:
+        # The same PVC qBittorrent and slskd use - one static PV per
+        # namespace over the shared NFS export. See media-data-pv.yaml.
+        - name: data
+          persistentVolumeClaim:
+            claimName: media-data
+        - name: config
+          persistentVolumeClaim:
+            claimName: octo-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: octo
+  namespace: downloads
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: octo
+  ports:
+    - name: http
+      # 5274 externally, 8080 in the container: upstream's documented port is
+      # 5274 and every client-side instruction uses it, so the Service keeps
+      # that number even though nothing in the container knows about it.
+      port: 5274
+      targetPort: http

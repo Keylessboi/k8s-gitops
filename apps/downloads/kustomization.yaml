@@ -30,5 +30,8 @@ resources:
   - qbittorrent.yaml
   - qui.yaml
   - slskd-service.yaml
+  # Octo lives here rather than with Navidrome so its outbound calls inherit
+  # this namespace's killswitch - see the header of octo.yaml.
+  - octo.yaml
   - ingress.yaml
   - authentik-outpost.yaml
