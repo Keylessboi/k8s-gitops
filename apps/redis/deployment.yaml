@@ -1,6 +1,6 @@
 ---
-# Single shared Redis for the whole homelab: Immich, Authentik, Nextcloud,
-# and later Funkwhale. Deliberately NOT the Bitnami chart — that catalog is
+# Single shared Redis for the whole homelab: Immich, Authentik, Nextcloud
+# and Pelican. Deliberately NOT the Bitnami chart — that catalog is
 # deprecated and its image references broke `helm pull` from the cluster.
 # Redis is one small container; a chart is pure overhead here.
 apiVersion: apps/v1

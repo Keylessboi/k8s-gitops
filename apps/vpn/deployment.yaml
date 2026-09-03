@@ -1,11 +1,11 @@
 ---
 # Shared VPN gateway: ONE gluetun container serving the entire cluster.
 #
-# This replaces the four per-app gluetun sidecars (downloads, funkwhale,
+# This replaces the per-app gluetun sidecars (downloads,
 # remux, jellyfin) with a single WireGuard tunnel that consumer apps reach
 # through built-in proxy servers:
 #
-#   - HTTP proxy on :8888 (HTTPPROXY) - for funkwhale (Django/requests) and
+#   - HTTP proxy on :8888 (HTTPPROXY) - for HTTP-proxy-aware clients and
 #     remux (Rust/reqwest) outbound HTTP(S) federation/metadata calls.
 #   - Shadowsocks on :8388 - for qBittorrent's SOCKS5 peer/tracker traffic
 #     and slskd's Soulseek connections.
@@ -15,7 +15,7 @@
 # preserves the original kube-dns entry so cluster DNS keeps working. Consumer
 # apps use the cluster DNS (CoreDNS) for all lookups; external names resolve
 # via CoreDNS upstream, and internal names via kube-dns directly. This is the
-# same fix proven in apps/funkwhale and apps/remux.
+# same fix proven in apps/remux.
 #
 # Killswitch: the consumer apps' NetworkPolicies enforce the killswitch
 # boundary at the kubernetes level. Each consumer namespace is locked down:

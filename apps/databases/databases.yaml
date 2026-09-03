@@ -185,18 +185,3 @@ spec:
   owner: invidious
   cluster:
     name: app-databases
-
----
-# Funkwhale's single database. Django keeps everything (users, federation
-# actors, libraries, uploads, celery task state) in one schema; no separate
-# log db.
-apiVersion: postgresql.cnpg.io/v1
-kind: Database
-metadata:
-  name: funkwhale
-  namespace: databases
-spec:
-  name: funkwhale
-  owner: funkwhale
-  cluster:
-    name: app-databases

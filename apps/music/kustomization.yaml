@@ -9,8 +9,11 @@
 #   Octo-Fiesta - Subsonic proxy for an external catalogue.
 #
 # Deliberately NOT included:
-#   Funkwhale     - its Docker Hub images stopped at 1.2.10 in April 2023;
-#                   current releases ship only via their GitLab registry.
+#   Funkwhale     - deployed 2026-09-01 and REMOVED 2026-09-03: it served
+#                   zero tracks, cost 798 MiB across four containers, and its
+#                   federation network is almost entirely Creative Commons
+#                   and netlabel material rather than the catalogue this
+#                   library is being built from. See docs/doctor-log.md.
 #   ListenBrainz  - self-hosting needs Postgres + Redis + TimescaleDB +
 #                   Couchbase + RabbitMQ, which is larger than everything
 #                   already running on this node.

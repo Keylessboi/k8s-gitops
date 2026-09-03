@@ -2,7 +2,7 @@
 # Shared VPN gateway namespace. Houses the single gluetun container that all
 # VPN-consuming apps in the cluster route through.
 #
-# privileged, like downloads/funkwhale/remux/jellyfin and for the identical
+# privileged, like downloads/remux and for the identical
 # reason: gluetun needs NET_ADMIN and a passed-in /dev/net/tun to bring up
 # WireGuard. The baseline/restricted PodSecurity profiles forbid both.
 # Consumer apps still pin their own hardened securityContexts inside their

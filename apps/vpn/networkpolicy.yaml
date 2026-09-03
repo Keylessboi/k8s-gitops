@@ -6,7 +6,7 @@
 # gluetun's own firewall is the fine-grained boundary - this policy only
 # needs to let the tunnel exist.
 #
-# On ingress: only consumer namespaces (downloads, funkwhale, remux, jellyfin)
+# On ingress: only consumer namespaces (downloads, remux)
 # may reach the proxy ports. Nobody else needs to.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -24,9 +24,6 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: downloads
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: funkwhale
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: remux

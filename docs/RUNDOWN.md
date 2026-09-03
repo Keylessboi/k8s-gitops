@@ -14,7 +14,6 @@ All of these sit behind Traefik with a Let's Encrypt certificate, and every one 
 | `immich.sandstorm.chat` | Photos | Immich account, or "Sign in with Authentik" |
 | `navidrome.sandstorm.chat` | Music streaming | Navidrome account |
 | `remux.sandstorm.chat` | Remux — Jellyfin-compatible media server (Stremio addons + local files + built-in torrent streaming), deployed in parallel with Jellyfin during owner validation; all egress tunnels through AirVPN | Authentik, then Remux (`admin`, password in Doppler `REMUX_ADMIN_PASSWORD`) |
-| `funkwhale.sandstorm.chat` | Federated music server — federation egress tunnels through AirVPN, access is VPN-free | Funkwhale account (admin seeded; see below) |
 | `kiwix.sandstorm.chat` | Offline Wikipedia and other archives | none |
 | `grafana.sandstorm.chat` | Dashboards and metrics | Grafana account |
 | `books.sandstorm.chat` | Calibre-Web Automated — read and manage the library | Authentik, then CWA |
@@ -139,26 +138,6 @@ Download clients on Lidarr: qBittorrent (torrents), slskd (Soulseek), and Tubifa
 slskd shares `/data/media/music`, so Soulseek uploads come from the tagged library rather than the download directory.
 
 DABmusic currently fails its connection test because dabmusic.xyz is down (HTTP 522 from outside the network entirely), not because of anything here.
-
-## Funkwhale
-
-Federated music server at `funkwhale.sandstorm.chat`, deployed in the split-networking shape the owner specified in issue #2: **outbound federation (ActivityPub delivery, follows, remote fetches) exits through AirVPN** — other instances see the VPN exit, never the home WAN — while **the owner's own access (web UI + streaming) rides the normal Traefik edge, VPN-free**. Inbound federation needs no tunnel: remote instances POST activities to our public inbox URL, which lands at the same edge route as the browser.
-
-The killswitch is the qbittorrent/jellyfin shape, verified with the same 3-test standard (exit IP = AirVPN exit; tunnel down = zero egress; edge access survives tunnel failure). One pod holds gluetun + api + celery worker + celery beat + the nginx front, so every federation-speaking process shares the tunnel's network namespace and has no route of its own.
-
-Layout decisions, all verified against the upstream 2.0.10 docs and compose file:
-
-- **Images**: `funkwhale/api` (gunicorn + celery worker + celery beat — three containers, one image, the compose layout) and `funkwhale/front` (nginx serving the SPA, proxying `/api`, `/federation`, `/.well-known/` to the api over localhost). The old mono-container `funkwhale/funkwhale` image was deprecated in 1.3.0 and stopped at 1.2.10 on Docker Hub — the multi-container images are the supported path.
-- **Postgres**: the shared CNPG cluster, database + role `funkwhale` (one schema; Django keeps everything in it).
-- **Redis**: the shared `redis-master`, **logical DB 2 for cache and DB 3 for the celery broker**, selected in `CACHE_URL`/`CELERY_BROKER_URL` (the documented URL form). DB 0 belongs to the other tenants, DB 1 to Pelican; 2/3 were verified empty before Funkwhale moved in. No dedicated redis was needed.
-- **Storage**: one dynamic nfs-csi claim (`funkwhale-data`) mounted at `/srv/funkwhale/data` — `media/` (UI uploads), `static/` (collectstatic) and `music/` (in-place imports: drop files there over NFS, then import by reference in the UI).
-- **No forward-auth** on the Ingress, deliberately: federation clients are servers, not browsers — a redirect would sever the instance from the network. CrowdSec + rate-limit still apply.
-
-Owner click-list (the parts GitOps cannot do):
-
-1. Log in at `funkwhale.sandstorm.chat` as `travis` — the password is `FUNKWHALE_ADMIN_PASSWORD` in Doppler (`kubernetes/prd`), seeded by the PostSync admin Job.
-2. Upload music through the UI (Library → upload), or drop files into the NFS `music/` directory and import in place.
-3. Later, if wanted: enable Authentik OIDC for human users inside Funkwhale's settings (federation actors are separate from SSO users). If that happens, the funkwhale NetworkPolicy needs the edge rules (192.168.1.240:443 + kube-system 8443/8000) added for OIDC discovery — the policy comment says so too.
 
 ## Backups
 
