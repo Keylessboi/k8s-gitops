@@ -20,3 +20,4 @@ The **Consequences** section matters most. Particularly the negative ones and th
 | [0004](0004-lidarr-is-the-tag-writer.md) | Lidarr writes audio tags; beets is read-only | Accepted |
 | [0005](0005-pterodactyl-needs-mysql-and-kvm.md) | Pterodactyl waits for a MySQL host and a KVM node | Accepted |
 | [0006](0006-wings-on-the-node.md) | Wings runs on the k3s-server node itself, governed | Accepted |
+| [0007](0007-freeze-the-platform-layer.md) | Freeze the platform layer; spend effort on headroom and checks | Accepted |

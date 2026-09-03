@@ -5,6 +5,50 @@ solved it, then what prevents a repeat. Newest first. If an incident
 repeats, link the entries — a repeated incident means the prevention
 failed and the entry needs revisiting.
 
+New entries should also carry a **confidence** line — CONFIRMED, PROBABLE or
+PROVISIONAL. The 2026-08-31 ghost entry said "root cause not fully pinned" and
+everything downstream still treated it as settled, including a patch built on a
+diagnosis that turned out to be wrong.
+
+## Symptom index
+
+**This index is the point of the file.** `scripts/doctor.sh <app>` greps here
+by app name, and a model handed a symptom will grep for the error text. Search
+the literal string you are seeing, then read the entry.
+
+| If you are seeing… | Start at |
+|---|---|
+| `connection refused` from a pod that just started, where the NetworkPolicy allows it | kube-router race — 2026-08-29 (lidarr), 2026-09-03 (pg_dump) |
+| `connection refused` between two namespaces, at any time | one-sided NetworkPolicy — 2026-09-03 (hermes → lidarr) |
+| `ComparisonError`, `mapping key … already defined` | duplicate YAML key — 2026-09-03 |
+| A pod Running and Healthy but doing nothing | one-sided NetworkPolicy — 2026-09-03; Obsidian never initialised — 2026-09-03 |
+| Endless restarts behind a green dashboard | ghost probe redirect — 2026-09-03 |
+| `Liveness probe failed: Get "https://…"` on a plaintext port | ghost probe redirect — 2026-09-03 |
+| A Service with no endpoints after an edit | named-port contract — 2026-09-01; over-tight readiness probes — recurring |
+| `[Unknown Album]` / `[Unknown Artist]` | Navidrome tags — 2026-08-29 |
+| Backups "succeeding" with nothing stored | MinIO zero drives — 2026-08-29 |
+| Everything on the host slow, API server 503 | swap thrash — 2026-08-31 |
+| Disk full, or pods evicted for ephemeral storage | disk-pressure churn — 2026-08-31; ganesha.log 26 GB — 2026-08-31; Wings pulls — 2026-08-29 |
+| A host unreachable at `192.168.1.240` intermittently | duplicate ARP claim — 2026-08-26 |
+| `CrashLoopBackOff` immediately after adding `command:` | `command:` replaces ENTRYPOINT — 2026-08-31 |
+| An *arr app that cannot reach another service by name | bare short hostnames — recurring class |
+| ArgoCD says Synced but the object is stale | ServerSideDiff bug — 2026-08-31 |
+| Every downstream *arr broken after a key change | Prowlarr API key rotation — 2026-08-29 |
+| A CronJob that vanishes seconds after you create it | manual CronJob run — 2026-08-29 |
+| Stale NFS handles, pods stuck ContainerCreating | closet move — 2026-08-28 |
+
+### The traps that have bitten more than once
+
+Each of these is now a check in `scripts/ci/check-invariants.py`, because the
+prose version of the prevention failed:
+
+- **kube-router race** (2×) — any Job whose first act is a network call needs a
+  `wait-*` initContainer.
+- **One-sided NetworkPolicy** (4×) — a cross-namespace flow needs egress in the
+  source *and* ingress in the destination.
+- **Duplicate YAML keys** (1×, but silent) — PyYAML accepts them, Go's yaml does
+  not. Validate with the same parser as the consumer.
+
 ## 2026-09-03 — A duplicate YAML key parked lidarr at ComparisonError; the local check could not see it
 
 - **Symptom:** `lidarr` showed sync status `Unknown`, health `Progressing`, and
