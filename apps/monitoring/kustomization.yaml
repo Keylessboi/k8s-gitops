@@ -515,7 +515,13 @@ helmCharts:
         replicas: 0
       write:
         replicas: 0
+      # The gateway is an nginx front-end for the microservices deployment.
+      # In SingleBinary mode nothing needs it, and `replicas: 0` still left the
+      # chart rendering a Service that resolved to no endpoints - which the
+      # canary below then tried to query, failing every time for three days.
+      # Disabled outright so the Service goes away with it.
       gateway:
+        enabled: false
         replicas: 0
       monitoring:
         selfMonitoring:
@@ -524,6 +530,19 @@ helmCharts:
             installOperator: false
       lokiCanary:
         enabled: true
+        # Point at Loki itself, NOT the gateway. The canary defaults to
+        # loki-gateway:80, which has no endpoints in SingleBinary mode, so
+        # every query returned "connection refused" from the day it was
+        # deployed:
+        #   error querying loki: query_range request failed ...
+        #   dial tcp 10.43.208.68:80: connect: connection refused
+        #
+        # That is worth fixing rather than deleting, because the canary is the
+        # one component that proves the whole log path works end to end - it
+        # writes a line and then reads it back. A broken canary is the
+        # "silent success" shape this cluster keeps producing: present,
+        # green-looking, and verifying nothing.
+        lokiurl: http://loki.monitoring.svc.cluster.local:3100
       # Pin the ServiceAccount name. Chart 6.46.0 changed the default from
       # the chart name (`loki`) to the fullname (`loki-loki`) - without this
       # pin the upgrade renames the SA out from under the running pod and

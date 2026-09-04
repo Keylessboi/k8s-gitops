@@ -33,7 +33,6 @@ labels:
 resources:
   - namespace.yaml
   - media-data-pv.yaml
-  - pvc-music.yaml
   - pvc-config.yaml
   - networkpolicy.yaml
   - deployment.yaml
