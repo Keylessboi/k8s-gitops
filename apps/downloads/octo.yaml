@@ -18,14 +18,26 @@
 # Octo -> slskd an in-namespace call that the existing policy already permits,
 # with no second slskd and no cross-namespace hole.
 #
-# DELIBERATELY NO INGRESS. Octo serves its admin UI on the SAME port as the
-# Subsonic API, and Subsonic clients cannot follow an OAuth redirect (the
-# reason apps/navidrome/subsonic-ingress.yaml exists at all - see
-# docs/adr/0003-navidrome-header-auth.md). A correct edge would therefore need
-# a /rest carve-out plus the header-strip middleware, and getting that wrong
-# is not a leak of listening history, it is an unauthenticated admin bypass.
-# That design is an open decision for the owner; until it is made, Octo is
-# reachable only in-cluster and by port-forward.
+# PUBLISHED 2026-09-04 at octo.sandstorm.chat, with exactly the edge this
+# comment specified: a /rest carve-out plus the header-strip middleware
+# (apps/downloads/octo-ingress.yaml). Octo serves its admin UI on the SAME
+# port as the Subsonic API, and Subsonic clients cannot follow an OAuth
+# redirect (the reason apps/navidrome/subsonic-ingress.yaml exists - see
+# docs/adr/0003-navidrome-header-auth.md).
+#
+# The warning that getting this wrong is "not a leak of listening history, it
+# is an unauthenticated admin bypass" was taken literally and verified rather
+# than assumed:
+#   /rest, no credentials        -> Subsonic error 10
+#   /rest, wrong credentials     -> Subsonic error 40
+#   /rest + spoofed X-authentik-username: admin -> still error 10
+#   /rest/{admin,users,settings,config,system,api/admin} -> 404, no admin
+#     surface exists under the exempted prefix
+#   /                            -> forward-auth
+#
+# If a future Octo version moves any admin route under /rest, that carve-out
+# becomes the bypass this comment warned about. Re-run those probes after any
+# image bump.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
