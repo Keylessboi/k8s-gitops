@@ -1,0 +1,33 @@
+---
+# The account provisioner, published at accounts.sandstorm.chat.
+#
+# forward-auth is not optional here and never becomes optional: this endpoint
+# creates accounts on four systems. The app ALSO checks the group header
+# itself (see configmap.yaml) rather than trusting the edge alone, because a
+# middleware list is one careless edit away from being shorter.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: accounts
+  namespace: accounts
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - accounts.sandstorm.chat
+      secretName: accounts-tls
+  rules:
+    - host: accounts.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: accounts
+                port:
+                  number: 80

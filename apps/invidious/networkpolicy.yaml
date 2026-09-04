@@ -13,6 +13,17 @@ spec:
     - Ingress
     - Egress
   ingress:
+    # The account provisioner (apps/accounts) POSTs the registration form so
+    # one password works here too. Invidious has no OIDC and no API for
+    # this - see apps/accounts/app.py. Matching egress in
+    # apps/accounts/networkpolicy.yaml.
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: accounts
+      ports:
+      - port: 3000
+        protocol: TCP
     # Traefik reaches invidious on :3000 (TLS terminates at the Ingress).
     - from:
         - namespaceSelector:

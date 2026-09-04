@@ -1,0 +1,42 @@
+---
+# Account provisioning for the two published apps that cannot take an authentik
+# identity by themselves - Invidious and remux - plus authentik itself, so one
+# password ends up the same everywhere. See apps/accounts/app.py.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: accounts
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  labels:
+    app.kubernetes.io/name: accounts
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: accounts
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/component: identity
+      homelab/tier: apps
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - networkpolicy.yaml
+  - service.yaml
+  - deployment.yaml
+  - ingress.yaml
+
+# The application source, kept as a real .py file so it is reviewable and
+# lintable. A hash suffix on the generated name would be ideal for triggering
+# rollouts, but ArgoCD prunes the old ConfigMap before the new pod is ready;
+# disableNameSuffixHash keeps the name stable and the rollout is a restart.
+configMapGenerator:
+  - name: accounts-src
+    files:
+      - app.py
+generatorOptions:
+  disableNameSuffixHash: true

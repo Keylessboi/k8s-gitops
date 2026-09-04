@@ -48,6 +48,15 @@ spec:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: pangolin
+  # The account provisioner creates users and sets their passwords. The other
+  # half is in apps/accounts/networkpolicy.yaml.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: accounts
+    ports:
+    - port: 9000
+      protocol: TCP
   # remux-user-sync reads /api/v3/core/users to mirror authentik's accounts
   # into remux, which has no SSO of its own. The other half of this flow is in
   # apps/remux/networkpolicy.yaml; both sides, always.

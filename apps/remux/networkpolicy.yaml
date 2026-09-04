@@ -22,6 +22,16 @@ spec:
     - Ingress
     - Egress
   ingress:
+    # The account provisioner (apps/accounts) creates remux users with a real
+    # password, so one credential works here too. Matching egress rule is in
+    # apps/accounts/networkpolicy.yaml.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: accounts
+      ports:
+        - port: 3000
+          protocol: TCP
     # Traefik (kube-system) -> Remux dashboard/API on 3000, plus the
     # cert-manager HTTP-01 solver on 8089.
     - from:

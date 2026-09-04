@@ -145,6 +145,16 @@ spec:
               # silently open the form to the internet.
               registration_enabled: true
               login_enabled: true
+              # No captcha. It exists to stop bots reaching a public
+              # registration form; this one is behind authentik-forward-auth,
+              # so nothing unauthenticated can see it in the first place.
+              #
+              # It is also load-bearing for apps/accounts: Invidious has no
+              # registration API, so the provisioner POSTs the HTML form, and
+              # an HMAC image captcha is not something a server-to-server call
+              # can answer. Turning it off is what makes "one password
+              # everywhere" reach Invidious at all.
+              captcha_enabled: false
               hmac_key: "${HMAC_KEY}"
               invidious_companion_key: "${COMPANION_KEY}"
               invidious_companion:

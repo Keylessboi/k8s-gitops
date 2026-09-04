@@ -1,0 +1,61 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: accounts
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Traefik only. Nothing else in the cluster has any business calling this.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    # EVERY PORT BELOW IS A POD PORT, NOT A SERVICE PORT. kube-proxy DNATs
+    # before NetworkPolicy egress is evaluated, so naming the Service port here
+    # matches nothing on a new connection - the trap that produced octo's "Bad
+    # Gateway" and cost an hour. Services are 80 -> 9000 (authentik), 80 ->
+    # 3000 (invidious), 3000 -> 3000 (remux).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: authentik
+      ports:
+        - port: 9000
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: invidious
+      ports:
+        - port: 3000
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: remux
+      ports:
+        - port: 3000
+          protocol: TCP
+    # The ntfy relay on the Proxmox host, so an account being created is
+    # something you hear about even if you did not do it. See docs/ntfy.md.
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.153/32
+      ports:
+        - port: 9098
+          protocol: TCP
