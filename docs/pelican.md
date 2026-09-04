@@ -93,3 +93,52 @@ on postmarketOS. Findings:
   token handshake are unchanged from [wings.md](wings.md).
   The node token is a standing credential and belongs in Doppler when a phone is
   actually enrolled.
+
+## "You don't own any servers" — the first admin has no role (2026-09-04)
+
+Two separate things look identical from the client dashboard, and both were
+true here at once.
+
+**1. Wings was never installed.** The panel is only the UI; Wings is the daemon
+that runs the containers. `config.yml`, the node registration, the private CA
+and its certs had all existed since 31 Aug — the `wings` binary simply was not
+on CT 200. Installed, enabled and started; see [wings.md](wings.md). The panel
+now reaches it (`panel → 192.168.1.172:8443` returns **401**, which is the
+correct answer for an unauthenticated request: alive and enforcing auth).
+
+**2. No account had a role.** This is the one that actually produced the
+message. Pelican uses Filament Shield roles, not Pterodactyl's `root_admin`
+column, and the check is an explicit row in `model_has_roles`:
+
+```
+travis   (id 1) -> NO ROLE
+akadmin  (id 3) -> NO ROLE
+role "Root Admin" existed, assigned to nobody
+```
+
+**Authentik OIDC provisions a Pelican user with no role**, which is the right
+default — a new SSO user should not become an administrator by logging in — but
+it means the *first* admin has to be assigned by hand, and nobody had. With no
+role there is no admin area, so there is no way to create a server, and the
+client dashboard correctly reports that you own none.
+
+Fixed with the panel's own command rather than raw SQL:
+
+```bash
+php artisan permission:assign-role "Root Admin" 1
+```
+
+**Log out and back in afterwards** — the role is read into the session at login.
+
+### State after this
+
+`1 node, 0 servers, 2 eggs (Vanilla Minecraft, Paper), 6 allocations`. Nothing
+is missing; a server just has to be created in the admin area.
+
+### ⚠️ Before creating one, check memory
+
+[ADR-0006](adr/0006-wings-on-the-node.md) allocates the node **6144 MiB**, but
+that is a panel-side *cap*, not physical memory. On 2026-09-04 the node had
+**~2.2 GB actually available**. A modded Minecraft server sized to the cap will
+OOM the node and take cluster workloads with it. Allocate against what `free -m`
+says, not against the governor.
