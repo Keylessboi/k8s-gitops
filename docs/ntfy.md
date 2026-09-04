@@ -61,7 +61,7 @@ cannot reach at all.
 | Alertmanager `smart-email` | failing/hot disks, degraded array, node gone, filesystem filling, backup chain broken, MinIO drives lost | `homelab-alerts` |
 | Alertmanager `heartbeat-ntfy` | Watchdog → the beat receiver (never a notification itself) | — |
 | ArgoCD | `on-sync-failed`, `on-health-degraded` | `homelab-alerts` |
-| Lidarr / Prowlarr / Readarr | health issue, health restored | `homelab-alerts` |
+| Lidarr / Readarr | health **errors** only | `homelab-alerts` |
 | Octo | download completed, download failed, album completed | `homelab-media` |
 | `octo-artist-on-heart` | an artist was added to Lidarr | `homelab-media` |
 
@@ -70,6 +70,19 @@ cannot reach at all.
 - ***arr on-grab / on-import.** Constant during normal operation, and with a
   mass search outstanding it would be thousands of messages. It would bury the
   health alerts sitting next to it on the same topic.
+- **Prowlarr, entirely.** Removed within an hour of being added, because it
+  spammed. Prowlarr's health is dominated by individual indexers going
+  unavailable and coming back, which is ordinary churn rather than anything to
+  act on — and with `onHealthRestored` on, every flap was two messages. Lidarr
+  reports the same fact when it actually matters ("Indexers unavailable due to
+  failures for more than 6 hours"), so nothing is lost.
+- ***arr health WARNINGS.** `includeHealthWarnings` is off on the two that
+  remain. The warning list is things like "New update is available", which
+  fires forever until you update, and "indexer unavailable", which flaps.
+  Health **errors** — no root folder, download client unreachable — are the
+  actionable half, and they are what is left.
+- ***arr on-health-restored.** A thing that fixed itself is not news, and it
+  doubled the cost of every flap.
 - **ArgoCD on-sync-succeeded / on-deployed.** Several a day. A topic that
   mostly carries "yes, that worked" gets muted, and takes the failures with it.
 - **qBittorrent on-completion.** Same reason as on-grab; Octo already reports
