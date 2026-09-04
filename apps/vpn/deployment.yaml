@@ -195,6 +195,14 @@ spec:
           env:
             - name: PROXY_PORT
               value: "1080"
+            # This image defaults REQUIRE_AUTH=true and EXITS at startup if no
+            # PROXY_USER/PROXY_PASSWORD are set - it does not fall back to
+            # open. Turned off deliberately: the listener is a ClusterIP
+            # reachable only from the namespaces vpn/networkpolicy.yaml names,
+            # and a credential would have to be duplicated into every
+            # consumer's config for no threat this actually faces.
+            - name: REQUIRE_AUTH
+              value: "false"
           ports:
             - name: socks5
               containerPort: 1080
