@@ -39,6 +39,22 @@ afford it is simply gone.
 - The old drive is mounted **read-only** at `/mnt/old-personal` and was never
   written to. `sdc` can be unmounted whenever you like - one less heat source.
 
+## 🗒️ Notes: one app now, not three
+Obsidian/CouchDB and Blinko are both gone. Everything is in **Memos** at
+`notes.sandstorm.chat` (SSO via authentik, Postgres-backed, 21 MB image):
+
+- 63 notes imported from Blinko with **createTime, pinned state and tags
+  preserved** - the timeline goes back to 2026-03-01, not "all today".
+- 1 note from the Obsidian vault.
+- The 7 notes in Blinko's recycle bin were NOT imported. They are trash, and
+  they are still in the archive if that was wrong.
+
+**`~/blinko-archive/` holds the full pg_dump and a JSON export**, outside the
+cluster. Nothing in Kubernetes is the only copy of those notes.
+
+One imperfection: 4 notes were archived in Blinko and came across as normal -
+Memos ignored `state` on create. They are all present, just not archived.
+
 ## 🔥 The node is the problem now, not any app
 `available` memory sits near **1.1 GB of 13.8 GB with swap in use**. During
 this session that caused: repeated apiserver restarts, `kubectl exec`/`logs`
