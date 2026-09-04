@@ -199,7 +199,16 @@ def remux_provision(username, password):
     _, users = call(f"{RX_URL}/Users", headers=H)
     for u in users:
         if u["Name"].strip().lower() == username.lower():
-            return "already existed", f"id {u['Id']}"
+            # REALIGN rather than skip. Submitting the form again with a new
+            # password is how you change it everywhere, and a target that
+            # silently kept the old one would quietly break the promise this
+            # tool exists to make. An admin may set another user's password
+            # with NewPw alone - CurrentPw is only demanded of a non-admin
+            # changing their own (crates/remux-server/src/api/users.rs).
+            call(f"{RX_URL}/Users/{u['Id']}/Password",
+                 data=json.dumps({"NewPw": password}).encode(),
+                 headers=H, method="POST")
+            return "existed, password set", f"id {u['Id']}"
     _, u = call(f"{RX_URL}/Users/New",
                 data=json.dumps({"Name": username, "Password": password}).encode(),
                 headers=H, method="POST")
