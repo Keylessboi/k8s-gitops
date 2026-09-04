@@ -104,3 +104,37 @@ spec:
                 name: octo
                 port:
                   number: 5274
+---
+# Traefik -> Octo, on the POD port.
+#
+# THE TRAP: NetworkPolicy matches the port the packet carries when it reaches
+# the pod, and kube-proxy has already DNAT'd the Service port to the target
+# port by then. Octo's Service is 5274 -> targetPort 8080, so the namespace
+# policy's existing `from kube-system, port 5274` rule never matches the real
+# traffic and Traefik gets a bare "Bad Gateway" with nothing in any log to say
+# a policy dropped it.
+#
+# Scoped with a podSelector rather than widened in the namespace-wide policy on
+# purpose: port 8080 there is qBittorrent's WebUI, which is deliberately
+# unpublished, and opening it to kube-system for Octo's sake would quietly
+# admit Traefik to it as well. Additive NetworkPolicies are OR'd, so this
+# grants exactly one flow and nothing else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: octo-traefik
+  namespace: downloads
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: octo
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 8080
+          protocol: TCP
