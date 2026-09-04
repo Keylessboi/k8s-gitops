@@ -4,30 +4,56 @@ State captured across outages and their recoveries. Newest first.
 
 ---
 
-# 🌅 START HERE 2026-09-05 (afternoon)
+# 🌅 START HERE 2026-09-05 (evening)
 
-## 🧹 0. Four junk Invidious rows I could not remove
-`accounts.sandstorm.chat` is live and tested — but the four throwaway accounts
-I tested it with are still in Invidious, and I cannot delete them.
+## ✅ The Immich migration is DONE and verified
 
-Invidious has no admin password reset, so its own delete flow needs the account
-password, and I deleted the test password file *before* verifying the cleanup
-had stuck. The verification then recreated the accounts, because on Invidious
-**a login attempt for an unknown user creates it** (see `docs/accounts.md`).
-The direct-SQL route is blocked for me.
+262 GB of originals + 71 GB of encoded video copied from the old 3 TB drive
+and **checksum-verified: 0 mismatches** across all five trees. The 2026-08-21
+database was restored into CNPG with **0 errors**.
 
-They are empty, and they are the ONLY rows in that table — you have never made
-an Invidious account. Harmless, but not tidy:
-
-```bash
-kubectl -n databases exec app-databases-1 -c postgres -- psql -U postgres -d invidious -c "
-DROP MATERIALIZED VIEW IF EXISTS subscriptions_d2314497021d49da4e2fe4ba9547d58eb3084121ac092f5cf;
-DROP MATERIALIZED VIEW IF EXISTS subscriptions_1f1a19ce811b2a43ee64aa6216d793dfde97f870e0b6c3e05;
-DROP MATERIALIZED VIEW IF EXISTS subscriptions_fb01e67ea5ddf755e39f8e1b1b7784b4718d0c000ec404d81;
-DROP MATERIALIZED VIEW IF EXISTS subscriptions_798c91b507360f6d4c8c1371566875ae7904d12659c890862;
-DELETE FROM session_ids WHERE email LIKE 'zz%';
-DELETE FROM users WHERE email LIKE 'zz%';"
 ```
+assets   10,367   (was 9,676)      albums     5
+locked       28   (was 0)  <-- your locked folder is back
+hidden        6                     people   273
+archive       1                     faces  4,899
+```
+
+**And the ML backlog turned out not to exist.** The old database already had
+the work done - 10,318 of 10,367 CLIP embeddings, 10,337 OCR-complete assets
+with 47,082 OCR rows, 10,273 face-recognised. Restoring it restored all of
+that. The 9,604-photo backlog I was going to run against a node that cannot
+afford it is simply gone.
+
+### Two small things left on Immich
+1. **72 photos added 2026-09-03/04 are not in the restored database** - they
+   post-date the 2026-08-21 dump. Their FILES are safe and untouched under
+   `upload/4805a5a3-1736-4008-874c-4a273904a55b/`. They need re-importing.
+2. ~49 assets have no embedding and ~94 no face pass. Run Smart Search and
+   Face Detection for **Missing** (not All) from the Jobs page - it is a
+   handful of photos, not a library sweep.
+
+### Rollback points, still valid
+- `~/immich-rollback/immich-pre-restore-20260904.dump` (23 MB, pre-restore DB)
+- `tank/extra@immich-pre-port-20260904` (ZFS snapshot)
+- The old drive is mounted **read-only** at `/mnt/old-personal` and was never
+  written to. `sdc` can be unmounted whenever you like - one less heat source.
+
+## 🔥 The node is the problem now, not any app
+`available` memory sits near **1.1 GB of 13.8 GB with swap in use**. During
+this session that caused: repeated apiserver restarts, `kubectl exec`/`logs`
+502s, the CNPG operator hitting **42 restarts**, Let's Encrypt orders timing
+out mid-issuance, and a stuck Immich rolling update. Ranked fixes, all
+measured, none of them a stack replacement:
+
+| Fix | Frees | Risk |
+|---|---|---|
+| Drop apiserver/etcd histogram buckets (**47% of 182k Prometheus series**) | ~450 MB | none - the rules consuming them already fail with query timeouts |
+| Cap `argocd-applicationset-controller` (currently `resources: {}`) | ~250 MB | none |
+| Authentik: 2 gunicorn/celery workers -> 1 | ~350 MB | slower under concurrency you do not have |
+| **Join the NAS as a tainted `storage` node** | +12 threads, ~3 GB | it is also your storage/backup target - taint it, cap it, move only Immich ML first |
+
+Lidarr's 1.35 GB is the mass search and returns on its own.
 
 ## ⛔ 1. Pelican — still two commands, still blocked for me
 Unchanged from this morning and the only thing on the list I cannot do: the

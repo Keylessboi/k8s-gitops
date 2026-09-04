@@ -857,3 +857,47 @@ the mass search to finish - or for headroom, which is still decision #1.
 **The lesson worth keeping:** "is it connected" and "has it done the work" are
 different questions, and only the second one is answerable from the data. A
 health check would have said Immich ML was fine, and it would have been right.
+
+---
+
+## 2026-09-04 (evening) — the Immich migration, and three things it exposed
+
+### The migration itself
+262 GB of originals plus 71 GB of encoded video, checksum-verified with **0
+mismatches**, and a 2026-08-21 database restored with **0 errors**. Recovered
+691 assets, 28 locked, 6 hidden, 5 albums and 273 people that a previous
+"restore" had silently dropped.
+
+**The finding that mattered most was one I nearly missed.** The restored
+database already contained 10,318 CLIP embeddings, 47,082 OCR rows and 10,273
+face-recognised assets. The "9,604-photo ML backlog" diagnosed earlier that day
+was never a backlog in the library - it was an artefact of the broken restore.
+Running it would have been hours of CLIP inference on a node that cannot afford
+minutes of it, to recompute work that already existed. *Check whether the work
+has already been done before scheduling it again.*
+
+### A 1-second probe timeout is a load test, not a health check
+The new Immich pod logged "Immich Server is listening on 2283" and "Machine
+learning server became healthy", answered `/api/server/ping` with 200 over a
+port-forward, and sat **0/1 for fifteen minutes**. The chart's probes use
+`timeoutSeconds: 1`; under memory pressure three consecutive scheduling delays
+marked it NotReady, so the rolling update never completed - which kept BOTH
+ReplicaSets running, cost another ~500 MB, and worsened the pressure that
+caused it. A probe that fails under load on the app it protects is a feedback
+loop. Now 5s.
+
+### Streaming a 500 MB restore through the apiserver is not a plan
+The first restore attempt piped `zcat | kubectl exec psql` and died partway with
+`websocket: close 1006`. The fix was to copy the 67 MB *compressed* dump into
+the pod (checksum-verified, six attempts before one survived), then run the
+restore **detached inside the pod** with `setsid nohup`. It finished in 70
+seconds with zero errors. On an unstable control plane, move the small file and
+run the big job locally - never stream the big job through the control plane.
+
+### And on the NAS, two stacks nobody was watching
+`immich_postgres` at **8,197 restarts** and `immich_server` at 7,952, pointed at
+a path that stopped being a mountpoint on 2026-08-28 - and dangerous, because
+they aimed at the exact data being migrated. Blinko was worse: its Postgres
+container had been deleted, its healthcheck only fetched `/` so it reported
+"healthy" for weeks, and **71 notes** sat in an orphaned data directory nothing
+read, backed up or alerted on. Both are why ADR-0008 now exists.
