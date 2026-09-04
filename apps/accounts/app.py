@@ -118,20 +118,43 @@ def authentik_provision(username, email, password):
 # the captcha only ever protected a form that already sits behind forward-auth.
 # --------------------------------------------------------------------------
 def invidious_provision(username, password):
-    body = urllib.parse.urlencode({"email": username, "password": password,
-                                   "action": "signin"}).encode()
+    """One endpoint does both, so the RESULT is what we report, not the intent.
+
+    src/invidious/routes/login.cr takes the same POST for login and signup and
+    picks by whether the account exists. So "did it work" cannot be read from
+    the status code - a successful login and a successful registration are
+    indistinguishable, and a rendered error page comes back 200 as well.
+
+    What is unambiguous is the SID cookie: Invidious sets it only on a session
+    it actually created. Present means this username and password work here,
+    whichever branch produced that. Absent with a 401 means the account exists
+    under a DIFFERENT password - reported plainly rather than papered over,
+    because Invidious has no admin password reset and nothing here can fix it.
+    """
+    body = urllib.parse.urlencode({"email": username, "password": password}).encode()
+    req = urllib.request.Request(
+        f"{IV_URL}/login?type=invidious&referer=%2F", data=body, method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"})
     try:
-        status, raw = call(f"{IV_URL}/login?type=invidious&referer=%2F", data=body,
-                           headers={"Content-Type": "application/x-www-form-urlencoded"},
-                           method="POST")
+        with urllib.request.urlopen(req, timeout=45) as r:
+            cookies = r.headers.get_all("Set-Cookie") or []
+            status = r.status
     except urllib.error.HTTPError as e:
-        text = e.read().decode(errors="replace")
-        if "already registered" in text.lower() or e.code == 400:
-            # Invidious answers an existing account from the same endpoint, so
-            # a 400 here usually means "already there" rather than a failure.
-            return "already existed", f"HTTP {e.code}"
-        raise
-    return "created", f"HTTP {status}"
+        cookies = e.headers.get_all("Set-Cookie") or []
+        status = e.code
+        if status == 401 and not any(c.startswith("SID=") for c in cookies):
+            raise RuntimeError(
+                "account already exists with a different password; Invidious has "
+                "no admin password reset, so change it from its own settings page"
+            ) from None
+        if status == 400:
+            raise RuntimeError("Invidious refused: registration disabled?") from None
+
+    if any(c.startswith("SID=") for c in cookies):
+        return "credentials work", f"HTTP {status}, session issued"
+    raise RuntimeError(
+        f"no session cookie returned (HTTP {status}) - the account was not "
+        f"created and the credentials do not log in")
 
 
 # --------------------------------------------------------------------------
