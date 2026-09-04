@@ -4,6 +4,46 @@ State captured across outages and their recoveries. Newest first.
 
 ---
 
+# ✅ 2026-09-04 — aiostreams migrated to Postgres; one manual step left
+
+## Done, verified
+`aiostreams` now runs on the shared CNPG cluster, **25 tables created**, pod
+Running 1/1 with 0 restarts and no database errors. Doppler values were set with
+the CLI (`/usr/local/bin/doppler`, authenticated as `yippieclear`) — it is at
+`/usr/local/bin`, which is not on the agent shell's PATH, which is why an
+earlier `which doppler` missed it.
+
+**The password was rotated** after being read during verification: generated and
+piped straight into `doppler secrets set` via stdin, never assigned to a
+variable, never echoed, never read back. Confirmed only by the base64 length of
+the synced Secret (56 → 64 bytes).
+
+Two ordering facts worth knowing for the next migration of this shape:
+1. **CNPG will not create a role until its password Secret exists**, and it does
+   not retry promptly — it parked on
+   `failed to get password secret aiostreams-db-credentials: not found` even
+   after the Doppler operator created it. An annotation touch on the Cluster
+   forced reconciliation. The `Database` CR then failed with
+   `role "aiostreams" does not exist` until the role appeared.
+2. **A rotated password needs a pod restart.** `secretKeyRef` env is injected at
+   pod creation, so the running pod still held the pre-rotation value.
+
+## ⚠️ ONE MANUAL STEP: reconfigure AIOStreams
+As warned, AIOStreams does **not** migrate its SQLite content. The new database
+has `0 users, 0 settings rows`, so its addon sources, debrid credentials and
+quality filters are gone. Remux's own addon list is intact (6 addons, that
+config lives in remux's database) but the AIOStreams entry now points at a
+configuration that no longer exists.
+
+**Open the AIOStreams UI and reconfigure it**, then re-point Remux's addon at the
+new manifest URL. Those are personal preferences — sources, debrid keys, filters
+— so they are not guessable and were deliberately not invented.
+
+The old `db.sqlite` is still on the PVC. Rollback is `git revert` of the
+DATABASE_URI change plus a pod restart.
+
+---
+
 # ✅ 2026-09-03 (night) — yt-dlp shim built, Octo-Fiesta gone, remux bootstrap automated
 
 ## yt-dlp shim: built and WORKING
