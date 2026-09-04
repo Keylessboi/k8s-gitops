@@ -146,6 +146,12 @@ spec:
         - {port: 8388, protocol: TCP}
         - {port: 8388, protocol: UDP}
         - {port: 8888, protocol: TCP}
+        # 1080: the plain SOCKS5 sidecar in the gateway pod. 8388 is
+        # Shadowsocks - an encrypted protocol a SOCKS5 client cannot speak -
+        # so qBittorrent's [Proxy] Type=5 block pointed at 8388 could never
+        # have worked. Verified: curl --socks5-hostname timed out against 8388
+        # from this namespace and succeeded against 1080 from remux.
+        - {port: 1080, protocol: TCP}
     # Octo proxies everything it does not answer itself through to Navidrome,
     # and calls it again to trigger a rescan once a track lands. The matching
     # ingress rule is in apps/navidrome/networkpolicy.yaml.

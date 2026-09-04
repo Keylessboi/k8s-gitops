@@ -161,7 +161,7 @@ spec:
                 { if (!skip) print }
               ' "$F" > "$F.tmp"
               mv "$F.tmp" "$F"
-              printf '[LegalNotice]\nAccepted=true\n[Proxy]\nEnabled=true\nType=5\nHost=vpn-gateway.vpn.svc.cluster.local\nPort=8388\nUseProxyForPeerConnections=true\nUseProxyForTrackerConnections=true\n[AutoRun]\nEnabled=true\nProgram=/bin/sh /scripts/qbit-upload.sh "%%L" "%%F"\n' >> "$F"
+              printf '[LegalNotice]\nAccepted=true\n[Proxy]\nEnabled=true\nType=5\nHost=vpn-gateway.vpn.svc.cluster.local\nPort=1080\nUseProxyForPeerConnections=true\nUseProxyForTrackerConnections=true\n[AutoRun]\nEnabled=true\nProgram=/bin/sh /scripts/qbit-upload.sh "%%L" "%%F"\n' >> "$F"
               echo "qBittorrent SOCKS5 proxy + AutoRun configured"
           volumeMounts:
             - name: config
