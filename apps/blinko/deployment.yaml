@@ -1,0 +1,125 @@
+---
+# Blinko, migrated off the NAS.
+#
+# WHAT IT WAS. A docker-compose stack on the NAS whose postgres:14 container
+# had been DELETED, leaving the website up and "healthy" - its healthcheck only
+# fetches / - while every request failed with "Please make sure your database
+# server is running at postgres:5432". 71 notes and 48 history rows were sitting
+# in an orphaned data directory at /opt/projects/blinko/blinko/.db that nothing
+# was reading. The file volume it also mounted, /personal/blinko/app, pointed at
+# a path that stopped being a mountpoint on 2026-08-28, so it was empty too.
+#
+# The data was dumped from a COPY of that directory - the original was never
+# started against, never written to - and restored into the CNPG cluster.
+#
+# BOTH SECRETS ARE NEW. The compose carried `POSTGRES_PASSWORD:
+# mysecretpassword` and a hand-typed NEXTAUTH_SECRET, in a world-readable file.
+# Neither was carried across; both are now generated and in Doppler.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blinko
+  namespace: blinko
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: blinko
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: blinko
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        # OnRootMismatch, not Always - the qBittorrent lesson: a recursive
+        # chown across NFS can hang a pod in state D for 20 minutes.
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # kube-router race: an allowed egress can come back REJECTed before the
+        # policy is programmed, which reads as "connection refused". Blinko
+        # opens its database connection immediately and would crash-loop.
+        - name: wait-for-db
+          image: busybox:1.37
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - sh
+            - -c
+            - |
+              for attempt in $(seq 1 30); do
+                if nc -z app-databases-rw.databases.svc.cluster.local 5432; then
+                  echo "postgres reachable after ${attempt} attempt(s)"
+                  exit 0
+                fi
+                echo "attempt ${attempt}/30: waiting for postgres"
+                sleep 2
+              done
+              echo "postgres unreachable after 60s"
+              exit 1
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 200m, memory: 64Mi}
+      containers:
+        - name: blinko
+          image: blinkospace/blinko:1.7.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: NEXTAUTH_URL
+              value: https://blinko.sandstorm.chat
+            - name: NEXT_PUBLIC_BASE_URL
+              value: https://blinko.sandstorm.chat
+            - name: TRUST_PROXY
+              value: "1"
+            - name: NEXTAUTH_SECRET
+              valueFrom:
+                secretKeyRef: {name: blinko, key: nextauth-secret}
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef: {name: blinko, key: db-user}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: blinko, key: db-password}
+            # Dependent env expansion so the password never appears in git.
+            # The Doppler value is alphanumeric by construction: a '@' or '/'
+            # inside it would silently corrupt this DSN.
+            - name: DATABASE_URL
+              value: postgresql://$(DB_USER):$(DB_PASSWORD)@app-databases-rw.databases.svc.cluster.local:5432/blinko
+            - name: TZ
+              value: UTC
+          ports:
+            - name: http
+              containerPort: 1111
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 10
+          # NO livenessProbe on / - that is precisely the check that reported
+          # this app "healthy" on the NAS for weeks while its database was
+          # unreachable. A probe that cannot fail is worse than no probe.
+          resources:
+            requests: {cpu: 25m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          volumeMounts:
+            - name: data
+              mountPath: /app/.blinko
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: blinko-data

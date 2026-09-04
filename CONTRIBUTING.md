@@ -113,6 +113,20 @@ that came back. `scripts/doctor.sh <app>` collects most of it in one command.
 These are decided, not up for re-litigation per app. Each exists because the
 alternative has already cost something here.
 
+### 0. Pods are disposable; state lives in Postgres or on the NAS
+
+**Deleting any pod, at any time, must lose nothing.** Everything that outlives
+a pod goes in exactly one of two places: the shared CNPG cluster (relational)
+or a NAS-backed `nfs-csi` claim (blobs). Never on a node - no `hostPath`, no
+`local` volumes, no `emptyDir` holding anything that matters.
+
+The only exceptions are the components that ARE the storage layer and cannot
+store state inside it: CNPG, MinIO, and the NFS provisioner.
+
+Full reasoning, and the two apps whose data was found stranded outside this
+rule, in [ADR-0008](docs/adr/0008-stateless-pods-external-state.md). Rule 1
+below is the same principle applied to a specific recurring case.
+
 ### 1. Postgres, not SQLite
 
 **If an application can use PostgreSQL, it must.** The shared CNPG cluster is
