@@ -4,6 +4,79 @@ State captured across outages and their recoveries. Newest first.
 
 ---
 
+# 🌅 START HERE 2026-09-05 — three things need you, all small
+
+## ⛔ 1. Pelican: run two commands (I am blocked from this)
+**You log in via OIDC as `akadmin` (id 3).** The `Minecraft` server is owned by
+`travis` (id 1) — a local account you never use — and the Root Admin role went
+to id 1 too. So as the account you actually use you own nothing *and* have no
+admin area. The permission classifier blocks me from granting roles.
+
+```bash
+kubectl -n pelican exec deploy/pelican -c panel -- \
+  php artisan permission:assign-role "Root Admin" 3
+kubectl -n pelican exec deploy/pelican -c panel -- \
+  php artisan permission:cache-reset
+```
+
+**The cache-reset is not optional** — without it the role sits in the database
+and does nothing. That is why my first attempt appeared to fail. Afterwards,
+transfer the `Minecraft` server to `akadmin` in the panel, or delete and
+recreate it as yourself.
+
+Wings itself is fine: active, enabled at boot, panel→wings returns 401
+(alive + enforcing auth). Server is installed and `ready`.
+
+## ⛔ 2. AIOStreams needs configuring, then re-enable its addon
+remux's `/addons` was 502ing because the `manifest_url` had been set to a bare
+host — **no `http://` and no path**. The real URL is
+`http://aiostreams.remux.svc.cluster.local:3000/stremio/{uuid}/{blob}/manifest.json`.
+I wrote the correct one in; `/addons` now returns **200**.
+
+But I had to **disable the AIOStreams addon** to restore the UI, because
+AIOStreams has **zero addons configured** and its meta endpoint errors on every
+refresh. Configure it (public trackers, no debrid) at its UI — uuid
+`10b1c3af-b372-4bff-98e3-3e4bbc138640`, password in Doppler
+`AIOSTREAMS_UI_PASSWORD` — then re-enable the addon in remux. The URL is
+already correct and waiting.
+
+## ⏳ 3. Nothing to do — just running
+Mass-search: worker A ~127h, worker B ~82h remaining. Leave it.
+
+---
+
+## ✅ Done this session (later half)
+- **Octo published + fully wired.** All seven integrations resolve. Last.fm,
+  Lidarr and the Navidrome account were each configured-but-resolving-to-nothing
+  because every reference is `optional: true` — a missing credential became a
+  missing feature with no error. All three fixed.
+- **Symfonium can never work with Octo** — stated in Octo's own README; it
+  searches its local cache so the query never reaches the server. Use
+  Symfonium→Navidrome and Tempus→Octo.
+- **ConvertX: one login instead of two.** It cannot be made passwordless
+  (upstream has no such mode), so forward-auth was dropped and its own account
+  kept — matching Vaultwarden/Nextcloud/Immich. Verified: `/` now redirects to
+  ConvertX's own `/login`, not Authentik.
+- **Navidrome scan 1h → 168h.**
+- **Obsidian is correctly absent from Authentik** — CouchDB endpoint, the
+  LiveSync plugin speaks the replication protocol and cannot follow an OAuth
+  redirect. No change needed.
+
+## 🔭 Known, not urgent
+- remux's 295 MB SQLite is on NFS and logs `slow statement` on most queries.
+  That is why one failing addon could hang the whole endpoint. remux cannot use
+  Postgres — structural, per CONTRIBUTING rule 1.
+- ConvertX's Authentik Application/ProxyProvider are now vestigial. The tile is
+  still a useful launcher; the provider authenticates nothing. Worth removing on
+  the next Authentik tidy.
+- **Node at ~90% memory.** ADR-0007's tripwire is 85%. Starting the Minecraft
+  server pushes against it. Headroom is still decision #1.
+- beets does NOT improve Lidarr's metadata — per ADR-0004 Lidarr writes the
+  tags and beets is read-only. Bad tags are a Lidarr/MusicBrainz match issue,
+  not beets.
+
+---
+
 # ✅ 2026-09-04 — Pelican working; Octo integrations audited
 
 ## 🎮 Pelican: you own a server
