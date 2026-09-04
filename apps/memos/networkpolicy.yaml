@@ -1,0 +1,57 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: memos
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 5230, protocol: TCP}
+        - {port: 8089, protocol: TCP}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    # Postgres on the shared CNPG cluster. Matching ingress rule in
+    # apps/databases/networkpolicy.yaml - both sides, always.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: databases
+      ports:
+        - {port: 5432, protocol: TCP}
+    # OIDC against authentik. Memos performs the token exchange and userinfo
+    # call SERVER-SIDE, so this is not optional the way a browser-only redirect
+    # would be - without it sign-in fails after the user has already approved.
+    #
+    # Two rules for one destination, because authentik is reached two ways:
+    #   9000  the pod port, for the in-cluster Service (kube-proxy DNATs the
+    #         Service's :80 before policy is evaluated, so 80 would match
+    #         nothing);
+    #   8443  Traefik's pod port, because the issuer URL is the PUBLIC
+    #         https://authentik.sandstorm.chat, which CoreDNS resolves to the
+    #         load balancer and k3s then DNATs to Traefik.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: authentik
+      ports:
+        - {port: 9000, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 8443, protocol: TCP}

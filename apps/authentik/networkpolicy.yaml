@@ -48,6 +48,17 @@ spec:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: pangolin
+  # Memos does its OIDC token exchange and userinfo call server-side. Without
+  # this the sign-in fails AFTER the user has already approved in authentik,
+  # which is the most confusing possible place for it to break. Other half in
+  # apps/memos/networkpolicy.yaml.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: memos
+    ports:
+    - port: 9000
+      protocol: TCP
   # The account provisioner creates users and sets their passwords. The other
   # half is in apps/accounts/networkpolicy.yaml.
   - from:

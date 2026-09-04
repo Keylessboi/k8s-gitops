@@ -1,0 +1,30 @@
+---
+# Memos - notes, per-user, OIDC against authentik, Postgres-backed.
+# Replaced apps/obsidian (CouchDB sync endpoint), removed in the same change.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: memos
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  labels:
+    app.kubernetes.io/name: memos
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: memos
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/component: notes
+      homelab/tier: apps
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - networkpolicy.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml

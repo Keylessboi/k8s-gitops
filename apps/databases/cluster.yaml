@@ -120,6 +120,14 @@ spec:
         login: true
         passwordSecret:
           name: invidious-db-credentials
+      # Memos (notes). Postgres rather than its default SQLite under
+      # CONTRIBUTING rule 1 - it ships a full store/db/postgres driver, so
+      # there is no reason to add a fifth SQLite file to this cluster.
+      - name: memos
+        ensure: present
+        login: true
+        passwordSecret:
+          name: memos-db-credentials
   # Backups to MinIO on the NAS.
   #
   # This block previously authenticated with a `minio-creds` secret whose

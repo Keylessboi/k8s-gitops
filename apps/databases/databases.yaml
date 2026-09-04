@@ -204,3 +204,15 @@ spec:
   owner: aiostreams
   cluster:
     name: app-databases
+---
+# Memos, the notes app that replaced the Obsidian CouchDB endpoint.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: memos
+  namespace: databases
+spec:
+  name: memos
+  owner: memos
+  cluster:
+    name: app-databases

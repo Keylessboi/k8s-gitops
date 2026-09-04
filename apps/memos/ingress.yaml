@@ -1,0 +1,37 @@
+---
+# notes.sandstorm.chat.
+#
+# forward-auth IS present, but unlike Navidrome or Invidious it is not the only
+# gate: Memos does its own OIDC against authentik and keeps real per-user
+# accounts. Two layers, and they answer different questions - the middleware
+# decides who reaches the app, Memos decides whose notes they see.
+#
+# The /auth/callback path still passes through the same middleware; the
+# redirect back from authentik carries an authentik session cookie, so
+# forward-auth admits it without a second prompt.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: memos
+  namespace: memos
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - notes.sandstorm.chat
+      secretName: memos-tls
+  rules:
+    - host: notes.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: memos
+                port:
+                  number: 80
