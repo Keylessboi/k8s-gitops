@@ -111,4 +111,9 @@ spec:
         # rather than through 8888. Remux's built-in torrent streaming needs the
         # same road, and without this rule its only egress is HTTP - so it can
         # fetch an addon's stream list and then reach none of the peers on it.
+        # 8388 is Shadowsocks and unusable by a plain SOCKS5 client; kept
+        # only so this rule reads as the full set of gateway ports.
         - {port: 8388, protocol: TCP}
+        # 1080: the plain SOCKS5 sidecar. This is the port the torrent engine
+        # actually needs.
+        - {port: 1080, protocol: TCP}

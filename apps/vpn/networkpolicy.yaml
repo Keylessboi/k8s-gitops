@@ -33,6 +33,9 @@ spec:
       ports:
         - {port: 8888, protocol: TCP}
         - {port: 8388, protocol: TCP}
+        # Plain SOCKS5 (see deployment.yaml): the only port here that can
+        # carry BitTorrent peer and tracker traffic.
+        - {port: 1080, protocol: TCP}
         - {port: 8388, protocol: UDP}
   egress:
     # DNS.

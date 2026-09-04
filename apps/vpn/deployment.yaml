@@ -166,6 +166,45 @@ spec:
             # must be passed in or gluetun fails with "operation not permitted".
             - name: tun
               mountPath: /dev/net/tun
+        # ---------------------------------------------------------------
+        # Plain SOCKS5, in the SAME POD as gluetun.
+        #
+        # WHY HERE AND NOT A SECOND VPN CONTAINER. Containers in a pod share
+        # one network namespace, so this egresses through gluetun's WireGuard
+        # tunnel automatically - exactly how the old qBittorrent+gluetun
+        # sidecar worked. One tunnel, one AirVPN session, ~2 MB. Giving remux
+        # its own gluetun would have meant a second tunnel and a second
+        # session to do a job this pod already does, which is the per-app
+        # duplication CONTRIBUTING rule 4 exists to stop.
+        #
+        # WHY IT IS NEEDED AT ALL. Neither existing port can carry BitTorrent:
+        #   8888 is an HTTP proxy - CONNECT cannot carry peer or DHT traffic.
+        #   8388 is SHADOWSOCKS, an encrypted protocol, NOT plain SOCKS5. A
+        #   SOCKS5 client cannot speak it; verified by `curl
+        #   --socks5-hostname` timing out against 8388 from both remux and
+        #   qBittorrent. That also means qbittorrent.yaml's
+        #   `[Proxy] Type=5 Port=8388` with no credentials is very likely
+        #   inert and should be repointed here.
+        #
+        # No authentication: this listens on a ClusterIP reachable only from
+        # namespaces the NetworkPolicy names, and a credential would have to
+        # live in every consumer's config for no threat this faces.
+        - name: socks5
+          # Pinned by digest. A 2 MB static Go binary; entrypoint /socks5.
+          image: serjs/go-socks5-proxy:latest@sha256:0af522996f402c03ecd985a87997158eabeb28935365e3a384df37eafcf740ea
+          env:
+            - name: PROXY_PORT
+              value: "1080"
+          ports:
+            - name: socks5
+              containerPort: 1080
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 300m
+              memory: 64Mi
       volumes:
         - name: tun
           hostPath:
@@ -191,6 +230,12 @@ spec:
     - name: shadowsocks
       port: 8388
       targetPort: shadowsocks
+      protocol: TCP
+    # Plain SOCKS5 for anything that is not HTTP - specifically BitTorrent
+    # peer and tracker connections, which neither 8888 nor 8388 can carry.
+    - name: socks5
+      port: 1080
+      targetPort: socks5
       protocol: TCP
     # UDP for Shadowsocks clients that tunnel UDP (DNS over SOCKS5).
     - name: shadowsocks-udp

@@ -103,13 +103,14 @@ spec:
             # a direct connection returns rc=7), so without this the torrent
             # engine can list streams and reach no peers.
             #
-            # Same road qBittorrent takes - it sets Type=5, Port=8388 and
-            # UseProxyForPeerConnections=true - so this is the proven pattern
-            # here, not a new one.
+            # 1080 is the plain SOCKS5 sidecar in the vpn-gateway pod, NOT
+            # 8388. 8388 is Shadowsocks - an encrypted protocol a SOCKS5
+            # client cannot speak - which is why the first attempt at this
+            # timed out from remux and from qBittorrent alike.
             - name: ALL_PROXY
-              value: socks5://vpn-gateway.vpn.svc.cluster.local:8388
+              value: socks5://vpn-gateway.vpn.svc.cluster.local:1080
             - name: all_proxy
-              value: socks5://vpn-gateway.vpn.svc.cluster.local:8388
+              value: socks5://vpn-gateway.vpn.svc.cluster.local:1080
             - name: NO_PROXY
               # `.svc.cluster.local` as a suffix, not just the one hostname.
               # Naming a single host meant any OTHER in-cluster address went
