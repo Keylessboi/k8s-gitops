@@ -32,6 +32,9 @@ resources:
   - deployment.yaml
   # PostSync: seeds the admin account from the Doppler secret, idempotently.
   - admin-job.yaml
+  # An authentik account becomes a remux account. remux has no SSO of any kind
+  # - see the header of the file for why that means a CronJob.
+  - user-sync-cronjob.yaml
   - aiostreams-deployment.yaml
   - aiostreams-service.yaml
   - ingress.yaml

@@ -137,10 +137,10 @@ spec:
             # not an attack surface. Everyone authenticates through Authentik,
             # and the existing accounts are already associated.
             #
-            # Trade-off: a brand-new user cannot self-register while
-            # SIGNUPS_ALLOWED is false - upstream treats SSO login as a signup
-            # for someone with no prior account. Adding one later means briefly
-            # restoring this token, or flipping SIGNUPS_ALLOWED, via a commit.
+            # That earlier claim - "a brand-new user cannot self-register
+            # while SIGNUPS_ALLOWED is false, because upstream treats SSO login
+            # as a signup" - was WRONG for this fork, and is corrected below at
+            # SSO_SIGNUPS_ALLOWED. The two gates are entirely separate.
             - name: DISABLE_ADMIN_TOKEN
               value: "false"
             # SSO via Authentik. These are only honoured by the fork above;
@@ -150,6 +150,43 @@ spec:
             # so an Authentik outage cannot lock you out of your own vault.
             # That is the no-lockout rule the plan calls out, and it matters
             # more here than anywhere else in the cluster.
+            # NEW ACCOUNTS COME IN THROUGH AUTHENTIK, AND ONLY THROUGH IT.
+            #
+            # OIDCWarden gates SSO signup on its own setting, not the one
+            # above. From src/config.rs:
+            #
+            #   pub fn is_sso_signup_allowed(&self, email: &str) -> bool {
+            #       if self.signups_domains_whitelist().is_empty() {
+            #           self.sso_signups_allowed()      // <- NOT signups_allowed
+            #
+            # So SIGNUPS_ALLOWED=false closes the public registration form
+            # while SSO_SIGNUPS_ALLOWED=true lets anyone Authentik vouches for
+            # get a vault on first login. Default is already true; set
+            # explicitly because the whole access model for this app turns on
+            # it, and because a default that changes upstream would close
+            # signups silently.
+            #
+            # DO NOT set SIGNUPS_DOMAINS_WHITELIST as a "safety net": per the
+            # code above, a non-empty whitelist OVERRIDES both flags, which
+            # would REOPEN the public form to that domain. Empty is stricter.
+            - name: SSO_SIGNUPS_ALLOWED
+              value: "true"
+            # AND THE THING THAT ACTUALLY BLOCKED IT. OIDCWarden refuses to
+            # create an account when the provider reports the address as
+            # unverified:
+            #
+            #   Some(false) => err!("You need to verify your email with your
+            #                        provider before you can log in")
+            #
+            # authentik's BUILT-IN email scope mapping hardcodes
+            # "email_verified": False. So signup would have failed on that
+            # line regardless of any setting here.
+            #
+            # Fixed in authentik, not here: a separate unmanaged scope mapping
+            # ("OAuth Mapping: email (verified)") is attached to the
+            # Vaultwarden provider in place of the built-in one. Separate
+            # rather than edited, because the built-in is blueprint-managed and
+            # an upgrade would silently revert it. See docs/accounts.md.
             - name: SSO_ENABLED
               value: "true"
             - name: SSO_ONLY

@@ -48,6 +48,16 @@ spec:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: pangolin
+  # remux-user-sync reads /api/v3/core/users to mirror authentik's accounts
+  # into remux, which has no SSO of its own. The other half of this flow is in
+  # apps/remux/networkpolicy.yaml; both sides, always.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: remux
+    ports:
+    - port: 9000
+      protocol: TCP
   egress:
   # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
   # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so

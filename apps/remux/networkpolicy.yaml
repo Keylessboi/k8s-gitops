@@ -55,6 +55,30 @@ spec:
       ports:
         - {port: 3000, protocol: TCP}
   egress:
+    # remux-user-sync reads authentik's user list. Declared on both sides, as
+    # the note below insists: the matching ingress rule is in
+    # apps/authentik/networkpolicy.yaml. Missing this half reads as a bare
+    # "connection refused" that says nothing about policy.
+    #
+    # 9000, NOT 80. The authentik-server Service is 80 -> targetPort 9000, and
+    # kube-proxy DNATs before NetworkPolicy is evaluated, so the port this rule
+    # must name is the POD's. Writing the Service port here is the mistake that
+    # produced octo's "Bad Gateway" last session and is worth a line every time.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: authentik
+      ports:
+        - port: 9000
+          protocol: TCP
+    # The ntfy relay on the Proxmox host - remux-user-sync reports the accounts
+    # it creates. See docs/ntfy.md.
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.153/32
+      ports:
+        - port: 9098
+          protocol: TCP
     # AIOStreams' Postgres, on the shared CNPG cluster. Declared here AND as a
     # matching ingress rule in apps/databases/networkpolicy.yaml - a
     # cross-namespace flow needs both sides, and this repo has been bitten four

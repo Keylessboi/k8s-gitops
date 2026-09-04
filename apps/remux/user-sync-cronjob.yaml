@@ -1,0 +1,204 @@
+---
+# An authentik account becomes a remux account.
+#
+# WHY THIS EXISTS AND NOT A SETTING. remux has no SSO of any kind. Its auth
+# code reads exactly two headers - the Jellyfin `X-Emby-Authorization` and
+# `X-Forwarded-For` - and there is no OIDC anywhere in the repository. So
+# unlike Navidrome, which creates the user straight from the forward-auth
+# username header, remux sees an authenticated visitor arrive and shows them a
+# login form for an account nobody made.
+#
+# WHY AN EMPTY PASSWORD IS NOT A HOLE HERE. `POST /Users/New` defaults the
+# password to "" (crates/remux-server/src/api/users.rs), and that is what this
+# uses. remux is not the security boundary: apps/remux/ingress.yaml puts
+# authentik-forward-auth on `/` with no path carve-outs, so nothing reaches
+# remux at all without an authentik session. The remux account exists to hold
+# per-user state - watch history, favourites, trackers - not to keep anyone
+# out.
+#
+#   ⚠ If forward-auth is ever removed from that ingress, this CronJob must be
+#   removed or given real passwords IN THE SAME COMMIT. Otherwise every
+#   account on the server becomes password-less to the internet.
+#
+# It only ever ADDS. Removing someone from authentik does not delete their
+# remux account, on purpose: that would destroy watch history on what may be a
+# temporary change, and deletion is cheap to do by hand and impossible to undo.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: remux-user-sync
+  namespace: remux
+spec:
+  # Hourly. A new account is not urgent - and the person who just created it in
+  # authentik can trigger the job by hand if they want it now:
+  #   kubectl -n remux create job --from=cronjob/remux-user-sync sync-now
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            # The kube-router race again: a pod can start before its
+            # NetworkPolicy is programmed and an allowed egress comes back
+            # REJECTed, which reads as "connection refused" rather than a
+            # timeout. Both endpoints are in other namespaces.
+            - name: wait-for-deps
+              image: busybox:1.37
+              command:
+                - sh
+                - -c
+                - |
+                  for attempt in $(seq 1 30); do
+                    if nc -z remux.remux.svc.cluster.local 3000 \
+                       && nc -z authentik-server.authentik.svc.cluster.local 80; then
+                      echo "remux and authentik reachable after ${attempt} attempt(s)"
+                      exit 0
+                    fi
+                    echo "attempt ${attempt}/30: waiting for remux and authentik"
+                    sleep 2
+                  done
+                  echo "dependencies unreachable after 60s"
+                  exit 1
+              resources:
+                requests: {cpu: 10m, memory: 16Mi}
+                limits: {cpu: 200m, memory: 64Mi}
+          containers:
+            - name: sync
+              image: python:3.12-alpine3.20
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                - name: REMUX_URL
+                  value: http://remux.remux.svc.cluster.local:3000
+                - name: REMUX_ADMIN_USER
+                  value: admin
+                - name: REMUX_ADMIN_PASSWORD
+                  valueFrom:
+                    secretKeyRef: {name: remux, key: admin-password}
+                - name: AUTHENTIK_URL
+                  value: http://authentik-server.authentik.svc.cluster.local
+                - name: AUTHENTIK_TOKEN
+                  valueFrom:
+                    secretKeyRef: {name: remux, key: authentik-api-token}
+                # Service accounts and the outposts are not people. authentik
+                # marks them type=internal_service_account / service_account.
+                - name: SKIP_USER_TYPES
+                  value: "internal_service_account,service_account"
+                # Belt and braces against a runaway: a normal run creates one
+                # or two accounts. If it ever wants to create twenty, something
+                # is wrong with the query, and stopping is the right answer.
+                - name: MAX_CREATES_PER_RUN
+                  value: "5"
+                - name: NTFY_URL
+                  value: http://192.168.1.153:9098/homelab-alerts
+              command: ["python3", "-c"]
+              args:
+                - |
+                  import json, os, sys, urllib.error, urllib.request
+
+                  RX   = os.environ["REMUX_URL"].rstrip("/")
+                  RXU  = os.environ["REMUX_ADMIN_USER"]
+                  RXP  = os.environ["REMUX_ADMIN_PASSWORD"]
+                  AK   = os.environ["AUTHENTIK_URL"].rstrip("/")
+                  AKT  = os.environ["AUTHENTIK_TOKEN"]
+                  SKIP = {t.strip() for t in os.environ.get("SKIP_USER_TYPES", "").split(",") if t.strip()}
+                  MAX  = int(os.environ.get("MAX_CREATES_PER_RUN", "5"))
+                  NTFY = os.environ.get("NTFY_URL", "")
+
+                  def call(url, data=None, headers=None, method=None, timeout=60):
+                      req = urllib.request.Request(
+                          url, data=data, headers=headers or {}, method=method)
+                      with urllib.request.urlopen(req, timeout=timeout) as r:
+                          raw = r.read()
+                      return json.loads(raw) if raw else None
+
+                  def notify(title, message):
+                      if not NTFY:
+                          return
+                      try:
+                          urllib.request.urlopen(urllib.request.Request(
+                              NTFY, data=message.encode(), method="POST",
+                              headers={"Title": title, "Tags": "bust_in_silhouette",
+                                       "Priority": "low"}), timeout=15).read()
+                      except (urllib.error.URLError, OSError) as e:
+                          print(f"warning: could not notify: {e}", file=sys.stderr)
+
+                  # --- who exists in authentik ---
+                  people, page = [], 1
+                  while True:
+                      d = call(f"{AK}/api/v3/core/users/?page_size=100&page={page}",
+                               headers={"Authorization": f"Bearer {AKT}"})
+                      people += d.get("results", [])
+                      if not (d.get("pagination") or {}).get("next"):
+                          break
+                      page += 1
+                  wanted = {
+                      u["username"].strip() for u in people
+                      if u.get("is_active") and u.get("type") not in SKIP
+                      and u.get("username", "").strip()
+                  }
+                  print(f"authentik accounts that are people: {len(wanted)}")
+
+                  # --- who exists in remux ---
+                  auth = call(f"{RX}/Users/AuthenticateByName",
+                              data=json.dumps({"Username": RXU, "Pw": RXP}).encode(),
+                              headers={"Content-Type": "application/json",
+                                       "X-Emby-Authorization": 'MediaBrowser Client="remux-user-sync",'
+                                                               ' Device="cronjob", DeviceId="remux-user-sync",'
+                                                               ' Version="1.0"'},
+                              method="POST")
+                  token = auth["AccessToken"]
+                  H = {"X-Emby-Token": token, "Content-Type": "application/json"}
+                  have = {u["Name"].strip() for u in call(f"{RX}/Users", headers=H)}
+                  print(f"remux accounts: {len(have)}")
+
+                  missing = sorted(wanted - have)
+                  print(f"to create: {len(missing)}")
+                  if not missing:
+                      raise SystemExit(0)
+                  if len(missing) > MAX:
+                      # Refusing is the safe direction: creating accounts is a
+                      # write nobody asked for if the query went wrong.
+                      print(f"REFUSING: {len(missing)} accounts to create exceeds "
+                            f"MAX_CREATES_PER_RUN={MAX}. Names: {missing}", file=sys.stderr)
+                      raise SystemExit(1)
+
+                  created = []
+                  for name in missing:
+                      try:
+                          # Password omitted entirely - remux defaults it to "".
+                          # See the header for why that is safe here.
+                          u = call(f"{RX}/Users/New",
+                                   data=json.dumps({"Name": name}).encode(),
+                                   headers=H, method="POST")
+                          created.append(u.get("Name", name))
+                          print(f"created remux account {name!r} (id {u.get('Id')})")
+                      except urllib.error.HTTPError as e:
+                          print(f"create failed for {name!r}: {e.code} "
+                                f"{e.read().decode()[:200]}", file=sys.stderr)
+
+                  if created:
+                      notify("New remux accounts",
+                             "Created on remux to match authentik: "
+                             + ", ".join(created)
+                             + "\n\nThey have no password - remux is reached only "
+                               "through authentik, which already did the checking.")
+                  print(f"done: {len(created)} created")
+              resources:
+                requests: {cpu: 50m, memory: 96Mi}
+                limits: {cpu: 500m, memory: 256Mi}
