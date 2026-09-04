@@ -4,6 +4,77 @@ State captured across outages and their recoveries. Newest first.
 
 ---
 
+# ✅ 2026-09-04 (late) — Octo published, loki canary fixed, orphans swept
+
+## 🎵 Octo is live — this is the "friend recommends something" answer
+`https://octo.sandstorm.chat` — **point Symfonium here, not at Navidrome.** Octo
+sits in FRONT of Navidrome: it answers `/rest` itself for search that reaches
+past the library, Last.fm radio and YouTube previews, then "heart to keep"
+acquires a permanent FLAC via Soulseek or hands the album to Lidarr, and proxies
+everything else through. **One source covers owned + not-yet-owned.**
+
+Use your Navidrome credentials. Verified from outside: no creds → Subsonic
+error 10, wrong creds → 40, and a spoofed `X-authentik-username: admin` header
+→ **still 10**, so the strip-auth middleware holds.
+
+Two bugs found while publishing it:
+- **The cert-manager issuer annotation was missing**, so no Certificate existed.
+  It goes on the `octo` ingress only — two ingresses asking for one secret race.
+- **`Bad Gateway` with nothing in any log.** The namespace policy admitted
+  kube-system on 5274, but Octo's Service is `5274 → targetPort 8080` and
+  **kube-proxy DNATs before NetworkPolicy is evaluated**, so the packet arrives
+  on 8080 and the 5274 rule never matched. Fixed with a podSelector-scoped
+  policy, deliberately not by widening the namespace rule — 8080 there is
+  qBittorrent's WebUI, which stays unpublished.
+
+## 🔍 The loki canary had never worked
+It queried `loki-gateway:80`, which runs `replicas: 0` in SingleBinary mode, so
+every query returned `connection refused` for its whole life. The canary is the
+one component that proves the log path end to end. Now pointed at
+`loki.monitoring.svc:3100` (**host:port, no scheme** — the chart prepends
+`http://` and URL-encodes, which produced `http://http:%2F%2F…`).
+**Verified healthy: 0 errors in 60s, `loki_canary_entries_total` 76 → 166.**
+The gateway is now `enabled: false`, not merely scaled to 0.
+
+## 🧹 Orphan sweep
+Three PVCs referenced by **zero** workloads removed — `navidrome-music`,
+`lidarr-music`, `music-library`. Everything mounts the shared `media-data`
+claim (hardlinks cannot cross filesystems). All `reclaim=Retain`, so no data
+touched. `beets-inbox` and `book-ingest` are equally unused but live in
+multi-PVC files whose comments are worth more than two idle claims — flagged.
+
+## 🎬 Transcoding: OFF, at the owner's instruction
+The server cannot afford it (no hardware acceleration, node ~90% memory).
+Direct play is fine; the earlier browser crash was the browser's own doing.
+`EnableVideoTranscoding=False`, remuxing and audio transcode stay on.
+**The AIOStreams filters are the real defence** — nothing hard is even offered.
+
+Filters widened for old devices beyond the old Torrentio set: `10bit` (Hi10P
+has **no** consumer hardware decoder anywhere), `VC-1`, and lossless/object
+audio (Atmos, DTS family, TrueHD, FLAC). Kept AAC/DD/DD+ and AVC.
+
+## 🎮 Pelican — diagnosed, NOT yet set up
+"You don't own any servers" because **Wings is not installed**. The panel is
+just the UI; Wings is the daemon that runs the containers. Docker IS already
+present on CT 200; the `wings` binary is not, and the service is inactive.
+
+ADR-0006 already decided the shape: Wings as a systemd service on CT 200 with
+its own docker-ce, RAM governor 6144 MiB, disk 10240 MiB, private CA signing
+its cert, node FQDN `192.168.1.172`.
+
+**⚠️ The NAS request conflicts with a documented decision.**
+`docs/pterodactyl-wings.md` says server disk must be "on something that
+tolerates many small writes — game servers are chatty. **Not the NFS media
+pool.**" Minecraft writes chunks and region files constantly; on NFS that is
+lag spikes and timeouts, and it is a well-known bad pattern.
+
+The resolution that satisfies both: **active world data on local disk,
+backups to the NAS.** Wings' own backup mechanism already targets
+`s3://pterodactyl-backups` on the NAS MinIO (documented in
+pterodactyl-wings.md). Fast where it must be, durable where it matters.
+
+---
+
 # ✅ 2026-09-04 — aiostreams migrated to Postgres; one manual step left
 
 ## Done, verified
