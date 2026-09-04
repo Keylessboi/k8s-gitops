@@ -127,9 +127,9 @@ spec:
         protocol: TCP
       - port: 8000
         protocol: TCP
-    # The shared VPN gateway. qBittorrent's SOCKS5 tracker/peer traffic,
-    # slskd's Soulseek connections, and seedboxapi's MAM API calls go through
-    # Shadowsocks (8388); Octo's Last.fm and metadata calls go through
+    # The shared VPN gateway. qBittorrent's tracker/peer traffic, slskd's
+    # Soulseek connections and seedboxapi's MAM API calls go through the plain
+    # SOCKS5 sidecar (1080); Octo's Last.fm and metadata calls go through
     # gluetun's HTTP proxy (8888), because .NET's HttpClient speaks HTTP
     # CONNECT natively and has no SOCKS support worth relying on. This is the
     # only path to the public internet - the killswitch.
@@ -152,6 +152,21 @@ spec:
         # have worked. Verified: curl --socks5-hostname timed out against 8388
         # from this namespace and succeeded against 1080 from remux.
         - {port: 1080, protocol: TCP}
+    # The ntfy relay on the Proxmox host. Octo publishes finished and failed
+    # downloads there; the relay forwards to ntfy on travisbackupserver over
+    # Tailscale, which this cluster cannot reach directly (separate L2 segment
+    # behind the room's WiFi router - see docs/ntfy.md).
+    #
+    # /32, not the /24: this is the one host outside the cluster that anything
+    # in this namespace may talk to, and the namespace is the one holding the
+    # torrent client. Widening it would be the easiest accidental hole in the
+    # killswitch.
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.153/32
+      ports:
+        - port: 9098
+          protocol: TCP
     # Octo proxies everything it does not answer itself through to Navidrome,
     # and calls it again to trigger a rescan once a track lands. The matching
     # ingress rule is in apps/navidrome/networkpolicy.yaml.

@@ -38,5 +38,9 @@ resources:
   - octo-ingress.yaml
   # The yt-dlp shim Octo's YouTube source needs; locally built image.
   - octo-yt-dlp-shim.yaml
+  # Hearting a track adds the whole artist to Lidarr. Octo has no artist-level
+  # setting of any kind, so this derives the behaviour from Navidrome's starred
+  # list and Lidarr's library - see the header of the file.
+  - octo-artist-on-heart.yaml
   - ingress.yaml
   - authentik-outpost.yaml

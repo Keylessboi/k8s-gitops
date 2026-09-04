@@ -108,6 +108,23 @@ spec:
                   timeout:
                     connect: 10000
                     inactivity: 150000
+                  # The Soulseek connection MUST go through the gateway's plain
+                  # SOCKS5 sidecar. This lives here rather than in env vars for
+                  # the same reason the API key above does: slskd silently
+                  # ignores the environment mapping for these nested paths.
+                  # SLSKD_SLSK_PROXY* was set for weeks and did nothing - the
+                  # log said "Failed to connect to 208.76.170.59:2271:
+                  # Connection refused", which is the DESTINATION address, so
+                  # slskd was dialling it directly and the namespace policy was
+                  # rejecting it. kube-router REJECTs rather than drops, which
+                  # is why a policy denial reads as "connection refused".
+                  #
+                  # 1080, not 8388: 8388 is Shadowsocks, which does not answer
+                  # a SOCKS5 greeting.
+                  proxy:
+                    enabled: true
+                    address: vpn-gateway.vpn.svc.cluster.local
+                    port: 1080
               EOF
               chown 1000:1000 /app/slskd.yml
               chmod 600 /app/slskd.yml
@@ -226,26 +243,10 @@ spec:
               value: "false"
             - name: TZ
               value: UTC
-            # Route Soulseek connections through the shared VPN gateway's
-            # PLAIN SOCKS5 sidecar (:1080), not Shadowsocks (:8388).
-            #
-            # slskd's slsk.proxy is a SOCKS5 client. Shadowsocks is a
-            # different, encrypted protocol that does not answer a SOCKS5
-            # greeting, so this pointed at 8388 could never connect - and did
-            # not, for as long as it has existed: the log showed 124
-            # consecutive "Failed to connect to 208.76.170.59:2271:
-            # Connection refused" reconnects, and every Octo search returned
-            # "The server connection must be connected and logged in to
-            # perform a search (currently: Disconnected)".
-            #
-            # Same root cause as qBittorrent's [Proxy] block above. Both
-            # NetworkPolicies already admitted 1080.
-            - name: SLSKD_SLSK_PROXY
-              value: "true"
-            - name: SLSKD_SLSK_PROXY_ADDRESS
-              value: vpn-gateway.vpn.svc.cluster.local
-            - name: SLSKD_SLSK_PROXY_PORT
-              value: "1080"
+            # NOTE: the Soulseek proxy is configured in slskd.yml above, not
+            # here. SLSKD_SLSK_PROXY / _ADDRESS / _PORT used to be set at this
+            # point and were silently ignored - see the comment on the proxy
+            # block in the rendered config.
           ports:
             - name: slskd
               containerPort: 5030

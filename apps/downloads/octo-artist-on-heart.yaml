@@ -1,0 +1,264 @@
+---
+# Heart a track -> Lidarr gets the whole artist.
+#
+# WHY THIS IS A CRONJOB AND NOT A SETTING. Octo has no artist-level anything.
+# Its full configuration surface is Subsonic.DownloadOnStar,
+# DownloadAlbumOnStar and the HeartDownloadSources priority list - track and
+# album, nothing wider - and its README says so directly: "The system does not
+# automatically download entire artist discographies - only the specific track
+# or album that was starred." Both the shipped appsettings.json and the live
+# /api/admin/settings response were read to confirm there is no hidden key.
+#
+# So the behaviour is built from the two APIs that do exist: Navidrome knows
+# what is starred, Lidarr knows what the library already has, and the gap
+# between them is the work.
+#
+# IDEMPOTENCE COMES FROM LIDARR, NOT FROM STORED STATE. An artist that has
+# been added is in Lidarr, so the next run skips it. There is no cursor to
+# lose, no file to corrupt, and un-hearting then re-hearting does not re-add
+# anything. That is worth more here than efficiency: this runs on a node that
+# has been sitting near its memory tripwire for days.
+#
+# RATE LIMIT, AND WHY IT IS 1. Adding an artist with monitor=all and a search
+# queues every album that artist ever released. On a library where a mass
+# search already has ~100 hours of work outstanding, a session of enthusiastic
+# hearting could queue thousands of searches in one pass. One artist per run
+# at four runs an hour keeps a burst of hearts as a trickle Lidarr can absorb,
+# and hearting is a deliberate human act - nobody hearts faster than that for
+# long.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: octo-artist-on-heart
+  namespace: downloads
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  # A run that overlaps a Navidrome restart is not interesting. Anything it
+  # misses, the next run finds - the work is derived from current state, never
+  # from a delta.
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            # The kube-router race, for the fifth time in this repo: a pod can
+            # be scheduled and start work before its NetworkPolicy is
+            # programmed, and an allowed egress comes back REJECTed - which
+            # reads as "connection refused", not as a timeout. Both services
+            # this needs are in other namespaces, so both are exposed to it.
+            - name: wait-for-deps
+              image: busybox:1.37
+              command:
+                - sh
+                - -c
+                - |
+                  for attempt in $(seq 1 30); do
+                    if nc -z navidrome.navidrome.svc.cluster.local 4533 \
+                       && nc -z lidarr.lidarr.svc.cluster.local 8686; then
+                      echo "navidrome and lidarr reachable after ${attempt} attempt(s)"
+                      exit 0
+                    fi
+                    echo "attempt ${attempt}/30: waiting for navidrome and lidarr"
+                    sleep 2
+                  done
+                  # Exit non-zero: unlike the backup checks, there is nothing
+                  # useful to report from a run that cannot see either side.
+                  # Failing here is quieter and more honest than a run that
+                  # concludes "no new artists" because it could not ask.
+                  echo "dependencies unreachable after 60s"
+                  exit 1
+              resources:
+                requests: {cpu: 10m, memory: 16Mi}
+                limits: {cpu: 200m, memory: 64Mi}
+          containers:
+            - name: sync
+              image: python:3.12-alpine3.20
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                - name: NAVIDROME_URL
+                  value: http://navidrome.navidrome.svc.cluster.local:4533
+                - name: NAVIDROME_USER
+                  valueFrom:
+                    secretKeyRef: {name: octo, key: navidrome-admin-username}
+                - name: NAVIDROME_PASS
+                  valueFrom:
+                    secretKeyRef: {name: octo, key: navidrome-admin-password}
+                - name: LIDARR_URL
+                  value: http://lidarr.lidarr.svc.cluster.local:8686
+                - name: LIDARR_API_KEY
+                  valueFrom:
+                    secretKeyRef: {name: lidarr-api, key: api-key}
+                # 1 and 1 - the ids all 907 existing artists use. Hearted
+                # artists land under the same rules as the rest of the library.
+                - name: QUALITY_PROFILE_ID
+                  value: "1"
+                - name: METADATA_PROFILE_ID
+                  value: "1"
+                - name: ROOT_FOLDER
+                  value: /data/media/music
+                - name: MAX_ADDS_PER_RUN
+                  value: "1"
+                # Set to "false" to monitor the discography without queueing
+                # searches for it - useful if the search backlog ever needs to
+                # drain. The artist is still added and still monitored, so
+                # Lidarr picks new releases up on its own schedule.
+                - name: SEARCH_ON_ADD
+                  value: "true"
+                - name: NTFY_URL
+                  value: http://192.168.1.153:9098/homelab-media
+              command: ["python3", "-c"]
+              args:
+                - |
+                  import hashlib, json, os, random, string, sys, urllib.error
+                  import urllib.parse, urllib.request
+
+                  ND   = os.environ["NAVIDROME_URL"].rstrip("/")
+                  NDU  = os.environ["NAVIDROME_USER"]
+                  NDP  = os.environ["NAVIDROME_PASS"]
+                  LR   = os.environ["LIDARR_URL"].rstrip("/")
+                  LKEY = os.environ["LIDARR_API_KEY"]
+                  MAX  = int(os.environ.get("MAX_ADDS_PER_RUN", "1"))
+                  SEARCH = os.environ.get("SEARCH_ON_ADD", "true").lower() == "true"
+                  NTFY = os.environ.get("NTFY_URL", "")
+
+                  def get(url, headers=None, timeout=60):
+                      req = urllib.request.Request(url, headers=headers or {})
+                      with urllib.request.urlopen(req, timeout=timeout) as r:
+                          return json.loads(r.read().decode())
+
+                  def subsonic(view, **params):
+                      # Subsonic salted-token auth. The password never crosses
+                      # the wire, which matters because this URL would
+                      # otherwise carry the Navidrome admin password in a query
+                      # string on every run.
+                      salt = "".join(random.choices(string.ascii_lowercase + string.digits, k=12))
+                      token = hashlib.md5((NDP + salt).encode()).hexdigest()
+                      q = dict(u=NDU, t=token, s=salt, v="1.16.1", c="octo-artist-on-heart",
+                               f="json", **params)
+                      body = get(f"{ND}/rest/{view}.view?" + urllib.parse.urlencode(q))
+                      resp = body.get("subsonic-response", {})
+                      if resp.get("status") != "ok":
+                          raise SystemExit(f"navidrome {view} failed: {resp.get('error')}")
+                      return resp
+
+                  def notify(title, message, tags="notes"):
+                      if not NTFY:
+                          return
+                      try:
+                          req = urllib.request.Request(
+                              NTFY, data=message.encode(), method="POST",
+                              headers={"Title": title, "Tags": tags, "Priority": "low"})
+                          urllib.request.urlopen(req, timeout=15).read()
+                      except (urllib.error.URLError, OSError) as e:
+                          # Never fail the run over a notification. The work is
+                          # already done and reported on stdout.
+                          print(f"warning: could not notify: {e}", file=sys.stderr)
+
+                  # --- what is starred ---
+                  starred = subsonic("getStarred2").get("starred2", {}) or {}
+                  wanted = {}
+                  for song in starred.get("song", []) or []:
+                      mbid = song.get("artistId") if str(song.get("artistId", "")).count("-") == 4 else None
+                      name = (song.get("artist") or "").strip()
+                      if name:
+                          wanted.setdefault(name.lower(), (name, mbid))
+                  for album in starred.get("album", []) or []:
+                      name = (album.get("artist") or "").strip()
+                      if name:
+                          wanted.setdefault(name.lower(), (name, None))
+                  print(f"starred artists: {len(wanted)}")
+                  if not wanted:
+                      raise SystemExit(0)
+
+                  # --- what Lidarr already has ---
+                  H = {"X-Api-Key": LKEY}
+                  existing = get(f"{LR}/api/v1/artist", headers=H, timeout=180)
+                  have_names = {(a.get("artistName") or "").strip().lower() for a in existing}
+                  have_mbids = {a.get("foreignArtistId") for a in existing if a.get("foreignArtistId")}
+                  print(f"lidarr artists: {len(existing)}")
+
+                  missing = [
+                      (n, m) for key, (n, m) in sorted(wanted.items())
+                      if key not in have_names and (m is None or m not in have_mbids)
+                  ]
+                  print(f"starred but not in lidarr: {len(missing)}")
+                  if not missing:
+                      raise SystemExit(0)
+
+                  added = 0
+                  for name, _mbid in missing:
+                      if added >= MAX:
+                          print(f"rate limit reached ({MAX}/run); "
+                                f"{len(missing) - added} still queued for later runs")
+                          break
+                      term = urllib.parse.quote(name)
+                      try:
+                          hits = get(f"{LR}/api/v1/artist/lookup?term={term}", headers=H)
+                      except urllib.error.HTTPError as e:
+                          print(f"lookup failed for {name!r}: {e}", file=sys.stderr)
+                          continue
+                      if not hits:
+                          # A name Navidrome has and MusicBrainz does not is a
+                          # tagging problem, not something to retry forever.
+                          print(f"no musicbrainz match for {name!r}, skipping")
+                          continue
+                      hit = hits[0]
+                      if hit.get("foreignArtistId") in have_mbids:
+                          print(f"{name!r} resolves to an artist already present, skipping")
+                          continue
+
+                      payload = dict(hit)
+                      payload.update(
+                          qualityProfileId=int(os.environ["QUALITY_PROFILE_ID"]),
+                          metadataProfileId=int(os.environ["METADATA_PROFILE_ID"]),
+                          rootFolderPath=os.environ["ROOT_FOLDER"],
+                          monitored=True,
+                          addOptions={
+                              "monitor": "all",
+                              "monitored": True,
+                              "searchForMissingAlbums": SEARCH,
+                          },
+                      )
+                      req = urllib.request.Request(
+                          f"{LR}/api/v1/artist", data=json.dumps(payload).encode(),
+                          method="POST",
+                          headers={**H, "Content-Type": "application/json"})
+                      try:
+                          with urllib.request.urlopen(req, timeout=120) as r:
+                              created = json.loads(r.read().decode())
+                      except urllib.error.HTTPError as e:
+                          print(f"add failed for {name!r}: {e.code} "
+                                f"{e.read().decode()[:300]}", file=sys.stderr)
+                          continue
+
+                      added += 1
+                      real = created.get("artistName", name)
+                      print(f"added {real!r} (monitor=all, search={SEARCH})")
+                      notify(
+                          f"Added {real} to Lidarr",
+                          f"You hearted a {real} track, so the whole discography is now "
+                          f"monitored"
+                          + (" and searching." if SEARCH else " (search not queued)."),
+                          tags="notes",
+                      )
+
+                  print(f"done: {added} added this run")
+              resources:
+                requests: {cpu: 50m, memory: 96Mi}
+                limits: {cpu: 500m, memory: 256Mi}

@@ -206,6 +206,38 @@ spec:
             # inert until its API key is present (see below).
             - name: Subsonic__DownloadSource
               value: Soulseek
+            # HEART DOWNLOAD PRIORITY. Octo walks this list in order and stops
+            # at the first source that succeeds, consulting each entry's own
+            # song/album toggle. Soulseek is deliberately LAST in both columns
+            # while staying fully linked: it is the only source that can return
+            # a real FLAC, but it is also the only one that depends on a
+            # third-party P2P network being reachable, and it spent weeks
+            # disconnected without anything noticing (see the proxy comment in
+            # qbittorrent.yaml). Last means "still tried, never blocking".
+            #
+            #   album heart -> Lidarr, else Soulseek
+            #   song  heart -> YouTube, else Soulseek
+            #
+            # Lidarr is album-level by construction, so it takes no song
+            # hearts. YouTube is the shim: instant, MP3, and always available.
+            - name: Subsonic__HeartDownloadSources__0__Source
+              value: Lidarr
+            - name: Subsonic__HeartDownloadSources__0__SongEnabled
+              value: "false"
+            - name: Subsonic__HeartDownloadSources__0__AlbumEnabled
+              value: "true"
+            - name: Subsonic__HeartDownloadSources__1__Source
+              value: YouTube
+            - name: Subsonic__HeartDownloadSources__1__SongEnabled
+              value: "true"
+            - name: Subsonic__HeartDownloadSources__1__AlbumEnabled
+              value: "false"
+            - name: Subsonic__HeartDownloadSources__2__Source
+              value: Soulseek
+            - name: Subsonic__HeartDownloadSources__2__SongEnabled
+              value: "true"
+            - name: Subsonic__HeartDownloadSources__2__AlbumEnabled
+              value: "true"
             - name: Subsonic__FolderStructure
               value: Organized
 
@@ -262,6 +294,16 @@ spec:
             # else would be rejected as an unknown root folder.
             - name: Lidarr__RootFolderPath
               value: /data/media/music
+            # These default to 0, which is not a profile id - a Lidarr add with
+            # 0 is rejected, so the album-heart path would have failed at the
+            # last step. 1/1 are what all 907 artists already in the library
+            # use ("Any" quality, "Any" metadata), so hearted albums arrive
+            # under the same rules as everything else rather than as a
+            # second-class subset.
+            - name: Lidarr__QualityProfileId
+              value: "1"
+            - name: Lidarr__MetadataProfileId
+              value: "1"
 
             # --- Last.fm radio ---
             #
@@ -276,23 +318,42 @@ spec:
                   key: lastfm-api-key
                   optional: true
 
-            # --- YouTube preview: NOT OPERATIONAL ---
+            # --- YouTube preview and download ---
             #
-            # This points at a Service that does not exist, on purpose.
-            # Upstream's yt-dlp shim is `build: ./yt-dlp-shim` and has NO
-            # published image - ghcr.io/winters27/octo-yt-dlp-shim,
-            # winters27/ytdlp-shim, winters27/octo/shim and
-            # winters27/octo-shim were all probed and are absent or 403. The
-            # alternatives are both worse than a broken feature: building an
-            # unreviewed python+ffmpeg+Deno image here, or having a pod fetch
-            # app.py from the internet at runtime.
-            #
-            # Consequence: YouTube stream preview of unowned tracks does not
-            # work. Search, Last.fm radio, the Navidrome passthrough and
-            # "heart to keep" via Soulseek all do. Publish or vendor the shim
-            # image and this name resolves with no other change.
+            # Upstream publishes no image for its shim (`build: ./yt-dlp-shim`
+            # in the compose file), so it is built from vendored source here -
+            # see octo-yt-dlp-shim.yaml. Verified end to end: yt-dlp resolves a
+            # YouTube title through AirVPN and returns a stream.
             - name: YouTube__ShimUrl
               value: http://octo-yt-dlp-shim.downloads.svc.cluster.local:8080
+
+            # --- Notifications ---
+            #
+            # Octo speaks ntfy natively. It cannot reach ntfy directly (it runs
+            # on travisbackupserver, on the other side of an L2 boundary this
+            # cluster has no route across), so it publishes to the relay on the
+            # Proxmox host, which forwards over Tailscale. docs/ntfy.md has the
+            # topology and the reason for it.
+            #
+            # WHAT IS ON, AND WHY THAT AND NOT MORE. Every heart here is a
+            # deliberate act by one person, so the completion of one is wanted
+            # news, not noise. Started is off - it says nothing that hearting
+            # did not already say. LosslessFallback is off because with
+            # Soulseek last in the priority list a fallback is the EXPECTED
+            # path, not an exception, and a notification that fires on the
+            # normal case trains you to ignore the topic.
+            - name: Notifications__NtfyUrl
+              value: http://192.168.1.153:9098/homelab-media
+            - name: Notifications__NotifyDownloadStarted
+              value: "false"
+            - name: Notifications__NotifyDownloadCompleted
+              value: "true"
+            - name: Notifications__NotifyDownloadFailed
+              value: "true"
+            - name: Notifications__NotifyAlbumCompleted
+              value: "true"
+            - name: Notifications__NotifyLosslessFallback
+              value: "false"
           ports:
             - name: http
               # The container listens on 8080 (ASPNETCORE_URLS=http://+:8080);
