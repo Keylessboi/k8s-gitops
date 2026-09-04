@@ -725,3 +725,74 @@ prose version of the prevention failed:
   Side note: the slskd-config-render init takes ~45 min per restart
   (chown -R over NFS on an already-owned tree) - an ownership check
   before recursing would cut pod-start time dramatically.
+
+---
+
+## 2026-09-05 — Four things that were configured, healthy, and doing nothing
+
+Grouped because they are the same failure, four times: a component present and
+reporting fine while delivering nothing. That shape is now most of this file.
+
+### Alertmanager's `smart-email` receiver had no configs
+**Symptom:** none. That is the entry.
+**Found by:** reading the live generated config rather than the source, while
+adding an ntfy path to it.
+```
+receivers: [ null -> nothing, smart-email -> nothing, heartbeat-ntfy -> ok ]
+```
+All seven "smart" routes — failing disks, disk temperature, degraded array,
+node unreachable, filesystem filling, backup chain, MinIO — resolved to a
+receiver declared as `- name: "smart-email"` with nothing under it.
+Alertmanager accepts that and delivers nowhere.
+**Lesson:** the routing inversion was verified by reading the routes. Nobody
+checked that the receiver they pointed at could send. *A route is only as real
+as its receiver.*
+
+### slskd's proxy env vars were ignored, so Soulseek never once connected
+**Symptom:** `Failed to connect to 208.76.170.59:2271: Connection refused`,
+124 consecutive times, and every Octo search returning "currently:
+Disconnected".
+**Cause:** `SLSKD_SLSK_PROXY` / `_ADDRESS` / `_PORT` are silently ignored —
+the same nested-path env-mapping trap already documented in this repo for
+slskd's API key. So slskd dialled the Soulseek server *directly*, and the
+namespace policy rejected it. kube-router REJECTs rather than drops, so a
+policy denial reads as `Connection refused` **against the destination
+address**, which is indistinguishable from the far end being down.
+**Compounding:** the port was 8388 (Shadowsocks), which cannot answer a SOCKS5
+greeting, so it would not have worked even had the env vars been read.
+**Fix:** `soulseek.connection.proxy` in `slskd.yml`, port 1080.
+**Lesson:** when an error names the *final* destination rather than the proxy,
+the client is not using the proxy. That one line distinguishes "proxy broken"
+from "proxy not configured" and is worth reading for every time.
+
+### AIOStreams had proxy variables it structurally could not use
+**Symptom:** `Failed to fetch manifest for Torrentio p2p: fetch failed`, and
+a long-running `ECONNREFUSED 140.82.114.3:443 (github.com)` loop.
+**Cause:** `HTTP_PROXY`/`HTTPS_PROXY` were set, but AIOStreams is Node and
+its calls go through undici's `fetch()`, which does not read them — Node has
+no implicit proxy support. Every request went direct; the killswitch denied it.
+The previous comment in the manifest blamed "the app bypassing its own proxy
+configuration". It had never been given one it could use.
+**Fix:** `ADDON_PROXY` + `ADDON_PROXY_CONFIG`, which install an undici
+ProxyAgent. Also `BASE_URL`, which was `http://localhost:3000` — not cosmetic,
+since every URL it generated for remux resolved to remux's own pod.
+**Lesson:** `HTTP_PROXY` is a convention, not a guarantee. Per-runtime: Go
+honours it, .NET honours it, Node does not.
+
+### ntfy died on a package upgrade and stayed dead for three hours
+**Symptom:** `FATAL unable to open database file: permission denied`, five
+restarts, then systemd's start limit — and silence, which is what a healthy
+day also looks like.
+**Cause:** the upgrade changed the packaged service user from `ntfy` (987) to
+`_ntfy` (986). `/var/cache/ntfy` was still owned by the old account at 0700.
+**Fix:** chown, plus a `CacheDirectory=` drop-in so systemd re-chowns to
+whatever `User=` currently is on every start.
+**Lesson:** the notification path needs its own liveness check. It failed in
+the same window it was being extended, and only got noticed because it was
+being extended.
+
+### Also, not a silent failure but the same family
+ArgoCD waits for a sync wave to report healthy, and a running Job never does.
+The two lidarr mass-search Jobs run for days, so the whole `lidarr` Application
+parked at `waiting for healthy state of batch/Job/lidarr-mass-search-a` and a
+NetworkPolicy change would not apply. Moved to a later sync wave.

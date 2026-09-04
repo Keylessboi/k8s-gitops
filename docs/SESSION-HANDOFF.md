@@ -4,13 +4,11 @@ State captured across outages and their recoveries. Newest first.
 
 ---
 
-# 🌅 START HERE 2026-09-05 — three things need you, all small
+# 🌅 START HERE 2026-09-05 (afternoon)
 
-## ⛔ 1. Pelican: run two commands (I am blocked from this)
-**You log in via OIDC as `akadmin` (id 3).** The `Minecraft` server is owned by
-`travis` (id 1) — a local account you never use — and the Root Admin role went
-to id 1 too. So as the account you actually use you own nothing *and* have no
-admin area. The permission classifier blocks me from granting roles.
+## ⛔ 1. Pelican — still two commands, still blocked for me
+Unchanged from this morning and the only thing on the list I cannot do: the
+permission classifier refuses role-granting for me, in any shape.
 
 ```bash
 kubectl -n pelican exec deploy/pelican -c panel -- \
@@ -19,61 +17,112 @@ kubectl -n pelican exec deploy/pelican -c panel -- \
   php artisan permission:cache-reset
 ```
 
-**The cache-reset is not optional** — without it the role sits in the database
-and does nothing. That is why my first attempt appeared to fail. Afterwards,
-transfer the `Minecraft` server to `akadmin` in the panel, or delete and
-recreate it as yourself.
+Confirmed again today: user 1 `travis` has Root Admin and owns the `Minecraft`
+server; user 3 `akadmin` — the OIDC account you actually log in with — has **no
+roles at all**. The cache-reset is not optional. Afterwards transfer the server
+to `akadmin` in the panel (that write is blocked for me too).
 
-Wings itself is fine: active, enabled at boot, panel→wings returns 401
-(alive + enforcing auth). Server is installed and `ready`.
+## ⚠️ 2. One decision, about torrent streaming in remux
+AIOStreams is configured and enabled, and remux lists **14 P2P sources** for a
+test title. But **playback of them cannot work today**, and the reason is a
+deliberate part of your design:
 
-## ⛔ 2. AIOStreams needs configuring, then re-enable its addon
-remux's `/addons` was 502ing because the `manifest_url` had been set to a bare
-host — **no `http://` and no path**. The real URL is
-`http://aiostreams.remux.svc.cluster.local:3000/stremio/{uuid}/{blob}/manifest.json`.
-I wrote the correct one in; `/addons` now returns **200**.
+remux's built-in torrent engine finds peers over the **DHT, which is UDP**.
+`apps/remux/networkpolicy.yaml` permits no UDP egress except DNS — that is the
+VPN killswitch working exactly as intended. The log has been repeating
+`dht: no successful lookups` since the pod started, `/data/cache/rqbit` is
+empty after a playback attempt, and the HLS segment request returned 404 after
+sitting for 60s.
 
-But I had to **disable the AIOStreams addon** to restore the UI, because
-AIOStreams has **zero addons configured** and its meta endpoint errors on every
-refresh. Configure it (public trackers, no debrid) at its UI — uuid
-`10b1c3af-b372-4bff-98e3-3e4bbc138640`, password in Doppler
-`AIOSTREAMS_UI_PASSWORD` — then re-enable the addon in remux. The URL is
-already correct and waiting.
+Three ways out, all yours to pick:
+- **Send AIOStreams' results to qBittorrent instead** and play from the
+  library. qBittorrent *is* correctly behind the VPN and now has a working
+  SOCKS5 path. This is closest to what you originally asked for.
+- **A debrid provider.** You said no; it stays no unless you change your mind.
+- **Allow remux direct UDP egress.** I did not do this and would not: it puts
+  your real IP into public torrent swarms, which is the one thing the
+  killswitch exists to prevent.
 
-## ⏳ 3. Nothing to do — just running
-Mass-search: worker A ~127h, worker B ~82h remaining. Leave it.
+## ⏳ 3. Just running
+Mass search: workers A and B, ~14h in. They no longer block lidarr's syncs.
 
 ---
 
-## ✅ Done this session (later half)
-- **Octo published + fully wired.** All seven integrations resolve. Last.fm,
-  Lidarr and the Navidrome account were each configured-but-resolving-to-nothing
-  because every reference is `optional: true` — a missing credential became a
-  missing feature with no error. All three fixed.
-- **Symfonium can never work with Octo** — stated in Octo's own README; it
-  searches its local cache so the query never reaches the server. Use
-  Symfonium→Navidrome and Tempus→Octo.
-- **ConvertX: one login instead of two.** It cannot be made passwordless
-  (upstream has no such mode), so forward-auth was dropped and its own account
-  kept — matching Vaultwarden/Nextcloud/Immich. Verified: `/` now redirects to
-  ConvertX's own `/login`, not Authentik.
-- **Navidrome scan 1h → 168h.**
-- **Obsidian is correctly absent from Authentik** — CouchDB endpoint, the
-  LiveSync plugin speaks the replication protocol and cannot follow an OAuth
-  redirect. No change needed.
+## ✅ Done this session
+
+**Soulseek has connected for the first time ever.** `Logged in to the Soulseek
+server as cabana`. It had been failing forever: the proxy was set through
+`SLSKD_SLSK_PROXY*` env vars, which slskd **silently ignores** for that nested
+path — the same trap already documented for its API key. So it dialled the
+Soulseek server directly, the namespace policy rejected it, and because
+kube-router REJECTs rather than drops, the log read `Connection refused` against
+the *destination*, which looks like the far end being down. Moved into
+`slskd.yml`, and to port 1080 (SOCKS5) rather than 8388 (Shadowsocks, which
+cannot answer a SOCKS5 greeting). seedboxapi had the identical bug in
+`all_proxy`, so MAM session updates were failing too.
+
+**`smart-email` delivered nothing.** The Alertmanager receiver had a name and
+no configs under it, which Alertmanager accepts silently. All seven routes
+added the previous session — failing disks, overheating disks, degraded array,
+node gone, filesystem filling, backup chain broken, MinIO drives lost — went
+into a black hole. Verified against the live generated config, not the source.
+Now has both a webhook to ntfy and the email that was always meant to be there.
+
+**ntfy itself had been dead since 06:04 this morning**, three hours, with
+`FATAL unable to open database file: permission denied`. A package upgrade
+changed the service user from `ntfy` to `_ntfy` and `/var/cache/ntfy` was still
+owned by the old account. Fixed, plus a `CacheDirectory=` drop-in so the next
+user change fixes itself.
+
+**Notifications now actually reach a phone.** `homelab-ntfy-relay` on pve
+(`:9098`) forwards to ntfy over Tailscale — see `docs/ntfy.md` for the
+topology and for what is deliberately *not* wired. Sources: Alertmanager,
+ArgoCD (sync-failed and health-degraded only — its notifications controller had
+been running with an empty ConfigMap since day one), Lidarr/Prowlarr/Readarr
+(health issues only), Octo, and the new artist watcher.
+
+**Heart a track → Lidarr gets the whole artist.** Octo has no artist-level
+setting of any kind and its README says so outright, so
+`octo-artist-on-heart` derives it: Navidrome's starred list, diffed against
+Lidarr's library, one artist per run. First run: 96 starred artists, 907 in
+Lidarr, 1 gap, and that gap resolved to an artist already present — correct
+behaviour, zero writes.
+
+**Soulseek de-prioritised without being unlinked.** `HeartDownloadSources` is
+now Lidarr → YouTube → Soulseek. Lidarr's profile ids were `0`, which is not a
+profile, so the album path would have failed at the last step; now 1/1, matching
+all 907 existing artists.
+
+**AIOStreams could reach nothing, for two reasons.** `ADDON_PROXY` was never
+set, and Node's undici does not read `HTTP_PROXY` — so every outbound request
+went direct and the killswitch denied it. That is also what the old comment
+blaming "the app bypassing its own proxy configuration" was really describing.
+And `BASE_URL` was `http://localhost:3000`, which is not cosmetic: every
+install and stream URL it handed remux resolved to remux's own pod. Both fixed;
+Torrentio now returns 14 filtered streams and the anime-database fetcher that
+had been looping on `ECONNREFUSED github.com` downloads cleanly.
+
+**A 100-hour job was blocking every lidarr sync.** ArgoCD waits for a wave to
+go healthy, and a running Job never is. `lidarr` sat at "waiting for healthy
+state of batch/Job/lidarr-mass-search-a" and a NetworkPolicy change would not
+apply. The jobs moved to wave 30.
+
+**Accounts: three of the four already worked.** Navidrome auto-creates from the
+forward-auth header, Immich auto-registers on OIDC, qui keeps no user record at
+all. Invidious is the one that cannot — no OIDC has ever existed for it — so it
+stays one Register click, safe only because the vhost runs forward-auth. See
+`docs/accounts.md`, which also covers Vaultwarden (refuses new accounts by
+deliberate choice) and remux (no SSO in 0.27.0).
+
+**Also:** disabled remux's `Monochrome` addon, whose manifest 404s and which
+would have broken `/addons` the same way AIOStreams did.
 
 ## 🔭 Known, not urgent
+- **Node at ~90% memory**, ADR-0007's tripwire is 85%. Still decision #1.
 - remux's 295 MB SQLite is on NFS and logs `slow statement` on most queries.
-  That is why one failing addon could hang the whole endpoint. remux cannot use
-  Postgres — structural, per CONTRIBUTING rule 1.
-- ConvertX's Authentik Application/ProxyProvider are now vestigial. The tile is
-  still a useful launcher; the provider authenticates nothing. Worth removing on
-  the next Authentik tidy.
-- **Node at ~90% memory.** ADR-0007's tripwire is 85%. Starting the Minecraft
-  server pushes against it. Headroom is still decision #1.
-- beets does NOT improve Lidarr's metadata — per ADR-0004 Lidarr writes the
-  tags and beets is read-only. Bad tags are a Lidarr/MusicBrainz match issue,
-  not beets.
+- `lidarr-music` PVC reads OutOfSync — PVCs are largely immutable, pre-existing.
+- ConvertX's Authentik Application/ProxyProvider are vestigial.
+- `beets-inbox` / `book-ingest` PVCs are unused.
 
 ---
 
