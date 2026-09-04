@@ -17,8 +17,8 @@ applications, and then:
 | **Readarr / Calibre-Web** | n/a | forward-auth only, no per-user state |
 | **Nextcloud** | on first SSO login | `user_oidc` |
 | **Forgejo** | on first SSO login | OAuth source |
-| **Vaultwarden** | **blocked** — see below | `SIGNUPS_ALLOWED=false` |
-| **remux** | **manual** — no SSO in 0.27.0 | local accounts only |
+| **Vaultwarden** | on first SSO login | `SSO_SIGNUPS_ALLOWED` + a fixed `email_verified` claim |
+| **remux** | within the hour | `remux-user-sync` CronJob |
 
 ## The three that work, and how they actually do it
 
@@ -50,7 +50,22 @@ and clicked-in settings are not in git.
 `authenticated`, `username` and `auth_method` straight into the session and
 never touches a user table. Any Authentik user who completes the flow is in.
 
-## Invidious: why it is a click and not a job
+## Invidious: why it is a click and not a job, and why no fork fixes it
+
+Checked, because "surely someone forked it with SSO" is the obvious next
+thought:
+
+| Project | Stars | SSO? |
+|---|---|---|
+| `iv-org/invidious` | upstream | no — PR #3164 added OAuth with GitHub only, never OIDC |
+| `TeamPiped/Piped` | 10.2k | no — own local accounts |
+| `ViewTube/viewtube` | 1.5k | no |
+| `Materialious/Materialious` | 1.1k | no — it is a *frontend for Invidious* and logs in with Invidious credentials |
+
+Every listed Invidious fork on GitHub is a UI or feature patch, not an auth
+one. So there is nothing to switch to.
+
+
 
 Invidious has never had OIDC. Its only external identity provider was Google,
 removed long ago, so there is no API to provision against — and provisioning
@@ -63,18 +78,85 @@ without an Authentik session. **If forward-auth is ever removed from
 `apps/invidious/ingress.yaml`, registration must be closed in the same
 commit** — otherwise the form is open to the internet.
 
-## The two that need a decision, not a fix
+## Vaultwarden: two gates, and only one of them was the problem
 
-**Vaultwarden** has `SIGNUPS_ALLOWED: "false"` and `DISABLE_ADMIN_TOKEN:
-"false"`, which together mean a brand-new person cannot get a vault at all:
-the fork treats an SSO login by someone with no prior account as a signup.
-Opening it is a deliberate security choice about the highest-value endpoint
-here, so it is left as-is rather than quietly flipped. To add someone: flip
-`SIGNUPS_ALLOWED` to `"true"` in a commit, have them log in once, flip it
-back.
+An earlier version of this file said a new user could not register while
+`SIGNUPS_ALLOWED` is false, because the fork treats SSO login as a signup.
+**That was wrong.** From OIDCWarden's `src/config.rs`:
 
-**remux** (0.27.0) has local accounts and no SSO of any kind — one `admin`
-user exists. It sits behind forward-auth, so it is not exposed, but a second
-person needs an account created by hand in its UI. Worth revisiting when
-upstream adds an auth provider; it is young software and this is the sort of
-thing that lands.
+```rust
+pub fn is_sso_signup_allowed(&self, email: &str) -> bool {
+    if self.signups_domains_whitelist().is_empty() {
+        self.sso_signups_allowed()      // <- NOT signups_allowed
+```
+
+The gates are independent. `SIGNUPS_ALLOWED=false` closes the public
+registration form; `SSO_SIGNUPS_ALLOWED` (default true, now explicit) governs
+whether SSO can create an account. So the intended state — nobody self-registers,
+anybody authentik vouches for gets a vault — was always expressible.
+
+**The actual blocker was one line further on.** OIDCWarden refuses to create an
+account when the provider reports the address as unverified:
+
+```rust
+Some(false) => err!("You need to verify your email with your provider
+                     before you can log in")
+```
+
+and **authentik's built-in `email` scope mapping hardcodes
+`"email_verified": False`.** No authentik user could ever have got a vault,
+whatever the flags said.
+
+Fixed in authentik rather than in Vaultwarden: a **separate, unmanaged** scope
+mapping, `OAuth Mapping: email (verified)`, attached to the Vaultwarden
+provider in place of the built-in one. Separate because the built-in is
+blueprint-managed and an upgrade would silently revert an edit — reverting to
+exactly the state where signup fails with a message about email verification
+that has nothing to do with the real cause.
+
+> ⚠ Do **not** add `SIGNUPS_DOMAINS_WHITELIST` as a safety net. Per the code
+> above, a non-empty whitelist *overrides* both flags — including
+> `SIGNUPS_ALLOWED` — and would reopen the public registration form to that
+> domain. Empty is the stricter setting.
+
+## remux: no SSO exists, so the accounts are mirrored in
+
+remux 0.27.0 has no OIDC anywhere in its source, and its auth code reads
+exactly two headers: the Jellyfin `X-Emby-Authorization` and
+`X-Forwarded-For`. There is no trusted-header mode, so unlike Navidrome it
+cannot create a user from forward-auth — it sees an authenticated visitor and
+shows them a login form for an account nobody made.
+
+`remux-user-sync` (hourly, `apps/remux/user-sync-cronjob.yaml`) mirrors
+authentik's user list in via `POST /Users/New`, which defaults the password to
+`""`. **That empty password is not a hole**: remux's ingress runs
+`authentik-forward-auth` on `/` with no path carve-outs, so nothing reaches
+remux without an authentik session. The remux account holds per-user state —
+watch history, favourites, trackers — it is not the thing keeping anyone out.
+
+> ⚠ If forward-auth is ever removed from `apps/remux/ingress.yaml`, this
+> CronJob must be removed or given real passwords **in the same commit**.
+
+It only ever adds. Removing someone from authentik does not delete their remux
+account, deliberately: that would destroy watch history over what may be a
+temporary change.
+
+**Sync-created accounts are not administrators**, which is right for everyone
+except the owner. `admin` — the local account seeded by `remux-admin` — remains
+the only admin, and addons and server settings are admin-only and server-wide,
+so a normal user still sees everything that is configured. If you would rather
+administer remux as `akadmin` and keep `admin` purely as a break-glass local
+login (the same reasoning as Vaultwarden's `SSO_ONLY=false`), promote it once:
+
+```bash
+kubectl -n remux port-forward svc/remux 8096:3000 &
+TOK=$(curl -s -X POST localhost:8096/Users/AuthenticateByName \
+  -H 'Content-Type: application/json' \
+  -H 'X-Emby-Authorization: MediaBrowser Client="cli", Device="cli", DeviceId="cli", Version="1.0"' \
+  -d "{\"Username\":\"admin\",\"Pw\":\"$(doppler secrets get REMUX_ADMIN_PASSWORD -p kubernetes -c prd --plain)\"}" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["AccessToken"])')
+UID=$(curl -s localhost:8096/Users -H "X-Emby-Token: $TOK" \
+  | python3 -c 'import json,sys; print([u["Id"] for u in json.load(sys.stdin) if u["Name"]=="akadmin"][0])')
+curl -s -X POST "localhost:8096/Users/$UID/policy" -H "X-Emby-Token: $TOK" \
+  -H 'Content-Type: application/json' -d '{"IsAdministrator":true}'
+```
