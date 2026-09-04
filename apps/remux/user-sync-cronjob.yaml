@@ -56,6 +56,15 @@ spec:
             # timeout. Both endpoints are in other namespaces.
             - name: wait-for-deps
               image: busybox:1.37
+              # The namespace enforces PodSecurity "restricted", which applies
+              # to init containers too - without this the pod is admitted with
+              # a warning today and would be rejected outright the moment the
+              # namespace moves from warn to enforce.
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
               command:
                 - sh
                 - -c

@@ -79,6 +79,17 @@ spec:
       ports:
         - port: 9098
           protocol: TCP
+    # remux itself, for remux-user-sync. The ingress half already admitted
+    # this namespace on 3000; the egress half did not exist, because until now
+    # nothing in this namespace called remux - aiostreams is called BY it, and
+    # that is the rule two below.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: remux
+      ports:
+        - port: 3000
+          protocol: TCP
     # AIOStreams' Postgres, on the shared CNPG cluster. Declared here AND as a
     # matching ingress rule in apps/databases/networkpolicy.yaml - a
     # cross-namespace flow needs both sides, and this repo has been bitten four
