@@ -55,6 +55,22 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
+  # LATER SYNC WAVE THAN EVERYTHING ELSE IN THIS APP, and it is not cosmetic.
+  #
+  # ArgoCD applies a wave, then WAITS for every resource in it to report
+  # healthy before moving on - and a running Job is not healthy until it
+  # completes. These two run for days. With them in wave 20 alongside the
+  # Deployment and the NetworkPolicy, the whole lidarr Application parked at
+  # "Running: waiting for healthy state of batch/Job/lidarr-mass-search-a",
+  # and every subsequent commit touching lidarr queued behind a job with ~100
+  # hours left on it. That is how a NetworkPolicy change sat unapplied while
+  # the app read OutOfSync for a reason that had nothing to do with it.
+  #
+  # In wave 30 they are applied last, so everything else lands and settles
+  # first. The sync still ends up waiting on them, but by then it has already
+  # done all the work that matters.
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
   name: lidarr-mass-search-a
   namespace: lidarr
 spec:
@@ -274,6 +290,22 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
+  # LATER SYNC WAVE THAN EVERYTHING ELSE IN THIS APP, and it is not cosmetic.
+  #
+  # ArgoCD applies a wave, then WAITS for every resource in it to report
+  # healthy before moving on - and a running Job is not healthy until it
+  # completes. These two run for days. With them in wave 20 alongside the
+  # Deployment and the NetworkPolicy, the whole lidarr Application parked at
+  # "Running: waiting for healthy state of batch/Job/lidarr-mass-search-a",
+  # and every subsequent commit touching lidarr queued behind a job with ~100
+  # hours left on it. That is how a NetworkPolicy change sat unapplied while
+  # the app read OutOfSync for a reason that had nothing to do with it.
+  #
+  # In wave 30 they are applied last, so everything else lands and settles
+  # first. The sync still ends up waiting on them, but by then it has already
+  # done all the work that matters.
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
   name: lidarr-mass-search-b
   namespace: lidarr
 spec:
