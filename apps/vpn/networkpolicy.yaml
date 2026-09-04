@@ -30,6 +30,10 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: jellyfin
+        # Navidrome, for Last.fm scrobbling only.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: navidrome
       ports:
         - {port: 8888, protocol: TCP}
         - {port: 8388, protocol: TCP}

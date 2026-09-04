@@ -89,3 +89,21 @@ spec:
     ports:
     - protocol: TCP
       port: 443
+  # Last.fm scrobbling, through the VPN gateway's HTTP proxy - NOT direct.
+  #
+  # Scrobbles say what this household listens to and when. apps/downloads/
+  # octo.yaml states the owner's hard requirement that this class of traffic
+  # never leaves via the home WAN, and a scrobble is the same class as a
+  # discovery lookup. Navidrome is Go, so it honours HTTPS_PROXY natively and
+  # needs no feature of its own.
+  #
+  # Declared on both sides; the matching ingress is in apps/vpn/
+  # networkpolicy.yaml. Deliberately no 0.0.0.0/0 rule - the proxy is the
+  # single exit, exactly as the downloads namespace works.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: vpn
+    ports:
+    - protocol: TCP
+      port: 8888

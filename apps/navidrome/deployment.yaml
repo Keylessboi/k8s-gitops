@@ -123,6 +123,17 @@ spec:
             # signature uses the shared secret, so an API key alone
             # authenticates reads and then fails at submission - which looks
             # like "scrobbling silently does nothing" rather than an error.
+            # Last.fm calls exit through the VPN gateway. Navidrome is Go
+            # and honours these natively. NO_PROXY is a SUFFIX match on the
+            # cluster domain, not a single hostname - naming one host is
+            # exactly what sent remux's addon calls out to the internet and
+            # lost them (see apps/remux/deployment.yaml).
+            - name: HTTPS_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: HTTP_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,.svc,.svc.cluster.local,.cluster.local"
             - name: ND_LASTFM_ENABLED
               value: "true"
             - name: ND_LASTFM_APIKEY
