@@ -111,7 +111,15 @@ spec:
             - name: all_proxy
               value: socks5://vpn-gateway.vpn.svc.cluster.local:8388
             - name: NO_PROXY
-              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,aiostreams.remux.svc.cluster.local"
+              # `.svc.cluster.local` as a suffix, not just the one hostname.
+              # Naming a single host meant any OTHER in-cluster address went
+              # OUT through the VPN HTTP proxy - and gluetun, which has no
+              # cluster DNS, then failed it with "no such host". That is
+              # exactly what happened to remux's AIOStreams addon, which still
+              # pointed at the decommissioned `jellyfin` namespace: every call
+              # was proxied to the internet and lost. Cluster traffic must
+              # never leave the cluster to reach the pod next door.
+              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,.svc,.svc.cluster.local,.cluster.local"
           ports:
             - name: http
               containerPort: 3000
