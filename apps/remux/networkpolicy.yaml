@@ -55,6 +55,16 @@ spec:
       ports:
         - {port: 3000, protocol: TCP}
   egress:
+    # AIOStreams' Postgres, on the shared CNPG cluster. Declared here AND as a
+    # matching ingress rule in apps/databases/networkpolicy.yaml - a
+    # cross-namespace flow needs both sides, and this repo has been bitten four
+    # times by declaring only one.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: databases
+      ports:
+        - {port: 5432, protocol: TCP}
     # DNS. CoreDNS resolves addon and API hostnames; namespace-qualified.
     - to:
         - namespaceSelector:

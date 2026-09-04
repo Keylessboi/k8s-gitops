@@ -76,8 +76,30 @@ spec:
                   name: aiostreams
                   key: secret-key
             # SQLite on the persistent claim; holds the encrypted addon config.
+            # Postgres, not SQLite, under CONTRIBUTING.md rule 1. AIOStreams
+            # is the only one of this cluster's four SQLite apps that supports
+            # it (`DATABASE_URI` accepts postgres://); ghost, remux and convertx
+            # cannot and are exempt.
+            #
+            # Composed by dependent env expansion so the password never appears
+            # in git. The Doppler value is deliberately alphanumeric: a '@' or
+            # '/' inside the password would silently corrupt this DSN.
+            #
+            # NOTE: AIOStreams does NOT migrate its existing SQLite content, so
+            # the addon Remux consumes has to be re-created after this lands.
+            # The old file stays on the PVC as a fallback until that is done.
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: aiostreams
+                  key: db-user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aiostreams
+                  key: db-password
             - name: DATABASE_URI
-              value: sqlite:///app/data/db.sqlite
+              value: postgres://$(DB_USER):$(DB_PASSWORD)@app-databases-rw.databases.svc.cluster.local:5432/aiostreams
             - name: HTTP_PROXY
               value: http://vpn-gateway.vpn.svc.cluster.local:8888
             - name: HTTPS_PROXY

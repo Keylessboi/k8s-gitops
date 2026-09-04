@@ -185,3 +185,22 @@ spec:
   owner: invidious
   cluster:
     name: app-databases
+
+---
+# AIOStreams' single database. Addon configuration, user preferences and the
+# stream cache share one schema; no separate log db.
+#
+# Migrated off SQLite on 2026-09-03 under CONTRIBUTING.md rule 1: AIOStreams is
+# the only one of this cluster's four SQLite apps that actually supports
+# Postgres (`DATABASE_URI` accepts postgres://). Ghost, remux and convertx
+# cannot and are exempt.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: aiostreams
+  namespace: databases
+spec:
+  name: aiostreams
+  owner: aiostreams
+  cluster:
+    name: app-databases

@@ -108,6 +108,13 @@ spec:
       # Invidious (self-hosted YouTube front-end). One role, one database —
       # like pelican/bitmagnet it keeps everything (channels, videos, users,
       # sessions, playlists) in a single schema.
+      # AIOStreams (Stremio addon aggregator behind remux). One role, one
+      # database - addon config, preferences and stream cache in one schema.
+      - name: aiostreams
+        ensure: present
+        login: true
+        passwordSecret:
+          name: aiostreams-db-credentials
       - name: invidious
         ensure: present
         login: true
