@@ -62,6 +62,18 @@ PORT = int(os.environ.get("PORT", "8080"))
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9._-]{2,64}$")
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Surface 3xx as an HTTPError instead of following it.
+
+    Needed because Invidious signals a completed login or signup with a 302
+    whose Set-Cookie carries the session. Following it discards exactly the
+    header that says whether anything worked.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def call(url, data=None, headers=None, method=None, timeout=45):
     req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -135,23 +147,36 @@ def invidious_provision(username, password):
     req = urllib.request.Request(
         f"{IV_URL}/login?type=invidious&referer=%2F", data=body, method="POST",
         headers={"Content-Type": "application/x-www-form-urlencoded"})
+    # MUST NOT FOLLOW REDIRECTS. Success here is a 302 that carries the SID in
+    # its Set-Cookie; urllib follows it by default, and then reports the 200 of
+    # the *destination* page with no cookie on it. That is what made a working
+    # registration look like a silent failure - and, before that, a failure
+    # look like a success. The invidious access log settled it: "302 POST
+    # /login" followed immediately by "GET /" from the same client.
+    opener = urllib.request.build_opener(_NoRedirect)
     try:
-        with urllib.request.urlopen(req, timeout=45) as r:
+        with opener.open(req, timeout=45) as r:
             cookies = r.headers.get_all("Set-Cookie") or []
             status = r.status
     except urllib.error.HTTPError as e:
         cookies = e.headers.get_all("Set-Cookie") or []
         status = e.code
-        if status == 401 and not any(c.startswith("SID=") for c in cookies):
+        if status in (301, 302, 303, 307, 308):
+            pass  # handled below - a redirect is the success case
+        elif status == 401 and not any(c.startswith("SID=") for c in cookies):
             raise RuntimeError(
                 "account already exists with a different password; Invidious has "
                 "no admin password reset, so change it from its own settings page"
             ) from None
-        if status == 400:
+        elif status == 400:
             raise RuntimeError("Invidious refused: registration disabled?") from None
 
     if any(c.startswith("SID=") for c in cookies):
         return "credentials work", f"HTTP {status}, session issued"
+    if status in (301, 302, 303, 307, 308):
+        # Redirect without a SID: Invidious bounced the request somewhere else
+        # rather than establishing a session. Not a success.
+        raise RuntimeError(f"redirected (HTTP {status}) without a session cookie")
     raise RuntimeError(
         f"no session cookie returned (HTTP {status}) - the account was not "
         f"created and the credentials do not log in")
