@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""Relay notifications from the cluster to ntfy on travisbackupserver.
+
+WHY THIS EXISTS. ntfy runs on travisbackupserver, which is on wlo1 behind the
+room's WiFi router on a SEPARATE 192.168.1.0/24 - same numbering, different L2
+segment. The cluster cannot route to it and its own local subnet route shadows
+the tailnet route back (verified both directions 2026-09-03). This host can
+reach the cluster (it hosts LXC 200) and can reach travisbackupserver over
+Tailscale, so it relays. Same topology reason as homelab-beat-receiver on
+:9099, which this deliberately does NOT replace - that one is the dead man's
+switch and must stay as dumb as it is.
+
+WHAT IT ACCEPTS
+  POST /<topic>                 body + headers forwarded to ntfy as-is
+  POST /alertmanager/<topic>    an Alertmanager webhook, rendered readable
+  GET  /healthz                 200 for probes
+
+Topics are allow-listed. This binds 0.0.0.0 on a LAN-only port with no auth,
+so without the list any host on the LAN could publish to any topic on a server
+it cannot otherwise reach.
+
+No dependencies beyond the standard library, on purpose: this runs on the
+hypervisor and should never need a package upgrade.
+"""
+import http.server
+import json
+import socketserver
+import sys
+import urllib.error
+import urllib.request
+
+NTFY = "http://100.81.123.74:2586"
+PORT = 9098
+TIMEOUT = 12
+
+# Every topic must be listed here AND subscribed on the phone.
+#   homelab-alerts  - infrastructure: the things that mean go and look now
+#   homelab-media   - the media stack: finished downloads, failed imports
+TOPICS = {"homelab-alerts", "homelab-media"}
+
+# Alertmanager severity -> (ntfy priority, tag)
+SEVERITY = {
+    "critical": ("urgent", "rotating_light"),
+    "warning": ("high", "warning"),
+    "info": ("default", "information_source"),
+}
+
+# Headers worth carrying through. Anything else is dropped rather than
+# forwarded blindly - ntfy treats several headers as commands (Delay, Email,
+# Call), and this relay has no business issuing those on a caller's behalf.
+PASS_HEADERS = ("Title", "Priority", "Tags", "Markdown", "Click", "Icon")
+
+
+def publish(topic, body, headers):
+    req = urllib.request.Request(
+        f"{NTFY}/{topic}", data=body, method="POST", headers=headers
+    )
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        return r.status
+
+
+def render_alertmanager(payload):
+    """One ntfy message per Alertmanager group, not per alert.
+
+    Alertmanager already did the grouping; re-expanding it here would turn one
+    incident into a burst of notifications, which is the failure mode this
+    whole setup is trying to avoid.
+    """
+    alerts = payload.get("alerts") or []
+    if not alerts:
+        return None
+
+    status = payload.get("status", "firing")
+    first = alerts[0].get("labels", {})
+    name = first.get("alertname", "alert")
+    severity = first.get("severity", "warning")
+    prio, tag = SEVERITY.get(severity, ("high", "warning"))
+
+    if status == "resolved":
+        prio, tag = "low", "white_check_mark"
+        title = f"Resolved: {name}"
+    else:
+        title = name if len(alerts) == 1 else f"{name} ({len(alerts)} firing)"
+
+    lines = []
+    for a in alerts[:10]:
+        lab, ann = a.get("labels", {}), a.get("annotations", {})
+        where = lab.get("instance") or lab.get("pod") or lab.get("namespace") or ""
+        what = ann.get("description") or ann.get("summary") or lab.get("alertname", "")
+        lines.append(f"{where}: {what}".strip(": ") if where else what)
+    if len(alerts) > 10:
+        lines.append(f"... and {len(alerts) - 10} more")
+
+    return "\n\n".join(lines).encode(), {"Title": title, "Priority": prio, "Tags": tag}
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    server_version = "homelab-ntfy-relay/1"
+
+    def _reply(self, code, text=""):
+        body = text.encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == "/healthz":
+            return self._reply(200, "ok\n")
+        self._reply(404, "not found\n")
+
+    def do_POST(self):
+        parts = self.path.strip("/").split("/")
+        alertmanager = parts[0] == "alertmanager"
+        topic = parts[1] if alertmanager and len(parts) > 1 else parts[0]
+
+        if topic not in TOPICS:
+            return self._reply(404, f"unknown topic {topic!r}\n")
+
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length) if length else b""
+
+        if alertmanager:
+            try:
+                rendered = render_alertmanager(json.loads(raw or b"{}"))
+            except (ValueError, AttributeError) as e:
+                return self._reply(400, f"unparseable webhook: {e}\n")
+            if rendered is None:
+                # A webhook with no alerts is not an error - just nothing to say.
+                return self._reply(204, "")
+            body, headers = rendered
+        else:
+            body = raw
+            headers = {h: self.headers[h] for h in PASS_HEADERS if self.headers.get(h)}
+
+        try:
+            publish(topic, body, headers)
+            self._reply(204, "")
+        except (urllib.error.URLError, OSError) as e:
+            # Say so loudly. A relay that swallows its own failures is worse
+            # than no relay, because the silence looks identical to "no alerts".
+            print(f"FAILED to publish to {topic}: {e}", file=sys.stderr, flush=True)
+            self._reply(502, f"ntfy unreachable: {e}\n")
+
+    def log_message(self, *args):
+        pass  # journald would fill with successful publishes
+
+
+class Server(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+if __name__ == "__main__":
+    with Server(("0.0.0.0", PORT), Handler) as httpd:
+        httpd.serve_forever()

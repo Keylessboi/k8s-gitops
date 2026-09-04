@@ -69,6 +69,12 @@ spec:
     ports:
     - port: 9099
       protocol: TCP
+    # 9098 is the general ntfy relay on the same host (docs/ntfy.md). Same
+    # destination, different job: 9099 is the dead-man switch's beat sink,
+    # which must stay as dumb as it is, and 9098 is where Alertmanager sends
+    # the alerts a human should act on.
+    - port: 9098
+      protocol: TCP
   # The Traefik load balancer, for the edge probes (edge-probes.yaml). Third
   # instance of the same trap: the catch-all egress below excludes
   # 192.168.0.0/16, so without this every one of the 22 probes fails at once

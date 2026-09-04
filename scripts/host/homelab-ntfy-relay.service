@@ -1,0 +1,17 @@
+[Unit]
+Description=Homelab ntfy relay (cluster -> ntfy on travisbackupserver)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/homelab-ntfy-relay
+Restart=always
+RestartSec=5
+DynamicUser=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

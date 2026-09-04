@@ -402,7 +402,34 @@ helmCharts:
               #   false. Until then it is a capacity problem, not a paging one.
           receivers:
             - name: "null"
+            # THIS RECEIVER WAS EMPTY. Every one of the seven routes above -
+            # failing disks, overheating disks, a degraded array, the node
+            # gone, a filesystem filling, a broken backup chain, MinIO losing
+            # drives - pointed at a receiver with no configs under it, which
+            # Alertmanager accepts silently and delivers nowhere. Confirmed
+            # against the live generated config on 2026-09-05, not just the
+            # source: `receivers: [null -> nothing, smart-email -> nothing]`.
+            #
+            # The whole point of last session's routing inversion was that
+            # anything reaching an inbox is worth waking up for. It was
+            # reaching nothing. That is a worse failure than the "route
+            # everything" state it replaced, because it looked finished.
+            #
+            # Now BOTH paths, deliberately: ntfy is the one that reaches a
+            # phone in seconds and does not depend on Gmail, and email is the
+            # one that survives ntfy or the relay being down - which is not
+            # hypothetical, ntfy spent three hours dead this morning after a
+            # package upgrade changed its service user out from under its cache
+            # directory. Two independent paths for the small set of alerts
+            # that actually matter is proportionate; it is the routing, not the
+            # delivery, that keeps the volume sane.
             - name: "smart-email"
+              webhook_configs:
+                - url: "http://192.168.1.153:9098/alertmanager/homelab-alerts"
+                  send_resolved: true
+              email_configs:
+                - to: "travis.fiorito@tuta.com"
+                  send_resolved: true
             # The heartbeat sink: a 40-line stdlib HTTP receiver on pve that
             # touches a file. Nothing reads the body - only the arrival time
             # matters - so the payload format is irrelevant. send_resolved is
