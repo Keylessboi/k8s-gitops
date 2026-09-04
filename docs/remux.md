@@ -214,3 +214,35 @@ connectivity**, which means a gluetun sidecar giving it its own tunnel — the
 arrangement qBittorrent used to have. Cost: ~100 MB on a node at ~90 % memory
 and a second AirVPN session. Debrid would work over the existing HTTP proxy
 because those are plain HTTPS links, but that is explicitly not wanted.
+
+## Stream filtering — keep the hard-to-play releases from being offered
+
+Set 2026-09-04 on the AIOStreams config (uuid `10b1c3af-…`). This is the
+equivalent of Torrentio's quality checkboxes, and it is **cluster state, not
+git** — re-apply it if the AIOStreams database is ever reset.
+
+The governing principle: **this server can only direct-play.**
+`EnableVideoTranscoding=False` and `HardwareAccelerationType=none`, so a stream
+the client cannot direct-play does not fall back to a transcode — it fails.
+Filtering at the source means the client is never offered one.
+
+| Field | Excluded | Why |
+|---|---|---|
+| `excludedResolutions` | `2160p`, `1440p` | 4K is almost always HEVC, and unplayable here for both reasons at once |
+| `excludedQualities` | `BluRay REMUX`, `DVD REMUX`, `CAM`, `TS`, `TC`, `SCR` | REMUX is an untouched disc rip at 30–100 Mbps; the rest are junk tiers |
+| `excludedEncodes` | `HEVC`, `AV1` | The codecs that force a transcode on most clients |
+| `excludedVisualTags` | `HDR+DV`, `DV Only`, `HDR Only`, `HDR10+`, `HDR10`, `DV`, `HDR`, `HLG`, `3D`, `H-OU`, `H-SBS` | HDR/DV need tone-mapping, which *is* a transcode; on an SDR client they otherwise play washed-out. 3D half-OU/SBS is unplayable on a normal display |
+
+**Plain `BluRay` is deliberately kept.** A 1080p BluRay encode is ~8–15 Mbps,
+direct-plays fine, and excluding it would remove most good 1080p releases —
+REMUX is the heavy one, not BluRay as such. Also kept: `AVC` (the one video
+codec essentially everything direct-plays), `SDR`, `10bit`, `IMAX`.
+
+What remains on offer is the universally direct-playable combination: **1080p
+and below, AVC, SDR, WEB-DL/WEBRip/BluRay**.
+
+`maxSize` also exists as a backstop if a size ceiling is ever wanted; it is not
+set, because a cap tight enough to matter would also cut legitimate long films.
+
+`excludedRegexPatterns` exists but is refused for this user — regex filters need
+a permission this account does not have.
