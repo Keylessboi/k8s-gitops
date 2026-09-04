@@ -15,7 +15,24 @@ metadata:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     # <namespace>-<name>@kubernetescrd is how a middleware in another
     # namespace is referenced.
-    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+    # NO forward-auth, deliberately - ConvertX keeps its own account.
+    #
+    # ConvertX cannot be made passwordless: upstream's only auth gates are
+    # ACCOUNT_REGISTRATION and a first-run bypass (verified against
+    # src/helpers/env.ts, see deployment.yaml). So the choice was never
+    # "account or no account", only WHICH login the owner types - and behind
+    # forward-auth it was two logins for one app.
+    #
+    # Dropping forward-auth rather than the app's own account follows what
+    # this cluster already does for every app that owns its users: Vaultwarden,
+    # Nextcloud and Immich all authenticate themselves and use Authentik as an
+    # SSO option rather than a gate. ConvertX has no OIDC support, so it gets
+    # the same shape minus the SSO button.
+    #
+    # Still in front of it: CrowdSec and the per-source rate limit. Behind it:
+    # ACCOUNT_REGISTRATION=false, so /register is closed and only the owner's
+    # existing account can log in.
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
 spec:
   ingressClassName: traefik
   tls:

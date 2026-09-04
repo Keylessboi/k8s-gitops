@@ -61,8 +61,14 @@ spec:
           env:
             - name: ND_LOGLEVEL
               value: info
+            # Weekly, at the owner's request (was 1h). A full library scan
+            # takes ~2h against 40k+ files on NFS, and Lidarr/beets already
+            # trigger imports as they land - so an hourly scan was mostly the
+            # same work repeated. The filesystem watcher still picks up new
+            # files between scans; this schedule is the backstop, not the
+            # primary path.
             - name: ND_SCANSCHEDULE
-              value: 1h
+              value: 168h
             # Default is "never": navidrome keeps records for files deleted
             # from the library forever, and their placeholder [Unknown
             # Album]/[Unknown Artist] rows keep rendering in the UI. "full"
