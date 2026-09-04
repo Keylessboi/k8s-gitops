@@ -164,3 +164,53 @@ what the Job does and what you would do by hand if it ever failed.
    the Authentik login.
 4. If Remux wins: decommission plan for apps/jellyfin is a separate decision —
    nothing here has touched it.
+
+## AIOStreams wiring — read this before debugging playback (2026-09-04)
+
+**The addon had never worked, and not for the reason anyone was looking at.**
+Remux's stored AIOStreams addon pointed at
+`http://aiostreams.jellyfin.svc.cluster.local:3000/...` — the **decommissioned
+jellyfin namespace**. AIOStreams moved to `remux` and the addon URL was never
+updated.
+
+It failed *silently* because `NO_PROXY` named only
+`aiostreams.remux.svc.cluster.local`, so the stale `jellyfin` address was not
+exempt and every call went **out through the VPN HTTP proxy**. gluetun has no
+cluster DNS, so it answered `no such host`. Nothing was visible from remux's
+side; the evidence was only in the gluetun log. `NO_PROXY` is now a suffix
+match on `.svc` / `.svc.cluster.local` / `.cluster.local`.
+
+### Current state
+- AIOStreams runs on Postgres (25 tables), reachable in-cluster.
+- A user config exists: uuid `10b1c3af-b372-4bff-98e3-3e4bbc138640`, password in
+  Doppler `AIOSTREAMS_UI_PASSWORD`.
+- Its manifest endpoint returns **200**, but `resources: []` and `types: []`
+  because **no addons are selected yet**.
+
+### To finish (UI, a few clicks)
+1. Open AIOStreams, log in with the uuid + `AIOSTREAMS_UI_PASSWORD`.
+2. Add public-tracker addons (Torrentio and similar). **Leave every debrid
+   service empty.**
+3. Copy the generated manifest URL and set it on Remux's AIOStreams addon,
+   rewriting the host to `aiostreams.remux.svc.cluster.local:3000`.
+
+### The constraint that decides whether playback can work at all
+**Remux has no path to BitTorrent peers.** Its only egress is the gateway's
+**HTTP** proxy on 8888, which cannot carry peer or DHT traffic. The gateway's
+8388 is **Shadowsocks — an encrypted protocol, not plain SOCKS5** — and a
+SOCKS5 client cannot speak it: verified, `curl --socks5-hostname` to 8388 times
+out from **both** remux *and* qBittorrent.
+
+That last point deserves attention on its own: `apps/downloads/qbittorrent.yaml`
+configures `[Proxy] Type=5 Port=8388` with **no credentials**, against a
+Shadowsocks server that has `SHADOWSOCKS_PASSWORD` set. That configuration is
+very likely inert, meaning qBittorrent's peer and tracker connections are not
+using it. The killswitch still holds (a direct request from the pod returns
+nothing), so this is not a leak — but it is worth confirming what path its peer
+traffic actually takes.
+
+So, without a debrid provider, torrent streaming in Remux needs **real peer
+connectivity**, which means a gluetun sidecar giving it its own tunnel — the
+arrangement qBittorrent used to have. Cost: ~100 MB on a node at ~90 % memory
+and a second AirVPN session. Debrid would work over the existing HTTP proxy
+because those are plain HTTPS links, but that is explicitly not wanted.
