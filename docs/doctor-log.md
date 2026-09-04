@@ -796,3 +796,64 @@ ArgoCD waits for a sync wave to report healthy, and a running Job never does.
 The two lidarr mass-search Jobs run for days, so the whole `lidarr` Application
 parked at `waiting for healthy state of batch/Job/lidarr-mass-search-a` and a
 NetworkPolicy change would not apply. Moved to a later sync wave.
+
+---
+
+## 2026-09-04 — "Immich ML still isn't connected" — it is; the backlog is not
+
+Reported as a broken connection. It is not one, and the distinction changes
+what to do about it.
+
+**Evidence, from the database rather than from a health check:**
+
+```
+asset                        9676
+smart_search (CLIP)            72
+asset_face                     13
+person                          0
+
+oldest asset WITH embedding      2026-09-04 18:02
+newest asset WITHOUT embedding   2026-09-02 01:25
+assets created since 2026-09-03    72
+  of those, with an embedding      72     <-- 100%
+```
+
+Every asset added since the NetworkPolicy fix has an embedding. Not one added
+before it does. So machine learning is wired correctly and is processing new
+uploads; what is missing is the 9,604 photos imported while the namespace was
+denying its own pods. **Immich never re-queues past assets** - Smart Search and
+Face Detection have to be run for "Missing" from the Jobs page.
+
+`machineLearning: {}` in the config file is fine, verified empirically rather
+than assumed: the empty object inherits the defaults, whose URL
+(`http://immich-machine-learning:3003`) happens to be exactly this Service's
+name in this namespace.
+
+**Do not run that backlog yet.** See below.
+
+### The apiserver died in the middle of investigating it
+
+Every `kubectl exec` and `kubectl logs` started failing mid-session, first as
+`proxy error ... dialing 192.168.1.172:10250, code 502`, then as
+`pod does not exist` for a pod `get pods` was still listing, then finally
+`connection refused` on 6443. That last one is the honest signal: k3s had
+restarted. It came back on its own in about 30 seconds.
+
+```
+NRestarts=9        ActiveEnterTimestamp=Fri 2026-09-04 18:09:25 UTC
+Mem: 13824 total   12536 used   108 free   1322 swap used
+```
+
+**90.7% with 108 MB free and swapping.** ADR-0007's tripwire is 85%. The
+biggest single consumer is Lidarr at 1.58 GB - the mass search, with ~100 hours
+still to run - followed by the Immich ML model at ~1.0 GB resident even while
+idle, Prometheus at 659 MB, and the two Immich processes at ~1.0 GB combined.
+
+So the Immich backlog is 9,600 CLIP embeddings and face passes on a node that
+is already restarting its control plane under the load it has. It would be one
+of the heaviest things this cluster can be asked to do, and it should wait for
+the mass search to finish - or for headroom, which is still decision #1.
+
+**The lesson worth keeping:** "is it connected" and "has it done the work" are
+different questions, and only the second one is answerable from the data. A
+health check would have said Immich ML was fine, and it would have been right.
