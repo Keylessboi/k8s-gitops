@@ -69,6 +69,7 @@ data:
         192.168.1.240 obsidian.sandstorm.chat
         192.168.1.240 alertmanager.sandstorm.chat
         192.168.1.240 invidious.sandstorm.chat
+        192.168.1.240 octo.sandstorm.chat
         # jellyfin removed 2026-09-03 (decommissioned in eb910dc); funkwhale
         # was never listed and is gone as of d066e8c.
         fallthrough

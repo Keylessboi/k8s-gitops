@@ -33,6 +33,9 @@ resources:
   # Octo lives here rather than with Navidrome so its outbound calls inherit
   # this namespace's killswitch - see the header of octo.yaml.
   - octo.yaml
+  # Published so Subsonic clients can reach it; /rest is carved out of
+  # forward-auth the same way Navidrome's is.
+  - octo-ingress.yaml
   # The yt-dlp shim Octo's YouTube source needs; locally built image.
   - octo-yt-dlp-shim.yaml
   - ingress.yaml

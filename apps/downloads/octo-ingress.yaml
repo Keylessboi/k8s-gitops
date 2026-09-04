@@ -1,0 +1,101 @@
+---
+# Strips client-supplied Authentik identity headers on Octo's unauthenticated
+# route. This is not optional hardening - without it the carve-out below is an
+# authentication bypass.
+#
+# Octo proxies straight through to Navidrome, and Navidrome trusts
+# X-authentik-username from any address inside ND_REVERSEPROXYWHITELIST
+# (10.42.0.0/16), which includes Traefik and includes Octo. So on a route that
+# does NOT pass through forward-auth, a header the CLIENT sent would arrive at
+# Navidrome looking exactly like one Authentik issued:
+#   curl -H 'X-authentik-username: admin' https://octo.sandstorm.chat/rest/...
+# would be a full bypass. Same reasoning, same fix as
+# apps/navidrome/strip-auth-headers-middleware.yaml.
+#
+# An empty value is Traefik's delete verb (pkg/middlewares/headers matches
+# value == "" and calls req.Header.Del). A placeholder string would SET the
+# header instead, which is the opposite of the intent.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-auth-headers
+  namespace: downloads
+spec:
+  headers:
+    customRequestHeaders:
+      X-authentik-username: ""
+      X-authentik-groups: ""
+      X-authentik-email: ""
+      X-authentik-uid: ""
+---
+# Octo's Subsonic API, deliberately NOT behind forward-auth.
+#
+# WHY: Subsonic clients (Symfonium, DSub, play:Sub) authenticate with a
+# username and token in the request itself and cannot follow an OAuth redirect
+# - the same reason apps/navidrome/subsonic-ingress.yaml exists. Octo enforces
+# Subsonic auth on its own: verified 2026-09-04, a request with no credentials
+# returns error code 10 ("missing parameter: 'u'") and one with wrong
+# credentials returns code 40 ("Wrong username or password"). It is not an open
+# endpoint.
+#
+# This is the route that makes "a friend recommends something and I can play it
+# straight away" work: Octo answers /rest itself for search that reaches past
+# the library, Last.fm radio and YouTube previews, and proxies everything else
+# to Navidrome - so ONE Subsonic source in Symfonium covers both the owned
+# library and things not yet owned.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: octo-subsonic
+  namespace: downloads
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    # CrowdSec and the rate limit still apply. Forward-auth deliberately does
+    # not; strip-auth-headers takes its place as the safety property.
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,downloads-strip-auth-headers@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [octo.sandstorm.chat]
+      secretName: octo-tls
+  rules:
+    - host: octo.sandstorm.chat
+      http:
+        paths:
+          - path: /rest
+            pathType: Prefix
+            backend:
+              service:
+                name: octo
+                port:
+                  number: 5274
+---
+# Everything that is not the Subsonic API keeps forward-auth. Octo has no web
+# UI of its own today, so in practice this route exists to make sure any future
+# admin surface is gated by default rather than exposed by omission.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: octo
+  namespace: downloads
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [octo.sandstorm.chat]
+      secretName: octo-tls
+  rules:
+    - host: octo.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: octo
+                port:
+                  number: 5274
