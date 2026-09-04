@@ -1,5 +1,47 @@
 # What a new Authentik account gets
 
+## The workflow, start to finish
+
+1. Go to **https://accounts.sandstorm.chat** (you must be in `authentik
+   Admins`). Enter a username, email and password. That creates the authentik
+   account *and* the two apps that need their own credential — Invidious and
+   remux — with the same password.
+2. Tell the person to log in anywhere. Navidrome, Immich, Nextcloud, Forgejo,
+   Vaultwarden and qui provision themselves on first login.
+3. **Decide what they should see** — see the next section, which is the part
+   that used to be wrong.
+
+Re-submitting the same form with a new password rotates it across authentik and
+remux. Invidious cannot be realigned (no admin password reset upstream) and
+says so rather than pretending.
+
+## ⚠ Application access, and what it used to be
+
+Until 2026-09-04, **every published application was open to every authentik
+user.** `policy_engine_mode` was `any` on all of them and not one had a group
+binding, so the first guest account created would have been handed Lidarr,
+Prowlarr, Grafana, Alertmanager, bitmagnet and qui along with the photos.
+
+The monitoring and download-automation tools are now bound to the **`authentik
+Admins`** group:
+
+| Restricted to `authentik Admins` | Open to any authentik user |
+|---|---|
+| Grafana, Alertmanager | Immich, Navidrome, Invidious |
+| Lidarr, Prowlarr, bitmagnet, qui | Nextcloud, Vaultwarden, remux |
+| accounts (this tool) | ConvertX, Books/Calibre-Web |
+
+**Left open on purpose, because they are your call, not an obvious default:**
+Pelican (do friends get game servers?), Forgejo (do they get repos?), and
+bookdl / book-downloader (request books, or admin-only?). Bind any of them the
+same way — Applications → the app → Policy/Group/User Bindings → bind
+`authentik Admins`, or create a narrower group first.
+
+A binding is checked *after* login, so a restricted app still redirects an
+unauthorised person to authentik and then refuses; it does not 404.
+
+
+
 Short answer: **the three services you asked about already provision
 themselves, and Invidious is the one that cannot.** This file records which is
 which and why, because "does a new user get an account here?" is answered
