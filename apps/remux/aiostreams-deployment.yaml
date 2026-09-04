@@ -60,10 +60,15 @@ spec:
             # Reached only over the cluster-internal Service by remux, and by
             # the owner via `kubectl port-forward` to configure it; it is not
             # exposed through Traefik (its config UI holds debrid keys and must
-            # not be public). The base URL stays loopback - AIOStreams serves
-            # its own configure UI on localhost within this pod.
+            # not be public).
+            #
+            # BASE_URL is NOT cosmetic and must NOT be loopback: AIOStreams
+            # builds its install/manifest URLs and its built-in addons' stream
+            # URLs from it. Pointed at localhost, every such URL it hands remux
+            # resolves to remux's OWN pod, not to AIOStreams. The Service name
+            # is the address that is correct from every consumer in the cluster.
             - name: BASE_URL
-              value: http://localhost:3000
+              value: http://aiostreams.remux.svc.cluster.local:3000
             - name: PORT
               value: "3000"
             # Encrypts the stored addon configuration; the manifest URL Gelato
@@ -100,23 +105,35 @@ spec:
                   key: db-password
             - name: DATABASE_URI
               value: postgres://$(DB_USER):$(DB_PASSWORD)@app-databases-rw.databases.svc.cluster.local:5432/aiostreams
+            # ADDON_PROXY is the one that actually works, and the reason the
+            # two below never did.
+            #
+            # AIOStreams is Node, and its outbound calls go through undici's
+            # fetch(), which does NOT read HTTP_PROXY/HTTPS_PROXY - Node has no
+            # implicit proxy support. So with only those set, every outbound
+            # request was attempted DIRECTLY, and the namespace killswitch
+            # correctly denied it. That is why saving a Torrentio preset failed
+            # with "Failed to fetch manifest for Torrentio p2p: fetch failed"
+            # and why the anime-database fetcher looped on
+            #   ECONNREFUSED 140.82.114.3:443  (github.com)
+            # Neither was a policy gap; both were the app never using a proxy.
+            #
+            # ADDON_PROXY is AIOStreams' own setting: it installs an undici
+            # ProxyAgent on the request helper every addon fetch goes through.
+            # ADDON_PROXY_CONFIG maps hosts to it - `*:true` sends everything,
+            # and the explicit `:false` entries keep in-cluster calls
+            # (self-scraping detection hits BASE_URL) off the tunnel, where
+            # gluetun could not resolve them anyway.
+            - name: ADDON_PROXY
+              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            - name: ADDON_PROXY_CONFIG
+              value: "*:true,aiostreams.remux.svc.cluster.local:false,localhost:false,127.0.0.1:false"
+            # Kept because some libraries in the dependency tree do honour them
+            # (anything built on node-fetch or axios rather than undici).
             - name: HTTP_PROXY
               value: http://vpn-gateway.vpn.svc.cluster.local:8888
             - name: HTTPS_PROXY
               value: http://vpn-gateway.vpn.svc.cluster.local:8888
-            # KNOWN LIMITATION, 2026-09-03. These proxy variables are honoured
-            # by the stream-query path but NOT by the anime-database fetcher,
-            # which logs
-            #   ECONNREFUSED 140.82.114.3:443  (github.com)
-            # in a loop. 140.82.114.3 is GitHub, and the connection is DIRECT -
-            # the killswitch in networkpolicy.yaml correctly denies it, because
-            # the only permitted egress is the VPN gateway.
-            #
-            # So this is the app bypassing its own proxy configuration, not a
-            # policy gap, and it is deliberately NOT "fixed" by allowing direct
-            # egress to GitHub: that would punch a hole in the VPN killswitch
-            # for an optional anime-metadata refresh. Stream queries - the
-            # reason this runs at all - are unaffected.
             #
             # If it ever matters, the fix belongs upstream (make the fetcher use
             # the proxy) or in a sidecar that mirrors the database locally.
