@@ -118,15 +118,33 @@ spec:
               # failed to import with a permissions error.
               chown -R 1000:1000 /app
               mkdir -p /data/torrents/soulseek/incomplete
-              # Recursively chown the Soulseek tree only. busybox 1.36 find has
-              # no -uid predicate (it errors), so a conditional "repair only
-              # mis-owned" find silently does nothing - a plain chown -R is what
-              # actually works here. This is scoped to the Soulseek subtree, not
-              # all of /data, so it stays cheap and never becomes the full-tree
-              # NFS chown that fsGroup would cause (which is why fsGroup is
-              # deliberately NOT set on this pod - its /data mount is the whole
-              # media library).
-              chown -R 1000:1000 /data/torrents/soulseek
+              # Repair ownership of the Soulseek tree ONLY WHEN THE ROOT IS
+              # WRONG - the same rule fsGroupChangePolicy: OnRootMismatch
+              # applies, and for the same reason.
+              #
+              # This was an unconditional `chown -R` and it made the pod
+              # effectively un-restartable. Measured 2026-09-04: 43,147 files
+              # and 752 GB under that tree, on NFS. The chown sat in
+              # uninterruptible sleep (state D) for over 20 minutes across two
+              # pod recreations, holding the whole Deployment at Init:0/2 -
+              # qBittorrent, slskd and the gluetun-less network path all down
+              # with it. It gets worse every time the library grows, which is
+              # the property that makes it a trap rather than a slow step: it
+              # was fine when it was written.
+              #
+              # The previous comment concluded a conditional repair was
+              # impossible because busybox find has no -uid predicate. True,
+              # but the test does not need find: stat the directory itself.
+              # If the root is already uid 1000 the tree was chowned on a
+              # previous start and nothing has changed it, so the walk is
+              # skipped entirely and startup is instant. If ownership really
+              # did change, the full repair still runs exactly as before.
+              if [ "$(stat -c %u /data/torrents/soulseek)" = "1000" ]; then
+                echo "soulseek tree already owned by 1000, skipping chown -R"
+              else
+                echo "soulseek tree root mis-owned, repairing (this walks 40k+ files over NFS)"
+                chown -R 1000:1000 /data/torrents/soulseek
+              fi
               echo "slskd.yml rendered and ownership repaired"
           env:
             - name: SLSKD_API_KEY
