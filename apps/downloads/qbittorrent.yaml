@@ -2,9 +2,11 @@
 # qBittorrent + slskd + seedboxapi, routed through the shared VPN gateway.
 #
 # The gluetun sidecar has been removed. All three network-speaking containers
-# route through the VPN gateway's Shadowsocks proxy (port 8388) for outbound
-# traffic: qBittorrent's tracker/peer TCP connections, slskd's Soulseek
-# connections, and seedboxapi's MAM API calls.
+# route through the VPN gateway's plain SOCKS5 sidecar (port 1080) for
+# outbound traffic: qBittorrent's tracker/peer TCP connections, slskd's
+# Soulseek connections, and seedboxapi's MAM API calls. Port 8388 on the same
+# gateway is Shadowsocks - an encrypted protocol none of these three clients
+# speak - and every one of them was pointed at it until 2026-09-05.
 #
 # The killswitch is enforced by the downloads NetworkPolicy: egress is locked
 # to DB, redis, DNS, the VPN gateway proxy, and the kube-system OIDC
@@ -225,13 +227,25 @@ spec:
             - name: TZ
               value: UTC
             # Route Soulseek connections through the shared VPN gateway's
-            # Shadowsocks proxy. slskd honours these env vars natively.
+            # PLAIN SOCKS5 sidecar (:1080), not Shadowsocks (:8388).
+            #
+            # slskd's slsk.proxy is a SOCKS5 client. Shadowsocks is a
+            # different, encrypted protocol that does not answer a SOCKS5
+            # greeting, so this pointed at 8388 could never connect - and did
+            # not, for as long as it has existed: the log showed 124
+            # consecutive "Failed to connect to 208.76.170.59:2271:
+            # Connection refused" reconnects, and every Octo search returned
+            # "The server connection must be connected and logged in to
+            # perform a search (currently: Disconnected)".
+            #
+            # Same root cause as qBittorrent's [Proxy] block above. Both
+            # NetworkPolicies already admitted 1080.
             - name: SLSKD_SLSK_PROXY
               value: "true"
             - name: SLSKD_SLSK_PROXY_ADDRESS
               value: vpn-gateway.vpn.svc.cluster.local
             - name: SLSKD_SLSK_PROXY_PORT
-              value: "8388"
+              value: "1080"
           ports:
             - name: slskd
               containerPort: 5030
@@ -457,8 +471,11 @@ spec:
             # `kubectl logs` on this namespace can read it. The undebugged
             # output ("Session is valid", "No IP change detected", "New IP
             # detected") is enough to tell whether it is working.
+            # socks5h:// needs a real SOCKS5 listener. 8388 is Shadowsocks,
+            # which curl cannot speak - so the MAM session/IP update has been
+            # failing the same way slskd was. 1080 is the plain SOCKS5 sidecar.
             - name: all_proxy
-              value: socks5h://vpn-gateway.vpn.svc.cluster.local:8388
+              value: socks5h://vpn-gateway.vpn.svc.cluster.local:1080
             - name: TZ
               value: UTC
           resources:
