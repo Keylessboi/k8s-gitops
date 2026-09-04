@@ -1,14 +1,16 @@
 ---
 # notes.sandstorm.chat.
 #
-# forward-auth IS present, but unlike Navidrome or Invidious it is not the only
-# gate: Memos does its own OIDC against authentik and keeps real per-user
-# accounts. Two layers, and they answer different questions - the middleware
-# decides who reaches the app, Memos decides whose notes they see.
+# NO forward-auth, and that is deliberate - it is how every OIDC app here is
+# published (Immich, Nextcloud, Grafana all carry only crowdsec + rate-limit).
+# Memos does its own OIDC against authentik and keeps real per-user accounts,
+# so the middleware would be a second, redundant gate.
 #
-# The /auth/callback path still passes through the same middleware; the
-# redirect back from authentik carries an authentik session cookie, so
-# forward-auth admits it without a second prompt.
+# It also does not WORK: the forward-auth middleware asks authentik's embedded
+# outpost about the incoming host, and the outpost only knows hosts that have a
+# PROXY provider. Memos has an OAuth2 provider instead, so the outpost has no
+# entry for notes.sandstorm.chat and answers 404 - which is exactly what this
+# host returned until the middleware was removed. Verified, not assumed.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -17,7 +19,7 @@ metadata:
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
 spec:
   ingressClassName: traefik
   tls:
