@@ -4,6 +4,69 @@ State captured across outages and their recoveries. Newest first.
 
 ---
 
+# ✅ 2026-09-04 — Pelican working; Octo integrations audited
+
+## 🎮 Pelican: you own a server
+`Minecraft`, owner `travis`, **1536 MB / 8192 MB, status ready**, `server.jar`
+installed by Wings. Node still had 2060 MiB free with it stopped.
+
+Three separate faults, all presenting as "you don't own any servers":
+1. **Wings was never installed** — config, node registration, CA and certs had
+   existed since 31 Aug; only the binary was missing from CT 200.
+2. **No account had a role.** Pelican uses Filament Shield, not Pterodactyl's
+   `root_admin` column. `Root Admin` existed assigned to nobody, because
+   **Authentik OIDC provisions users with no role** — correct as a default, but
+   it means the first admin must be assigned by hand.
+3. **The Spatie permission cache.** `permission:assign-role` wrote the row but
+   the role did not take effect until `permission:cache-reset`. Verified with
+   `isRootAdmin(): true` rather than assumed.
+
+⚠️ ADR-0006's 6144 MiB is a panel-side **cap, not physical memory**. The node
+has ~2 GB free. Size servers against `free -m`, not the governor.
+
+## 🎵 Octo integration audit — two were silently dead
+Every integration is configured, but three pulled from secrets and **all three
+references are `optional: true`, so a missing credential is a missing feature
+with no error anywhere.** That is why these had to be hunted rather than
+reported.
+
+| Integration | State |
+|---|---|
+| Navidrome proxy | ✅ working |
+| slskd / Soulseek | ✅ configured (default `slskd`/`slskd` creds) |
+| YouTube preview | ✅ shim built today, yt-dlp resolves through AirVPN |
+| Last.fm discovery | ✅ **was dead** — no DopplerSecret existed at all |
+| Lidarr "heart to keep" | ✅ **was dead** — `secret/lidarr-api` did not exist in `downloads`; secrets cannot cross namespaces |
+| Navidrome **admin** ops | ❌ **still missing** — see below |
+
+### ⛔ Outstanding: Octo has no Navidrome admin credentials
+`Subsonic__AdminUsername` / `Subsonic__AdminPassword` read
+`navidrome-admin-username` / `navidrome-admin-password` from `secret/octo`.
+Neither key exists, **and no `NAVIDROME_*` credential exists in Doppler at
+all** — Navidrome authenticates by reverse-proxy header, so there is no
+obvious account to reuse.
+
+Impact is bounded: proxying and per-user Subsonic auth work fine (clients pass
+their own credentials). What will not work is Octo's own library operations
+against Navidrome — e.g. triggering a rescan after "heart to keep" pulls a
+FLAC, so a newly acquired track may not appear until the next scheduled scan.
+
+**Needs the owner:** decide which Navidrome account Octo should present, then
+add `NAVIDROME_ADMIN_USER` / `NAVIDROME_ADMIN_PASSWORD` to Doppler and map them
+into `secret/octo`.
+
+### 🚫 Symfonium will never work with Octo
+Confirmed in Octo's own README: *"Symfonium is the one that genuinely cannot
+work. It syncs your library to the device and searches locally, so a search
+never reaches Octo."* Architectural, not a setting — Symfonium's own forum
+lists server-side search as an open feature request.
+
+**Use Symfonium → Navidrome** for the owned library, and a supported client
+(**Tempus**, Tempo, DSub, Ultrasonic, Audinaut, SubTracks) → **Octo** for
+discovery.
+
+---
+
 # ✅ 2026-09-04 (late) — Octo published, loki canary fixed, orphans swept
 
 ## 🎵 Octo is live — this is the "friend recommends something" answer
