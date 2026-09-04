@@ -216,17 +216,3 @@ spec:
   owner: memos
   cluster:
     name: app-databases
----
-# Blinko. Its data used to live in a postgres:14 container on the NAS whose
-# container had been deleted, leaving the app up but unable to reach a database
-# at all - 71 notes stranded in an orphaned data directory.
-apiVersion: postgresql.cnpg.io/v1
-kind: Database
-metadata:
-  name: blinko
-  namespace: databases
-spec:
-  name: blinko
-  owner: blinko
-  cluster:
-    name: app-databases

@@ -128,12 +128,6 @@ spec:
         login: true
         passwordSecret:
           name: memos-db-credentials
-      # Blinko (notes), migrated off the NAS's stray docker-compose postgres:14.
-      - name: blinko
-        ensure: present
-        login: true
-        passwordSecret:
-          name: blinko-db-credentials
   # Backups to MinIO on the NAS.
   #
   # This block previously authenticated with a `minio-creds` secret whose

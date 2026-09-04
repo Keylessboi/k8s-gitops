@@ -53,9 +53,6 @@ spec:
               kubernetes.io/metadata.name: memos
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: blinko
-        - namespaceSelector:
-            matchLabels:
               kubernetes.io/metadata.name: remux
         - namespaceSelector:
             matchLabels:
