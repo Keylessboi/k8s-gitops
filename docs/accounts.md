@@ -72,6 +72,23 @@ removed long ago, so there is no API to provision against — and provisioning
 directly into its `users` table does not help either, because login needs a
 password the new person would then have to be told.
 
+### A property of Invidious worth knowing before you touch it
+
+**On Invidious, a login attempt for an unknown user CREATES that user.** Login
+and signup are the same POST and the branch is chosen by whether the account
+exists (`src/invidious/routes/login.cr`). There is no read-only way over HTTP
+to ask whether an account is there — asking makes it so.
+
+That has two consequences:
+
+- "Check whether the account exists by trying to log in" is a **write**. It
+  silently recreated four accounts I had just deleted while I was verifying
+  the deletion had worked.
+- `registration_enabled: true` is doing more work than it looks like. It is
+  not only "the Register button works" — it is also "any username that reaches
+  the login form with a password becomes an account". Which is precisely why
+  forward-auth in front of it is load-bearing rather than belt-and-braces.
+
 So `registration_enabled: true` stays on, and it is safe *only* because the
 vhost runs `authentik-forward-auth`: the registration form cannot be reached
 without an Authentik session. **If forward-auth is ever removed from
