@@ -80,6 +80,11 @@ metadata:
   name: octo
   namespace: downloads
   annotations:
+    # The issuer lives on THIS ingress only. octo-subsonic references the same
+    # octo-tls secret without an annotation, because two ingresses both asking
+    # cert-manager for one secret race each other - the same arrangement
+    # apps/navidrome/subsonic-ingress.yaml documents.
+    cert-manager.io/cluster-issuer: letsencrypt-prod
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.middlewares: >-
       kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
