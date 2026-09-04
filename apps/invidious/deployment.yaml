@@ -126,6 +126,25 @@ spec:
               # observed as 'audio plays, video never'. Proxied, the cluster
               # fetches both streams and the browser only talks to invidious.
               proxy_videos: true
+              # ACCOUNTS. Invidious has no OIDC and never has - its only
+              # non-local auth was Google, removed years ago - so it is the one
+              # published app where an Authentik account cannot become an app
+              # account by itself. Navidrome auto-creates from the forward-auth
+              # username header, Immich auto-registers on first OIDC login, and
+              # qui keeps no local user at all; Invidious needs the person to
+              # click Register once and choose a password.
+              #
+              # That is safe to leave open ONLY because this vhost runs
+              # authentik-forward-auth (see ingress.yaml), so the registration
+              # form is unreachable without an Authentik session in the first
+              # place. If forward-auth is ever removed from that ingress, this
+              # MUST become false in the same commit.
+              #
+              # Both are Invidious defaults today; they are written out so an
+              # upstream default flip cannot silently lock everyone out, or
+              # silently open the form to the internet.
+              registration_enabled: true
+              login_enabled: true
               hmac_key: "${HMAC_KEY}"
               invidious_companion_key: "${COMPANION_KEY}"
               invidious_companion:
