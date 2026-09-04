@@ -104,3 +104,11 @@ spec:
               kubernetes.io/metadata.name: vpn
       ports:
         - {port: 8888, protocol: TCP}
+        # 8388 = the gateway's Shadowsocks port, usable as a SOCKS5 proxy.
+        # This is the path BitTorrent peer traffic has to take: an HTTP CONNECT
+        # proxy on 8888 cannot carry peer or DHT connections, which is why
+        # qBittorrent routes through 8388 with UseProxyForPeerConnections=true
+        # rather than through 8888. Remux's built-in torrent streaming needs the
+        # same road, and without this rule its only egress is HTTP - so it can
+        # fetch an addon's stream list and then reach none of the peers on it.
+        - {port: 8388, protocol: TCP}

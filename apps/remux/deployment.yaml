@@ -96,6 +96,20 @@ spec:
               value: http://vpn-gateway.vpn.svc.cluster.local:8888
             - name: HTTPS_PROXY
               value: http://vpn-gateway.vpn.svc.cluster.local:8888
+            # SOCKS5 to the VPN gateway's Shadowsocks port, for anything that
+            # is not plain HTTP - specifically the built-in torrent engine's
+            # peer and tracker connections. HTTP_PROXY below only covers HTTP,
+            # and the namespace has no direct internet egress at all (verified:
+            # a direct connection returns rc=7), so without this the torrent
+            # engine can list streams and reach no peers.
+            #
+            # Same road qBittorrent takes - it sets Type=5, Port=8388 and
+            # UseProxyForPeerConnections=true - so this is the proven pattern
+            # here, not a new one.
+            - name: ALL_PROXY
+              value: socks5://vpn-gateway.vpn.svc.cluster.local:8388
+            - name: all_proxy
+              value: socks5://vpn-gateway.vpn.svc.cluster.local:8388
             - name: NO_PROXY
               value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,aiostreams.remux.svc.cluster.local"
           ports:
