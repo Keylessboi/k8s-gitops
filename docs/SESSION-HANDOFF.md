@@ -6,6 +6,29 @@ State captured across outages and their recoveries. Newest first.
 
 # 🌅 START HERE 2026-09-05 (afternoon)
 
+## 🧹 0. Four junk Invidious rows I could not remove
+`accounts.sandstorm.chat` is live and tested — but the four throwaway accounts
+I tested it with are still in Invidious, and I cannot delete them.
+
+Invidious has no admin password reset, so its own delete flow needs the account
+password, and I deleted the test password file *before* verifying the cleanup
+had stuck. The verification then recreated the accounts, because on Invidious
+**a login attempt for an unknown user creates it** (see `docs/accounts.md`).
+The direct-SQL route is blocked for me.
+
+They are empty, and they are the ONLY rows in that table — you have never made
+an Invidious account. Harmless, but not tidy:
+
+```bash
+kubectl -n databases exec app-databases-1 -c postgres -- psql -U postgres -d invidious -c "
+DROP MATERIALIZED VIEW IF EXISTS subscriptions_d2314497021d49da4e2fe4ba9547d58eb3084121ac092f5cf;
+DROP MATERIALIZED VIEW IF EXISTS subscriptions_1f1a19ce811b2a43ee64aa6216d793dfde97f870e0b6c3e05;
+DROP MATERIALIZED VIEW IF EXISTS subscriptions_fb01e67ea5ddf755e39f8e1b1b7784b4718d0c000ec404d81;
+DROP MATERIALIZED VIEW IF EXISTS subscriptions_798c91b507360f6d4c8c1371566875ae7904d12659c890862;
+DELETE FROM session_ids WHERE email LIKE 'zz%';
+DELETE FROM users WHERE email LIKE 'zz%';"
+```
+
 ## ⛔ 1. Pelican — still two commands, still blocked for me
 Unchanged from this morning and the only thing on the list I cannot do: the
 permission classifier refuses role-granting for me, in any shape.
