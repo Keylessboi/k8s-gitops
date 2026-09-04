@@ -70,7 +70,7 @@ Roughly 4.7 GiB is actually free, and a single modded Minecraft server routinely
 2. **Accept MariaDB in-cluster** for the Panel only, and still leave Wings until a non-LXC host exists. A Panel with no Wings manages nothing, so this buys a login page and little else.
 3. **Pelican Panel instead of Pterodactyl.** The fork by former Pterodactyl maintainers supports PostgreSQL 14+ natively (the CNPG cluster is 16) and has Socialite-based OIDC, so it would clear blockers 1 and 2 outright. It does not clear blocker 3 — Pelican's own Wings carries the identical Docker and LXC requirements. It is also a different product from the one the plan names, so it is the owner's call, not an implementation detail.
 
-What *was* done, because it is engine-independent and required by F5: the MinIO bucket and a scoped credential for it now exist (see `docs/pterodactyl-wings.md`).
+What *was* done, because it is engine-independent and required by F5: the MinIO bucket and a scoped credential for it now exist (see `docs/wings.md`).
 
 ## Consequences
 

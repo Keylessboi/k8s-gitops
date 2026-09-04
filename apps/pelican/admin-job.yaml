@@ -1,7 +1,7 @@
 ---
 # First admin account. Pelican has no first-run web wizard once APP_INSTALLED is
 # true (we bypass the installer), so the first admin is made on the CLI with
-# `p:user:make` — exactly as docs/pterodactyl-wings.md notes for the panel.
+# `p:user:make` — exactly as docs/wings.md notes for the panel.
 #
 # Runs as an ArgoCD PostSync hook so it fires AFTER the Deployment is healthy,
 # i.e. after the entrypoint's `migrate --force` has created the schema. The

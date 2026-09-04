@@ -3,7 +3,7 @@
 Pelican Panel is deployed in `apps/pelican/`. It is the successor to Pterodactyl
 and was chosen because Pterodactyl v1.15.1 cannot run on this cluster at all
 (no `pdo_pgsql`, no OIDC — see [ADR-0005](adr/0005-pterodactyl-needs-mysql-and-kvm.md)).
-This doc is the Pelican-specific companion to [pterodactyl-wings.md](pterodactyl-wings.md),
+This doc is the Pelican-specific companion to [wings.md](wings.md),
 much of which (S3 presigned-URL flow, node handshake, ports) applies unchanged.
 
 ## What is deployed
@@ -90,6 +90,6 @@ on postmarketOS. Findings:
   practical). With 3.5 GB RAM per phone, a single small Minecraft Java server is
   the realistic workload per node.
 - Node registration, ports (8080 API, 2022 SFTP, 25565+ allocations) and the
-  token handshake are unchanged from [pterodactyl-wings.md](pterodactyl-wings.md).
+  token handshake are unchanged from [wings.md](wings.md).
   The node token is a standing credential and belongs in Doppler when a phone is
   actually enrolled.

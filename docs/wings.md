@@ -1,10 +1,21 @@
-# Pterodactyl: Panel and Wings setup
+# Wings: the game-server daemon
 
-Phase 2 items 20 and 21. **Nothing is deployed yet** — read
-[ADR-0005](adr/0005-pterodactyl-needs-mysql-and-kvm.md) first for why, and for
-the three options between which the owner has to choose. This file is the
-build sheet for when that choice is made: what the host needs, how the Panel and
-Wings find each other, and what already exists.
+**Wings is what actually runs game servers.** The Pelican panel is only the web
+UI and the database; it places servers onto a *node*, and a node is a host
+running Wings. With no Wings registered, the panel is correct but empty and the
+UI says you own no servers.
+
+This file was `pterodactyl-wings.md`, which was confusing for a good reason:
+**Pterodactyl was rejected** (see [ADR-0005](adr/0005-pterodactyl-needs-mysql-and-kvm.md)
+— no `pdo_pgsql`, no OIDC) and [Pelican](pelican.md) was deployed instead. But
+Pelican is a Pterodactyl fork and runs **the same Wings daemon**, so everything
+here about the host, the ports and the panel↔Wings handshake applies unchanged.
+Only the panel half was Pterodactyl-specific, and that has been removed — see
+[pelican.md](pelican.md) for the panel.
+
+Where Wings runs, and under what governors, is decided in
+[ADR-0006](adr/0006-wings-on-the-node.md): a systemd service on CT 200 with its
+own docker-ce, 6144 MiB RAM and 10240 MiB disk allocated, 0% overallocate.
 
 ## Already provisioned (2026-08-28)
 
@@ -56,7 +67,16 @@ things it is fussy about are not negotiable.
   allocated in the Panel is what Docker will let them take. Size the host so the
   sum of allocations leaves the host itself room; do not rely on overcommit.
 - **Disk** on something that tolerates many small writes — game servers are
-  chatty. Not the NFS media pool.
+  chatty. **Not the NFS media pool**, and this is not a preference: Minecraft
+  rewrites region files constantly, and a world living on NFS produces lag
+  spikes and save timeouts rather than a slow-but-working server.
+
+  **Decided 2026-09-04:** active server data stays on the node's local disk;
+  **backups go to the NAS**, via Wings' own backup mechanism into
+  `s3://pterodactyl-backups` on the NAS MinIO (the bucket and credential in
+  "Already provisioned" above). That is the arrangement that satisfies both
+  requirements — fast where writes happen, durable where it matters — rather
+  than putting the live world on NFS and losing both.
 
 ### Ports
 
@@ -91,61 +111,13 @@ manager connect to Wings **from the user's browser**, not server-side. So the
 Wings FQDN has to be resolvable and TLS-valid from outside, not just from the
 cluster, or the Panel loads and every server console sits blank.
 
-## What the Panel needs
+## The panel
 
-- **MySQL 8 or MariaDB 10.2+.** Not Postgres — see ADR-0005. If a KVM compute
-  node is the chosen path, the cleanest placement is MariaDB on that host
-  alongside Wings, which keeps a second engine out of k3s entirely.
-- **Redis** for cache, session and queue. The existing `redis-master.redis.svc.cluster.local:6379`
-  serves this; Pterodactyl reads `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD`
-  and takes separate logical databases for default and sessions, so it does not
-  collide with the other tenants.
-- **`APP_KEY`**, a base64 32-byte Laravel key. Generate once, store in Doppler,
-  and never rotate casually — it encrypts the Wings node tokens in the database,
-  so changing it silently breaks every node.
-- **A queue worker.** Pterodactyl needs `php artisan queue:work` running
-  alongside the web container, or scheduled tasks and backups queue up forever
-  and nothing tells you. This is a second container in the same pod, not an
-  afterthought.
-- **The scheduler**, `php artisan schedule:run` every minute.
-
-### Admin account
-
-There is no first-run web wizard — the first admin is made on the CLI:
-
-```
-php artisan p:user:make --email=<addr> --username=<name> \
-  --name-first=<first> --name-last=<last> --admin=1 --password=<pw>
-```
-
-Run it as a Kubernetes Job (or `kubectl exec`) once the Panel is up. The
-password belongs in Doppler as `PTERODACTYL_ADMIN_PASSWORD` before the Job runs,
-read via `secretKeyRef` — never as a literal in the manifest, and never typed
-interactively where it lands in shell history.
-
-### Authentication
-
-Pterodactyl `v1.15.1` has no OIDC, OAuth2 or SAML — verified against
-`routes/auth.php` and `composer.json` at that tag. The realistic option is
-Authentik **forward-auth** on the Ingress, exactly as
-`apps/prowlarr/ingress.yaml` does it, combined with a Panel-local admin account.
-
-Be clear about what that does and does not buy, because it is the same trade-off
-ADR-0003 records for Navidrome: forward-auth authenticates at the edge, but the
-Panel's own user model never learns who the visitor is. Panel accounts are
-maintained separately, and removing someone from Authentik does not remove their
-Panel account. It is a gate in front of the app, not single sign-on into it.
-
-Two carve-outs will be needed and are easy to miss:
-
-- `/api/*` — the Panel's client and application APIs use bearer tokens. Behind
-  forward-auth they get an HTML login redirect instead of JSON.
-- The Wings↔Panel callbacks. Wings is not a browser and cannot complete an
-  Authentik redirect.
-
-If native OIDC is a hard requirement rather than a preference, Pelican Panel is
-the option that actually has it (Laravel Socialite, with Authentik among the
-configurable providers) — see option 3 in ADR-0005.
+Pelican, not Pterodactyl. See [pelican.md](pelican.md) — it uses the shared
+CNPG Postgres and Authentik OIDC, which is precisely what Pterodactyl could not
+do and why it was rejected. The MySQL requirement, the `p:user:make` CLI and the
+"no OIDC" workaround that used to be documented here were Pterodactyl-only and
+no longer apply.
 
 ## Game server creation, once it works
 

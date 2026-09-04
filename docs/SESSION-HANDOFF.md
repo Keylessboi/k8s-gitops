@@ -63,7 +63,7 @@ its own docker-ce, RAM governor 6144 MiB, disk 10240 MiB, private CA signing
 its cert, node FQDN `192.168.1.172`.
 
 **⚠️ The NAS request conflicts with a documented decision.**
-`docs/pterodactyl-wings.md` says server disk must be "on something that
+`docs/wings.md` says server disk must be "on something that
 tolerates many small writes — game servers are chatty. **Not the NFS media
 pool.**" Minecraft writes chunks and region files constantly; on NFS that is
 lag spikes and timeouts, and it is a well-known bad pattern.
@@ -71,7 +71,7 @@ lag spikes and timeouts, and it is a well-known bad pattern.
 The resolution that satisfies both: **active world data on local disk,
 backups to the NAS.** Wings' own backup mechanism already targets
 `s3://pterodactyl-backups` on the NAS MinIO (documented in
-pterodactyl-wings.md). Fast where it must be, durable where it matters.
+wings.md). Fast where it must be, durable where it matters.
 
 ---
 

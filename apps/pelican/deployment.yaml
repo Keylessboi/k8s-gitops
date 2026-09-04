@@ -96,7 +96,7 @@ spec:
               value: "true"
             # Persistent APP_KEY. It encrypts Wings node tokens, so it is
             # generated ONCE, stored in Doppler, and never rotated — rotating it
-            # would force re-registration of every node. (docs/pterodactyl-wings.md)
+            # would force re-registration of every node. (docs/wings.md)
             - name: APP_KEY
               valueFrom:
                 secretKeyRef: {name: pelican-app, key: app-key}
@@ -148,7 +148,7 @@ spec:
             # (verified in database/migrations/*_create_backup_hosts_table.php).
             # Wings signs nothing here — the Panel signs presigned URLs and Wings
             # (on the phones) does the upload, so the phone also needs a route to
-            # 192.168.1.67:9000 (docs/pterodactyl-wings.md).
+            # 192.168.1.67:9000 (docs/wings.md).
             - name: APP_BACKUP_DRIVER
               value: s3
             - name: AWS_DEFAULT_REGION
