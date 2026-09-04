@@ -113,6 +113,28 @@ spec:
             # header from a whitelisted address is logged in WITHOUT a
             # password, so every route that does not run forward-auth must
             # delete it first - see strip-auth-headers-middleware.yaml.
+            # Last.fm scrobbling. Enabling it only makes the option appear;
+            # each listener still authorises their own account from
+            # Settings -> Last.fm in the Navidrome UI, so no personal
+            # credential lives here - these two values identify the
+            # application, nothing more.
+            #
+            # BOTH are required. A scrobble is a signed write and the
+            # signature uses the shared secret, so an API key alone
+            # authenticates reads and then fails at submission - which looks
+            # like "scrobbling silently does nothing" rather than an error.
+            - name: ND_LASTFM_ENABLED
+              value: "true"
+            - name: ND_LASTFM_APIKEY
+              valueFrom:
+                secretKeyRef:
+                  name: navidrome-lastfm
+                  key: apikey
+            - name: ND_LASTFM_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: navidrome-lastfm
+                  key: secret
             - name: ND_REVERSEPROXYUSERHEADER
               value: X-authentik-username
           ports:
