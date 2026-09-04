@@ -542,7 +542,12 @@ helmCharts:
         # writes a line and then reads it back. A broken canary is the
         # "silent success" shape this cluster keeps producing: present,
         # green-looking, and verifying nothing.
-        lokiurl: http://loki.monitoring.svc.cluster.local:3100
+        # NO SCHEME. The chart prepends http:// itself and URL-encodes what
+        # it is given, so passing a full URL produced
+        #   http://http:%2F%2Floki.monitoring.svc.cluster.local:3100/...
+        #   invalid URL escape "%2F"
+        # which failed exactly as loudly as the gateway it replaced.
+        lokiurl: loki.monitoring.svc.cluster.local:3100
       # Pin the ServiceAccount name. Chart 6.46.0 changed the default from
       # the chart name (`loki`) to the fullname (`loki-loki`) - without this
       # pin the upgrade renames the SA out from under the running pod and
