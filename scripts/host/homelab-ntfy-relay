@@ -13,6 +13,8 @@ switch and must stay as dumb as it is.
 WHAT IT ACCEPTS
   POST /<topic>                 body + headers forwarded to ntfy as-is
   POST /alertmanager/<topic>    an Alertmanager webhook, rendered readable
+  POST /                        ntfy's own JSON publish shape, {"topic": ...}
+                                - this is what the *arr apps send
   GET  /healthz                 200 for probes
 
 Topics are allow-listed. This binds 0.0.0.0 on a LAN-only port with no auth,
@@ -111,15 +113,39 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._reply(404, "not found\n")
 
     def do_POST(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length) if length else b""
+
+        # ntfy's JSON publish shape, posted to the root with the topic in the
+        # body. Lidarr, Prowlarr and Readarr all send this - their ntfy client
+        # takes a server URL and a topic list and never puts the topic in the
+        # path, so without this branch they would 404 against the relay.
+        if self.path.strip("/") == "":
+            try:
+                payload = json.loads(raw or b"{}")
+                topic = payload.get("topic")
+            except ValueError as e:
+                return self._reply(400, f"unparseable json: {e}\n")
+            if topic not in TOPICS:
+                return self._reply(404, f"unknown topic {topic!r}\n")
+            try:
+                # Forwarded verbatim to ntfy's root; it understands this shape
+                # natively, so there is nothing to translate.
+                req = urllib.request.Request(
+                    NTFY, data=raw, method="POST",
+                    headers={"Content-Type": "application/json"})
+                urllib.request.urlopen(req, timeout=TIMEOUT).read()
+                return self._reply(204, "")
+            except (urllib.error.URLError, OSError) as e:
+                print(f"FAILED to publish to {topic}: {e}", file=sys.stderr, flush=True)
+                return self._reply(502, f"ntfy unreachable: {e}\n")
+
         parts = self.path.strip("/").split("/")
         alertmanager = parts[0] == "alertmanager"
         topic = parts[1] if alertmanager and len(parts) > 1 else parts[0]
 
         if topic not in TOPICS:
             return self._reply(404, f"unknown topic {topic!r}\n")
-
-        length = int(self.headers.get("Content-Length") or 0)
-        raw = self.rfile.read(length) if length else b""
 
         if alertmanager:
             try:

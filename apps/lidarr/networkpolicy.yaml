@@ -67,6 +67,16 @@ spec:
     - port: 8686
       protocol: TCP
   egress:
+  # The ntfy relay on the Proxmox host - health-issue notifications only.
+  # travisbackupserver, where ntfy actually runs, is unreachable from this
+  # cluster (separate L2 segment reusing the same /24), so the relay forwards
+  # over Tailscale. See docs/ntfy.md.
+  - to:
+    - ipBlock:
+        cidr: 192.168.1.153/32
+    ports:
+    - port: 9098
+      protocol: TCP
   # Postgres. The *arr apps keep their main and log databases in the shared
   # CNPG cluster rather than local SQLite.
   - to:
