@@ -53,6 +53,31 @@ helmCharts:
       # default hostname.
       controllers:
         main:
+          # The chart ships readiness/liveness probes with timeoutSeconds: 1.
+          # On this node that is not a health check, it is a load test: the app
+          # answers /api/server/ping in well under a second when idle, but
+          # under memory pressure a single scheduling delay trips it, three
+          # times in a row marks the pod NotReady, and a rolling update then
+          # never completes - both ReplicaSets stay up, which costs another
+          # ~500 MB and makes the pressure worse. Exactly that happened during
+          # the 2026-09-04 library restore: the pod logged "Immich Server is
+          # listening on 2283" and "Machine learning server became healthy",
+          # answered ping with 200 on a port-forward, and still sat 0/1 for
+          # fifteen minutes.
+          #
+          # 5s is still a real check - a wedged app does not answer in 5s
+          # either - it just stops reporting a busy node as a broken one.
+          probes:
+            readiness:
+              spec:
+                timeoutSeconds: 5
+                periodSeconds: 15
+                failureThreshold: 6
+            liveness:
+              spec:
+                timeoutSeconds: 5
+                periodSeconds: 30
+                failureThreshold: 6
           containers:
             main:
               image:
