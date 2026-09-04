@@ -72,7 +72,11 @@ spec:
             limits: {cpu: 200m, memory: 64Mi}
       containers:
         - name: blinko
-          image: blinkospace/blinko:1.7.4
+          # Pinned, not :latest - the compose this came from used :latest,
+          # which is how you get an unannounced schema migration on a restart.
+          # Blinko runs its Prisma migrations at startup, so the 2026-03 data
+          # migrates forward on first boot.
+          image: blinkospace/blinko:1.8.8
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
