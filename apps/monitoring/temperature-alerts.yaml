@@ -73,7 +73,7 @@ spec:
               node_hwmon_sensor_label{label="Package id 0"}
             ) >= 82 < 90
           for: 5m
-          keep_firing_for: 30m
+          keepFiringFor: 30m
           labels:
             severity: warning
           annotations:
@@ -90,7 +90,7 @@ spec:
               node_hwmon_sensor_label{label="Package id 0"}
             ) >= 90
           for: 5m
-          keep_firing_for: 30m
+          keepFiringFor: 30m
           labels:
             severity: critical
           annotations:
@@ -109,7 +109,7 @@ spec:
           expr: >-
             avg_over_time(smartctl_device_temperature{temperature_type="current", device=~"sd.*"}[15m]) >= 55 < 60
           for: 5m
-          keep_firing_for: 30m
+          keepFiringFor: 30m
           labels:
             severity: warning
           annotations:
@@ -121,7 +121,7 @@ spec:
           expr: >-
             avg_over_time(smartctl_device_temperature{temperature_type="current", device=~"sd.*"}[15m]) >= 60
           for: 5m
-          keep_firing_for: 30m
+          keepFiringFor: 30m
           labels:
             severity: critical
           annotations:
@@ -139,7 +139,7 @@ spec:
           expr: >-
             avg_over_time(smartctl_device_temperature{temperature_type="current", device=~"nvme.*"}[15m]) >= 70 < 80
           for: 5m
-          keep_firing_for: 30m
+          keepFiringFor: 30m
           labels:
             severity: warning
           annotations:
@@ -151,7 +151,7 @@ spec:
           expr: >-
             avg_over_time(smartctl_device_temperature{temperature_type="current", device=~"nvme.*"}[15m]) >= 80
           for: 5m
-          keep_firing_for: 30m
+          keepFiringFor: 30m
           labels:
             severity: critical
           annotations:
