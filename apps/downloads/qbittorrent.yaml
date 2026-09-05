@@ -318,23 +318,10 @@ spec:
             # (*.svc.cluster.local) keeps working. Without this, gluetun
             # rewrites resolv.conf to its upstream resolver (e.g. 1.1.1.1)
             # which cannot resolve cluster names.
-            # DNS-over-TLS through the tunnel. gluetun said the quiet part
-            # out loud with the old setting: "keeping the default container
-            # nameservers, this will likely leak DNS traffic outside the VPN".
-            #
-            # DNS_KEEP_NAMESERVER=on does not merely keep CoreDNS - it stops
-            # gluetun's resolver from starting at all (nothing listened on
-            # 127.0.0.1:53). So it has to be off for the resolver to exist.
-            # With it off, gluetun serves DNS on 127.0.0.1:53 in the shared
-            # network namespace, which every container in this pod can reach.
-            #
-            # This container's own resolution switches now; the other four keep
-            # CoreDNS until the pod-level dnsConfig is added, so the resolver
-            # can be proven to answer before anything depends on it.
             - name: DNS_KEEP_NAMESERVER
-              value: "off"
-            - name: DOT
               value: "on"
+            - name: DOT
+              value: "off"
             - name: TZ
               value: UTC
           ports:
