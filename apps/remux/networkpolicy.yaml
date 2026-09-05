@@ -162,3 +162,13 @@ spec:
         # 1080: the plain SOCKS5 sidecar. This is the port the torrent engine
         # actually needs.
         - {port: 1080, protocol: TCP}
+    # Prowlarr's Torznab feed, for remux's torznab addon. This is what replaces
+    # DHT for discovery: remux's DHT lookups cannot work at all through a
+    # TCP-only SOCKS5 proxy, but Torznab is plain HTTP and does.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: prowlarr
+      ports:
+        - {port: 9696, protocol: TCP}
+

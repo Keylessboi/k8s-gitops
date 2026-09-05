@@ -23,6 +23,12 @@ spec:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: downloads
+    # remux queries the Torznab feed here. Its DHT lookups cannot work at all
+    # through the TCP-only SOCKS5 proxy it uses, so Torznab over plain HTTP is
+    # what actually gives it sources.
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: remux
     ports:
     - port: 9696
       protocol: TCP
