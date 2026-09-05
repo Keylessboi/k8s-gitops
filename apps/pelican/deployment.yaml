@@ -231,6 +231,14 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /pelican-data
+            # Plugins install into /var/www/html/plugins, which is image
+            # filesystem and therefore gone on the next pod restart - the panel
+            # would report them installed right up until it didn't. The PVC
+            # already carries a plugins/ directory for exactly this; it was
+            # simply never mounted where the panel reads from.
+            - name: data
+              mountPath: /var/www/html/plugins
+              subPath: plugins
             # The merged bundle from the ca-bundle initContainer replaces the
             # image's own file at the same path — one extra CA, everything else
             # identical. subPath so the emptyDir only shadows this one file.
