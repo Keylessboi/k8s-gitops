@@ -1,0 +1,20 @@
+[Unit]
+# Bridges the cluster to the GPU machine-learning service at the other site.
+#
+# CT 200 is not on the tailnet (its tailscaled is logged out), so it cannot dial
+# 100.81.123.74 directly. pve is on the tailnet and is already an absolute
+# dependency of CT 200 - the container runs inside it - so relaying here adds a
+# hop but no new failure mode. Same pattern as the Alertmanager webhook relays
+# already listening on :9098/:9099.
+Description=Relay cluster -> Long Island Immich ML (GPU) over Tailscale
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/socat TCP-LISTEN:3003,bind=192.168.1.153,fork,reuseaddr TCP:100.81.123.74:3003
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

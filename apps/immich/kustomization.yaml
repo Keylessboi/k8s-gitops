@@ -113,6 +113,19 @@ helmCharts:
                 # this the login page shows no SSO button no matter what
                 # Authentik has configured on its side.
                 IMMICH_CONFIG_FILE: /config/immich.json
+                # Machine learning runs on the GTX 1050 Ti at the other
+                # site, not in this cluster. The path is
+                # immich-server -> 192.168.1.153:3003 (socat on pve) ->
+                # 100.81.123.74:3003 over Tailscale, because CT 200 is not on
+                # the tailnet and both sites use 192.168.1.0/24, so the remote
+                # box cannot be addressed directly or reached by subnet route.
+                #
+                # Tradeoff, deliberately accepted: if that host is down, Smart
+                # Search and Face Detection fail. Uploads, browsing and every
+                # other part of Immich are unaffected, and ML jobs retry. The
+                # in-cluster machine-learning deployment below is left running
+                # as the instant fallback - revert is deleting this one line.
+                IMMICH_MACHINE_LEARNING_URL: http://192.168.1.153:3003
       # bjw-s persistence, NOT immich.persistence - that key is a chart-specific
       # shim for the library volume only, and anything else placed under it is
       # silently dropped (the mount simply never appears in the Deployment).
