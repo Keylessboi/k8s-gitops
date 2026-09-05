@@ -699,6 +699,14 @@ spec:
               mountPath: /run/secrets/mam
               readOnly: true
       volumes:
+        # gluetun needs the TUN device to bring WireGuard up. Its container
+        # block mounts this; without the volume the whole Deployment is
+        # rejected as invalid, which is exactly what happened on the first
+        # attempt at this migration.
+        - name: tun
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice
         - name: config
           persistentVolumeClaim:
             claimName: qbittorrent-config
