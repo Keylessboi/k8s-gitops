@@ -725,6 +725,19 @@ spec:
       # If the Nextcloud Service is ever recreated its ClusterIP changes and
       # uploads start failing silently - the hook logs "PUT failed" and nothing
       # else notices. Check this first if uploads stop.
+      # DNS_KEEP_NAMESERVER=off only rewrites gluetun's OWN /etc/resolv.conf.
+      # Containers share a network namespace but not a filesystem, so qbittorrent,
+      # slskd and seedboxapi kept the kube-dns resolv.conf Kubernetes injects -
+      # and kept leaking every lookup to CoreDNS and out through the node.
+      # Setting it at the pod level is what actually points all of them at
+      # gluetun's DNS-over-TLS resolver on localhost.
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - 127.0.0.1
+        options:
+          - name: ndots
+            value: "1"
       hostAliases:
         - ip: "10.43.59.73"
           hostnames:
