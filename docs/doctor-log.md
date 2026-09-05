@@ -901,3 +901,62 @@ they aimed at the exact data being migrated. Blinko was worse: its Postgres
 container had been deleted, its healthcheck only fetched `/` so it reported
 "healthy" for weeks, and **71 notes** sat in an orphaned data directory nothing
 read, backed up or alerted on. Both are why ADR-0008 now exists.
+
+### The cluster was down for 3h37m and every watcher was inside it
+
+**Symptom:** owner opened a laptop at 22:05 to a dead cluster and said "the
+whole cluster is down for whatever reason, THIS CANNOT HAPPEN AGAIN."
+
+**Diagnosis.** pve (the Proxmox host, `192.168.1.153`) powered off at
+**18:39:30**. From `awesomemediaserver`, which is on the cluster's own L2
+segment, `.153` resolves `INCOMPLETE` — no ARP reply — so the NIC is dead and
+the box is off or hung, not merely unroutable. LXC 200 and therefore k3s,
+ArgoCD, all ~35 apps and the Wings game daemon went with it.
+
+Probing from the laptop was worthless and nearly misleading: it sits on
+travisbackupserver's **separate** `192.168.1.0/24`, where `.153` is a different
+machine whose MAC (`60:69:44:...`) is not pve's (`b0:7b:25:...`, a Dell OUI).
+Only a host on the cluster's segment can answer this question.
+
+**Why nobody was told — three faults, compounding:**
+
+1. **Every in-band watcher shares a fate with pve.** Prometheus and Alertmanager
+   run in LXC 200; the ntfy relay `:9098` and beat receiver `:9099` run on pve.
+   The dead man's switch is the worst offender because it looks like the control
+   that covers exactly this — but `homelab-beat-check.timer` runs *on pve*, so
+   pve's own death is the one failure it structurally cannot report. The normal
+   alert path is `cluster → relay on pve → tailscale → ntfy`: **every alert
+   about pve had to be forwarded by pve.**
+2. **The one watcher that did see it spoke once.** `homelab-edge-probe` on
+   travisbackupserver notified on `state != prev`, so it sent a single urgent
+   push at 18:39 and then went quiet for 3h37m while faithfully logging
+   `edge: FAIL` every 5 minutes to a journal nobody reads.
+3. **That push was the fifth identical-looking message of the day.** The same
+   `HOMELAB EDGE UNREACHABLE` title had fired and self-recovered at 14:53,
+   15:13, 15:33 and 17:14, alongside ~14 flapping `TempNasDiskHigh` alerts,
+   several delivered in triplicate. The real alert was indistinguishable from
+   the noise that preceded it.
+
+This is the same shape as the `smart-email` receiver and slskd's ignored env
+vars: **a control that is present, configured, and reporting healthy while
+delivering nothing.** SESSION-HANDOFF had already named "pve itself dying,
+power cut" as the uncovered case. It was documented and not closed.
+
+**Fix.**
+- New `homelab-external-watchdog` on **awesomemediaserver** — different machine,
+  different PSU, on the cluster's segment, and reaching ntfy over Tailscale
+  *without* pve relaying. Probes pve by ICMP and k3s `:6443` by TCP every 60s,
+  3 strikes before alerting, re-nags every 30 min, fires WoL while down, one
+  quiet daily heartbeat so its own silence is noticeable.
+- `homelab-edge-probe` re-nags every 30 min instead of once, using `edge.state`'s
+  mtime as the outage start.
+
+**Verified live against the real outage:** `DOWN: Proxmox host` and
+`DOWN: k3s API` at 22:16, then `STILL DOWN: homelab edge (223m)` — 223 minutes
+matching the 18:39 start exactly.
+
+**Not fixed, needs hands on the machine:** the host is a Dell Vostro, so there
+is **no IPMI**, it ignored ~25 WoL packets from its own segment, and a full LAN
+sweep found no smart plug. Recovery required a physical power button press.
+See `docs/recovery/cluster-down.md` for the BIOS settings and the one purchase
+that would make this remotely recoverable.

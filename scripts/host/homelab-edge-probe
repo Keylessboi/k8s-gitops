@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# EXTERNAL probe of the published edge, from outside the cluster.
+#
+# The 22 blackbox probes inside the cluster resolve through CoreDNS to
+# 192.168.1.240 and never leave the node. They therefore cannot see: the node
+# being gone, the router, the port forward, public DNS, or the L2 segment - the
+# class the 2026-08-26 duplicate-ARP outage belonged to, where a Raspberry Pi
+# answered for .240 and services went "randomly" unreachable.
+#
+# This box resolves sandstorm.chat publicly (74.101.53.75) and hairpins back
+# through the router, so it walks the ENTIRE path a real visitor walks. Verified
+# 2026-09-03: the certificate is correct over this path from here.
+#
+# Deliberately only three targets. This is a liveness check on the edge, not a
+# second copy of the in-cluster probes - if the edge answers, the detailed
+# per-app history is already in Prometheus.
+set -uo pipefail
+
+NTFY=http://127.0.0.1:2586
+ALERTS=homelab-alerts
+STATE=/var/lib/homelab-watch/edge.state
+STAMP=/var/lib/homelab-watch/edge.notified   # epoch of the last push while down
+RENOTIFY=1800                                # nag every 30 min, see below
+
+# host:expected-code. Measured live, not assumed.
+TARGETS="authentik.sandstorm.chat:302 immich.sandstorm.chat:200 blog.sandstorm.chat:200"
+
+fails=""
+for t in $TARGETS; do
+  host=${t%:*}; want=${t#*:}
+  got=$(curl -s -o /dev/null -w "%{http_code}" -m 15 "https://${host}/" 2>/dev/null)
+  [ "$got" = "$want" ] || fails="${fails}  ${host}: expected ${want}, got ${got:-no-response}\n"
+done
+
+prev=$(cat "$STATE" 2>/dev/null || echo ok)
+if [ -n "$fails" ]; then state=down; else state=ok; fi
+
+# WHY THIS IS NOT JUST "state != prev". It used to be, and on 2026-09-04 that
+# cost three and a half hours. pve powered off at 18:39, this fired exactly one
+# urgent push, and then went quiet - every subsequent run saw down==down and
+# said nothing, while logging "edge: FAIL" to a journal nobody reads. One push
+# is one chance: miss it and you are blind for as long as the outage lasts.
+#
+# Worse, that single real alert was the fifth identically-titled message of the
+# day. The same HOMELAB EDGE UNREACHABLE had fired and self-recovered at 14:53,
+# 15:13, 15:33 and 17:14, each clearing within minutes. By 18:39 the alert had
+# trained its reader to ignore it.
+#
+# So: keep announcing while it is still down, and say how long it has been, so
+# a sustained outage reads differently from the transient blips.
+now=$(date +%s)
+last=$(cat "$STAMP" 2>/dev/null || echo 0)
+
+# How long it has actually been down. $STATE is written exactly at the down
+# transition, so its mtime IS the start of the outage - no extra file needed,
+# and it stays right across a reboot of this box. Falling back to $now keeps a
+# missing state file from reporting the age of the Unix epoch, which is what
+# the first patched run did (29809581m).
+down_since=$(stat -c %Y "$STATE" 2>/dev/null || echo "$now")
+[ "$last" = 0 ] && last=$down_since
+
+renotify=no
+if [ "$state" = down ] && [ "$prev" = down ] \
+   && [ $((now - last)) -ge "$RENOTIFY" ]; then
+  renotify=yes
+fi
+
+if [ "$state" = down ] && [ "$renotify" = yes ]; then
+  mins=$(( (now - down_since) / 60 ))
+  curl -s -m 10 -H "Title: STILL DOWN: homelab edge (${mins}m)" -H "Priority: urgent" \
+    -H "Tags: rotating_light" \
+    -d "$(printf "The edge has been unreachable for at least %s minutes and is NOT recovering.\n\n%b\nThis is a sustained outage, not a blip." "$mins" "$fails")" \
+    "${NTFY}/${ALERTS}" >/dev/null
+  echo "$now" > "$STAMP"
+fi
+
+if [ "$state" != "$prev" ]; then
+  if [ "$state" = down ]; then
+    echo "$now" > "$STAMP"
+    # Distinguish "the edge is gone" from "one app broke" before notifying, so
+    # the message says which. A single app failing is the owner-notices-it case
+    # and does not need to interrupt anyone; all three failing is an errand.
+    n=$(printf "%b" "$fails" | grep -c .)
+    if [ "$n" -ge 3 ]; then
+      curl -s -m 10 -H "Title: HOMELAB EDGE UNREACHABLE" -H "Priority: urgent" \
+        -H "Tags: rotating_light" \
+        -d "$(printf "All published services are failing from outside the network.\n\n%b\nThat is the edge, not an app: node, router, port forward or DNS.\nThe in-cluster probes cannot see this class." "$fails")" \
+        "${NTFY}/${ALERTS}" >/dev/null
+    else
+      curl -s -m 10 -H "Title: Homelab: a service is answering wrong" -H "Priority: low" \
+        -H "Tags: warning" \
+        -d "$(printf "%b\nThe edge itself is up, so this is one application rather than the network.\nNo action needed - it is recorded, and doctor.sh has the detail." "$fails")" \
+        "${NTFY}/${ALERTS}" >/dev/null
+    fi
+  else
+    curl -s -m 10 -H "Title: Homelab edge recovered" -H "Priority: default" \
+      -H "Tags: white_check_mark" -d "All probed endpoints answering as expected again." \
+      "${NTFY}/${ALERTS}" >/dev/null
+  fi
+  echo "$state" > "$STATE"
+fi
+
+if [ -n "$fails" ]; then printf "edge: FAIL\n%b" "$fails"; else echo "edge: all OK"; fi

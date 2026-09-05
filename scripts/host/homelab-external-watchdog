@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""Watch the homelab from OUTSIDE it, and say so when it dies.
+
+WHY THIS EXISTS. On 2026-09-04 the Proxmox host powered off and the whole
+cluster went with it. Nobody was told for three hours. Every layer that was
+supposed to notice was inside the thing that broke:
+
+    Prometheus  -> LXC 200 on pve   -> dead
+    Alertmanager-> LXC 200 on pve   -> dead
+    ntfy relay      (:9098 on pve)  -> dead
+    beat receiver   (:9099 on pve)  -> dead
+    beat check timer(pve)           -> dead
+
+The dead man's switch was the worst of them, because it looks like the thing
+that covers this. It does not. `homelab-beat-check.timer` runs ON pve, so the
+one failure it structurally cannot report is pve's own. SESSION-HANDOFF had
+already listed "pve itself dying, power cut" as the uncovered case; this is
+that case actually happening.
+
+So this runs on awesomemediaserver instead:
+
+  * different physical machine, different PSU, different wall socket
+  * on the cluster's LAN segment, so it can probe pve and LXC 200 directly
+  * on the tailnet, so it reaches ntfy on travisbackupserver WITHOUT pve
+    relaying (verified 2026-09-04: /v1/health -> {"healthy":true})
+
+That last point is the whole reason this works. The normal path is
+cluster -> relay on pve -> tailscale -> ntfy. Every alert about pve had to be
+forwarded BY pve. This path is external -> tailscale -> ntfy, so a total loss
+of pve is exactly the case it still reports.
+
+WHAT IT CHECKS every INTERVAL seconds:
+  * pve   192.168.1.153   ICMP        - the hypervisor
+  * k3s   192.168.1.172:6443 TCP      - the API server in LXC 200
+
+A target must fail FAILURES_BEFORE_ALERT times running before it is called
+down, so a dropped packet is not an alarm. While something is down it re-nags
+every RENOTIFY_SECONDS, because one missed push at 3am is how you lose a
+morning. Recovery sends exactly one all-clear.
+
+It also fires Wake-on-LAN at pve while pve is down. That is a no-op until
+someone enables WoL in the BIOS (see docs/recovery/), and harmless meanwhile.
+
+No dependencies beyond the standard library, same rule as the relay: this is
+the thing that must still work when everything else has stopped.
+"""
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+NTFY = "http://100.81.123.74:2586"   # travisbackupserver, over tailscale
+TOPIC = "homelab-alerts"
+
+INTERVAL = 60                  # seconds between sweeps
+FAILURES_BEFORE_ALERT = 3      # consecutive misses before calling it down
+RENOTIFY_SECONDS = 1800        # nag every 30 min while still down
+HEARTBEAT_HOUR = 9             # one quiet "still alive" per day, at 09:00
+
+STATE_DIR = "/var/lib/homelab-external-watchdog"
+STATE_FILE = os.path.join(STATE_DIR, "state.json")
+
+# pve's NIC. Dell OUI b0:7b:25, seen from this host's ARP table on the
+# cluster segment. The second is what the laptop had cached on the other
+# 192.168.1.0/24; kept because WoL to a wrong MAC costs nothing.
+PVE_MACS = ["b0:7b:25:18:d9:8d", "60:69:44:27:ca:bc"]
+
+TARGETS = [
+    # (key, label, kind, host, port)
+    ("pve", "Proxmox host (192.168.1.153)", "icmp", "192.168.1.153", None),
+    ("k3s", "k3s API (192.168.1.172:6443)", "tcp", "192.168.1.172", 6443),
+]
+
+
+def probe_icmp(host, _port):
+    return subprocess.run(
+        ["ping", "-c", "1", "-W", "2", host],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    ).returncode == 0
+
+
+def probe_tcp(host, port):
+    try:
+        with socket.create_connection((host, port), timeout=4):
+            return True
+    except OSError:
+        return False
+
+
+PROBES = {"icmp": probe_icmp, "tcp": probe_tcp}
+
+
+def publish(title, message, priority="default", tags=""):
+    """POST to ntfy. Never raise - a watchdog that dies on a failed alert is
+    worse than no watchdog, and the next sweep will try again anyway."""
+    req = urllib.request.Request(
+        f"{NTFY}/{TOPIC}", data=message.encode(), method="POST")
+    req.add_header("Title", title)
+    req.add_header("Priority", priority)
+    if tags:
+        req.add_header("Tags", tags)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return 200 <= r.status < 300
+    except (urllib.error.URLError, OSError, TimeoutError) as e:
+        print(f"ntfy publish failed: {e}", file=sys.stderr, flush=True)
+        return False
+
+
+def wake_on_lan(macs):
+    """Broadcast a magic packet. Works only once WoL is enabled in the BIOS,
+    and only if the board still has standby power - so this recovers a clean
+    power-off, not a tripped breaker or a hung kernel."""
+    for mac in macs:
+        payload = b"\xff" * 6 + bytes.fromhex(mac.replace(":", "")) * 16
+        for addr in ("192.168.1.255", "255.255.255.255"):
+            for port in (9, 7):
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                    s.sendto(payload, (addr, port))
+                    s.close()
+                except OSError:
+                    pass
+
+
+def load_state():
+    try:
+        with open(STATE_FILE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(state):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    tmp = STATE_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f)
+    os.replace(tmp, STATE_FILE)   # atomic, so a reboot mid-write cannot
+                                  # leave a truncated file that resets state
+
+
+def main():
+    state = load_state()
+    for key, _, _, _, _ in TARGETS:
+        state.setdefault(key, {"misses": 0, "down": False, "last_notified": 0})
+    state.setdefault("last_heartbeat_day", None)
+
+    print("homelab-external-watchdog up; watching "
+          + ", ".join(t[0] for t in TARGETS), flush=True)
+
+    while True:
+        now = time.time()
+
+        for key, label, kind, host, port in TARGETS:
+            st = state[key]
+            ok = PROBES[kind](host, port)
+
+            if ok:
+                if st["down"]:
+                    publish(
+                        f"RECOVERED: {label}",
+                        f"{label} is answering again.\n\n"
+                        f"Down for roughly "
+                        f"{int((now - st.get('down_since', now)) / 60)} min.\n"
+                        f"Capture the cause before the logs rotate:\n"
+                        f"  ssh root@192.168.1.153 "
+                        f"'journalctl -b -1 -k --no-pager | tail -200'",
+                        priority="high", tags="white_check_mark")
+                    st["down_since"] = None
+                st.update(misses=0, down=False, last_notified=0)
+                continue
+
+            st["misses"] += 1
+            if st["misses"] < FAILURES_BEFORE_ALERT:
+                continue
+
+            if not st["down"]:
+                st["down"] = True
+                st["down_since"] = now
+                st["last_notified"] = now
+                publish(
+                    f"DOWN: {label}",
+                    f"{label} has failed {st['misses']} checks in a row.\n\n"
+                    f"Detected from awesomemediaserver, which is outside the "
+                    f"failure domain - so if you are seeing this, the alert "
+                    f"path itself is working.\n\n"
+                    f"If pve is down, everything is down: k3s, ArgoCD, all "
+                    f"~35 apps. Recovery needs someone at the machine unless "
+                    f"BIOS WoL and AC-power-recovery are on.",
+                    priority="urgent", tags="rotating_light")
+            elif now - st["last_notified"] >= RENOTIFY_SECONDS:
+                st["last_notified"] = now
+                down_min = int((now - st.get("down_since", now)) / 60)
+                publish(
+                    f"STILL DOWN: {label} ({down_min} min)",
+                    f"{label} has now been down for {down_min} minutes.",
+                    priority="high", tags="rotating_light")
+
+            if key == "pve":
+                wake_on_lan(PVE_MACS)
+
+        # One quiet daily heartbeat, so silence from this watchdog is itself
+        # noticeable. min priority: it lands in the app without making noise.
+        lt = time.localtime(now)
+        today = time.strftime("%Y-%m-%d", lt)
+        if lt.tm_hour == HEARTBEAT_HOUR and state["last_heartbeat_day"] != today:
+            state["last_heartbeat_day"] = today
+            up = [k for k, *_ in TARGETS if not state[k]["down"]]
+            publish("Homelab watchdog alive",
+                    "Watching from awesomemediaserver.\n"
+                    f"Up: {', '.join(up) if up else 'nothing'}",
+                    priority="min", tags="white_check_mark")
+
+        save_state(state)
+        time.sleep(INTERVAL)
+
+
+if __name__ == "__main__":
+    main()
