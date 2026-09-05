@@ -1,0 +1,17 @@
+[Unit]
+Description=Publish Porkbun DNS for Pelican game servers
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Credentials live outside git. Absent file = absent credentials = the daemon
+# logs that it has nothing to do and idles, which is the intended Phase A.
+EnvironmentFile=-/etc/pelican-dns.env
+ExecStart=/usr/local/bin/pelican-dns
+Restart=always
+RestartSec=30
+StateDirectory=pelican-dns
+
+[Install]
+WantedBy=multi-user.target

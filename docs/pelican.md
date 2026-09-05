@@ -259,3 +259,47 @@ Tailscale mappings untouched throughout.
 4. Stop it: the mapping lapses within 180s.
 
 Step 2 is the remaining piece.
+
+## Automatic DNS (pelican-dns)
+
+`scripts/host/pelican-dns` — a systemd service on CT 200, sibling to
+`pelican-portmap`.
+
+**Why a daemon and not the panel plugin that was asked for.** The panel runs in
+k8s from an image, so anything `p:plugin:install` writes into the container is
+lost on the next pod restart — the same class of problem as the qBittorrent
+category, which was configured correctly and still did nothing. A daemon on the
+node survives restarts and does not depend on the beta plugin API holding still.
+The plugin remains worth doing later for panel-UI integration; it just should
+not be the thing the addressing depends on.
+
+**What it actually buys.** `*.sandstorm.chat` is already a wildcard A record, so
+names resolve regardless. The real product is the **SRV** record: a Minecraft
+client only drops `:25566` from an address if SRV tells it the port. Source
+games ignore SRV — their client defaults to 27015 — so those get an A record
+only, and anything off 27015 stays `host:port` no matter what we publish.
+
+It reads the same allocation the panel shows (`allocations.ip_alias`), so
+published DNS always matches the address already displayed for the server.
+
+**Blocked on a credential.** ADR-0006 records that `sandstorm.chat` is on
+Porkbun with no API credential in Doppler, and that is still true. Until
+`PORKBUN_API_KEY` / `PORKBUN_SECRET_KEY` exist in `/etc/pelican-dns.env`, the
+service runs and logs that it has nothing to do — deliberately the same Phase A
+shape as the qBittorrent WebDAV hook. To finish:
+
+1. Porkbun console → Account → **API Access**, create a key + secret.
+2. Enable API access **on `sandstorm.chat` specifically** — it is a per-domain
+   toggle and defaults to off. This is the step that is easy to miss.
+3. `/etc/pelican-dns.env` on CT 200, `0600`:
+   `PORKBUN_API_KEY=pk1_…` / `PORKBUN_SECRET_KEY=sk1_…`
+4. `systemctl restart pelican-dns`
+
+**Safety.** It only deletes records whose id it recorded when it created them
+(`/var/lib/pelican-dns/created.json`). A record made by hand in the Porkbun
+console is never touched, even if its name collides with a server.
+
+Verified without credentials: the database half derives the right records for
+the existing server —
+`A minecraft.sandstorm.chat` and `SRV _minecraft._tcp.minecraft -> 0 5 25565`.
+The Porkbun API calls themselves are untested until a key exists.
