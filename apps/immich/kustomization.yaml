@@ -149,7 +149,13 @@ helmCharts:
       # the REDIS_HOSTNAME / REDIS_PASSWORD env vars above.
 
       machine-learning:
-        enabled: true
+        # Disabled: inference runs on the GTX 1050 Ti at the other site (see
+        # IMMICH_MACHINE_LEARNING_URL above). Keeping this as a "fallback" cost
+        # a 1Gi request and a 3Gi limit on a node that is already at 342%
+        # memory overcommit and actively swapping - which is what made playback
+        # and downloads crawl. A fallback that degrades everything else is not
+        # a fallback. Re-enable by flipping this to true.
+        enabled: false
         controllers:
           main:
             containers:
