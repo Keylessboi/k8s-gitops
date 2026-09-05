@@ -1,3 +1,13 @@
+# Hysteresis, added 2026-09-05. These rules flapped: a disk sitting at the
+# threshold crossed it repeatedly and every crossing was a fresh notification.
+# On the day of the outage that produced ~14 temperature messages, some
+# triplicated - so the one push that actually said the cluster was gone arrived
+# as the fifth identically-shaped alert and was read as more of the same.
+#
+# avg_over_time smooths a boundary reading; keep_firing_for holds the alert
+# after it clears so one episode is one alert, not a stream. An alert nobody
+# reads is worse than no alert, because it also teaches you to ignore the ones
+# that matter.
 ---
 # Temperature alerts -> email the owner when the homelab runs too hot.
 #
@@ -10,7 +20,7 @@
 # live 2026-08-29), NOT against assumptions:
 #
 #   * Disk temps come from smartctl_exporter as
-#       smartctl_device_temperature{temperature_type="current"}
+#       avg_over_time(smartctl_device_temperature{temperature_type="current"}[15m])
 #     Real current readings today: SAS sd* 45-50C, NVMe 39-50C - all fine.
 #     Each SAS drive also carries a drive_trip series = 85C. That 85 is the
 #     drives' NORMAL manufacturer max/shutdown temp (SAS enterprise disks trip
@@ -63,6 +73,7 @@ spec:
               node_hwmon_sensor_label{label="Package id 0"}
             ) >= 82 < 90
           for: 5m
+          keep_firing_for: 30m
           labels:
             severity: warning
           annotations:
@@ -79,6 +90,7 @@ spec:
               node_hwmon_sensor_label{label="Package id 0"}
             ) >= 90
           for: 5m
+          keep_firing_for: 30m
           labels:
             severity: critical
           annotations:
@@ -95,8 +107,9 @@ spec:
         # for:5m rides out any single-scrape blip.
         - alert: TempNasDiskHigh
           expr: >-
-            smartctl_device_temperature{temperature_type="current", device=~"sd.*"} >= 55 < 60
+            avg_over_time(smartctl_device_temperature{temperature_type="current", device=~"sd.*"}[15m]) >= 55 < 60
           for: 5m
+          keep_firing_for: 30m
           labels:
             severity: warning
           annotations:
@@ -106,8 +119,9 @@ spec:
               before it climbs further.
         - alert: TempNasDiskCritical
           expr: >-
-            smartctl_device_temperature{temperature_type="current", device=~"sd.*"} >= 60
+            avg_over_time(smartctl_device_temperature{temperature_type="current", device=~"sd.*"}[15m]) >= 60
           for: 5m
+          keep_firing_for: 30m
           labels:
             severity: critical
           annotations:
@@ -123,8 +137,9 @@ spec:
         # 80C is roughly where NVMe controllers begin self-throttling.
         - alert: TempNasNvmeHigh
           expr: >-
-            smartctl_device_temperature{temperature_type="current", device=~"nvme.*"} >= 70 < 80
+            avg_over_time(smartctl_device_temperature{temperature_type="current", device=~"nvme.*"}[15m]) >= 70 < 80
           for: 5m
+          keep_firing_for: 30m
           labels:
             severity: warning
           annotations:
@@ -134,8 +149,9 @@ spec:
               check airflow.
         - alert: TempNasNvmeCritical
           expr: >-
-            smartctl_device_temperature{temperature_type="current", device=~"nvme.*"} >= 80
+            avg_over_time(smartctl_device_temperature{temperature_type="current", device=~"nvme.*"}[15m]) >= 80
           for: 5m
+          keep_firing_for: 30m
           labels:
             severity: critical
           annotations:
