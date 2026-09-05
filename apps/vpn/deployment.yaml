@@ -206,13 +206,22 @@ spec:
           ports:
             - name: socks5
               containerPort: 1080
+          # Every peer connection for every torrent is a socket held open in
+          # this one process. With ~2,200 torrents in the session, 64Mi was not
+          # a ceiling it approached occasionally - it was OOMKilled 13 times,
+          # and each kill drops every peer connection at once. The result looks
+          # exactly like "the VPN is down": 0 B/s, while a single curl through
+          # the same proxy succeeds because one connection costs nothing.
+          #
+          # The request stays small; only the ceiling moves, so this reserves
+          # nothing extra on an already-tight node.
           resources:
             requests:
               cpu: 10m
-              memory: 16Mi
+              memory: 32Mi
             limits:
-              cpu: 300m
-              memory: 64Mi
+              cpu: 500m
+              memory: 512Mi
       volumes:
         - name: tun
           hostPath:
