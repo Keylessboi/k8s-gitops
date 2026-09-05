@@ -314,13 +314,24 @@ spec:
             # connections. The password is in Doppler (VPN_SHADOWSOCKS_PASSWORD).
             - name: SHADOWSOCKS
               value: "off"
-            # Keep the original kube-dns nameserver so cluster-internal DNS
-            # (*.svc.cluster.local) keeps working. Without this, gluetun
-            # rewrites resolv.conf to its upstream resolver (e.g. 1.1.1.1)
-            # which cannot resolve cluster names.
+            # DNS runs through the tunnel, encrypted. Previously this kept
+            # kube-dns, which meant every tracker hostname was resolved by
+            # CoreDNS and forwarded upstream FROM THE NODE - outside the VPN.
+            # The torrent traffic was private; the lookups telling an ISP which
+            # trackers were being contacted were not. That is the leak.
+            #
+            # DOT=on makes gluetun run its own DNS-over-TLS resolver and send
+            # queries through tun0. DNS_KEEP_NAMESERVER must be off or
+            # resolv.conf keeps pointing at CoreDNS and nothing changes.
             - name: DNS_KEEP_NAMESERVER
-              value: "on"
+              value: "off"
             - name: DOT
+              value: "on"
+            - name: DOT_PROVIDERS
+              value: "cloudflare"
+            # Fall back to plaintext DNS through the tunnel rather than failing
+            # closed on DNS alone: still inside the VPN, still not the ISP.
+            - name: BLOCK_MALICIOUS
               value: "off"
             - name: TZ
               value: UTC
@@ -707,6 +718,19 @@ spec:
             - name: mam-seed
               mountPath: /run/secrets/mam
               readOnly: true
+      # gluetun's DNS-over-TLS resolver cannot answer *.svc.cluster.local, and
+      # the AutoRun upload hook needs exactly one cluster name. Pinning it here
+      # keeps that working without handing DNS back to CoreDNS.
+      #
+      # If the Nextcloud Service is ever recreated its ClusterIP changes and
+      # uploads start failing silently - the hook logs "PUT failed" and nothing
+      # else notices. Check this first if uploads stop.
+      hostAliases:
+        - ip: "10.43.59.73"
+          hostnames:
+            - nextcloud.nextcloud.svc.cluster.local
+            - nextcloud.nextcloud.svc
+            - nextcloud.nextcloud
       volumes:
         # gluetun needs the TUN device to bring WireGuard up. Its container
         # block mounts this; without the volume the whole Deployment is
