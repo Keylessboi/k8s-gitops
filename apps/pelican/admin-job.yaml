@@ -92,7 +92,7 @@ spec:
               exit 1
           env:
             - name: ADMIN_EMAIL
-              value: travis.fiorito@tuta.com
+              value: travis@sandstorm.chat
             - name: ADMIN_USERNAME
               value: travis
             - name: ADMIN_PASSWORD

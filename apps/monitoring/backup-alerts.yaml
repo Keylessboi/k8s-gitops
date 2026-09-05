@@ -30,7 +30,7 @@
 #
 # Alert names are prefixed Backup / WALArchiver so the Alertmanager route in
 # kustomization.yaml (alertname =~ "Backup.*|WALArchiver.*") delivers them
-# through the EXISTING Gmail SMTP path to travis.fiorito@tuta.com - the
+# through the EXISTING Gmail SMTP path to travis@sandstorm.chat - the
 # smart-email receiver is reused, no second SMTP config.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule

@@ -428,7 +428,7 @@ helmCharts:
                 - url: "http://192.168.1.153:9098/alertmanager/homelab-alerts"
                   send_resolved: true
               email_configs:
-                - to: "travis.fiorito@tuta.com"
+                - to: "travis@sandstorm.chat"
                   send_resolved: true
             # The heartbeat sink: a 40-line stdlib HTTP receiver on pve that
             # touches a file. Nothing reads the body - only the arrival time
@@ -439,7 +439,7 @@ helmCharts:
                 - url: "http://192.168.1.153:9099/beat"
                   send_resolved: false
               email_configs:
-                - to: "travis.fiorito@tuta.com"
+                - to: "travis@sandstorm.chat"
                   send_resolved: true
           templates:
             - /etc/alertmanager/config/*.tmpl

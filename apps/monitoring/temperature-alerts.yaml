@@ -29,7 +29,7 @@
 #
 # Alert names are all prefixed `Temp` so a single Alertmanager route
 # (alertname =~ "Temp.*", added in kustomization.yaml next to the Smart.* route)
-# delivers them through the EXISTING Gmail SMTP path to travis.fiorito@tuta.com.
+# delivers them through the EXISTING Gmail SMTP path to travis@sandstorm.chat.
 # No second SMTP config; the smart-email receiver is reused.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
