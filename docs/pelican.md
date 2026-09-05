@@ -212,3 +212,50 @@ forced-hosts** can route every subdomain to a different backend through a
 **single forwarded port** — no SRV records, no extra forwards per server. If
 more than two or three Minecraft servers are ever wanted, do that instead of
 forwarding a port each.
+
+## Automatic port forwarding (pelican-portmap)
+
+`scripts/host/pelican-portmap` — a systemd service on **CT 200**, not in k8s,
+because UPnP discovery is SSDP multicast to `239.255.255.250` and that does not
+escape the pod network.
+
+The router at `192.168.1.1` already had UPnP enabled (Tailscale was using it via
+NAT-PMP), so nothing had to change on the Verizon side. External IP reported by
+the IGD is `74.101.53.75`, matching the `*.sandstorm.chat` wildcard.
+
+**Source of truth is Docker, not the panel.** Wings publishes each allocation as
+a host port binding, TCP *and* UDP, on `192.168.1.172`. A running container is
+therefore already the statement "this port must be reachable" — so there is no
+panel state to poll and no drift when a server is started from the UI, the API,
+or by hand.
+
+### The router will not delete mappings
+
+`DeletePortMapping` returns **402 on every variant** — UPnP, NAT-PMP, lowercase
+protocol, explicit IGD URL, empty remote host. Mappings cannot be withdrawn on
+request, only allowed to lapse.
+
+So closing a port is expressed as *not renewing* it. `LEASE = 180` with
+`INTERVAL = 60` gives three renewal cycles of headroom, and bounds exposure
+after a server stops to under three minutes.
+
+This inverts the usual failure mode in our favour. A hole exists only while
+something actively re-asserts it every minute. If the daemon dies, the host
+reboots, Docker wedges, or a server stops, the router drops the mapping on its
+own — there is no cleanup path that can silently fail, which is the failure this
+homelab keeps rediscovering.
+
+Mappings are tagged `pelican-auto <port>/<proto>` and only tagged ones are ever
+touched, so Tailscale's own NAT-PMP entries are left alone. Verified: an added
+mapping appeared at the router, then expired to nothing on its own, with the
+Tailscale mappings untouched throughout.
+
+### The intended end state
+
+1. Create a server in the panel (313 eggs, version is a startup variable).
+2. The Porkbun plugin publishes DNS for it — the wildcard already covers A
+   records, so what matters is the **SRV** record that removes the port.
+3. Start it: Wings publishes the ports, `pelican-portmap` opens them inside 60s.
+4. Stop it: the mapping lapses within 180s.
+
+Step 2 is the remaining piece.

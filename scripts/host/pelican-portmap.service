@@ -1,0 +1,16 @@
+[Unit]
+Description=Open router ports for running Pelican game servers (UPnP)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/pelican-portmap
+Restart=always
+RestartSec=15
+# Mappings carry a short lease and are renewed each cycle, so a stop here is
+# not a leak - the router drops the holes on its own.
+ExecStop=/bin/true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""Open router ports for Pelican game servers only while they are running.
+
+Runs on CT 200 (the Wings host) rather than in k8s on purpose: UPnP discovery
+is SSDP multicast to 239.255.255.250, which does not escape the pod network.
+
+The source of truth is Docker, not the Pelican database. Wings publishes each
+allocation as a host port binding on the container, so a running container *is*
+the statement "this port needs to be reachable" - no polling of panel state, no
+drift when a server is started from the panel, the API, or by hand.
+
+This router (IGD at 192.168.1.1) accepts AddPortMapping but rejects every
+DeletePortMapping with code 402, over both UPnP and NAT-PMP - a mapping cannot
+be withdrawn on request, only allowed to lapse. So closing a port is expressed
+as "stop renewing it", and LEASE is deliberately short.
+
+That inverts the usual failure mode in our favour: a hole exists only while
+something is actively re-asserting it every cycle. If this daemon dies, the host
+reboots, Docker wedges, or a server stops, the router drops the mapping within
+LEASE seconds with no cooperation from us. Nothing stays open because someone
+forgot, and there is no cleanup path that can silently fail.
+"""
+
+import re
+import json
+import subprocess
+import sys
+import time
+
+INTERNAL_IP = "192.168.1.172"     # the Wings host, where Docker publishes ports
+INTERVAL = 60
+# Short by design: this is the *only* way a port ever closes (see module
+# docstring), so it bounds how long a stopped server stays exposed. Three
+# renewal cycles of headroom absorbs a missed poll without flapping the port.
+LEASE = 180
+DESC_PREFIX = "pelican-auto"       # only mappings we own are ever deleted
+
+MAPPING_RE = re.compile(
+    r"^\s*\d+\s+(TCP|UDP)\s+(\d+)->([\d.]+):(\d+)\s+'([^']*)'"
+)
+
+
+def run(cmd, timeout=45):
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return p.returncode, p.stdout + p.stderr
+    except Exception as exc:                       # never let a probe kill the loop
+        return 1, str(exc)
+
+
+def running_ports():
+    """{(proto, port)} that currently-running Wings containers publish."""
+    rc, out = run(["docker", "ps", "-q"])
+    if rc != 0:
+        return None                                # unknown != empty; see sync()
+    ids = out.split()
+    if not ids:
+        return set()
+    rc, out = run(["docker", "inspect", "--format",
+                   "{{json .HostConfig.PortBindings}}"] + ids)
+    if rc != 0:
+        return None
+    wanted = set()
+    for line in out.splitlines():
+        line = line.strip()
+        if not line or line == "null":
+            continue
+        try:
+            bindings = json.loads(line)
+        except ValueError:
+            continue
+        for spec, binds in (bindings or {}).items():
+            proto = spec.rsplit("/", 1)[-1].upper()
+            if proto not in ("TCP", "UDP"):
+                continue
+            for b in binds or []:
+                port = b.get("HostPort")
+                if port:
+                    wanted.add((proto, int(port)))
+    return wanted
+
+
+def existing_mappings():
+    """{(proto, extport): description} for mappings this daemon owns."""
+    rc, out = run(["upnpc", "-l"])
+    if rc != 0 and "Found valid IGD" not in out:
+        return None
+    ours = {}
+    for line in out.splitlines():
+        m = MAPPING_RE.match(line)
+        if not m:
+            continue
+        proto, extport, ip, intport, desc = m.groups()
+        if desc.startswith(DESC_PREFIX):
+            ours[(proto, int(extport))] = desc
+    return ours
+
+
+def add(proto, port):
+    rc, out = run(["upnpc", "-e", f"{DESC_PREFIX} {port}/{proto.lower()}",
+                   "-a", INTERNAL_IP, str(port), str(port), proto, str(LEASE)])
+    return rc == 0 or "is redirected to" in out
+
+
+def delete(proto, port):
+    """Best-effort only. This router answers 402 to every delete, so the real
+    mechanism is letting the lease lapse; a failure here is expected, not an
+    error worth alarming about."""
+    rc, _ = run(["upnpc", "-d", str(port), proto])
+    return rc == 0
+
+
+def sync(state):
+    wanted = running_ports()
+    if wanted is None:
+        log("docker unavailable; leaving mappings alone this cycle")
+        return
+    have = existing_mappings()
+    if have is None:
+        log("no IGD reachable; will retry")
+        return
+
+    for proto, port in sorted(wanted):
+        # Re-add every cycle even when present: that is what renews the lease.
+        if add(proto, port):
+            if (proto, port) not in state["open"]:
+                log(f"opened {port}/{proto.lower()} -> {INTERNAL_IP}")
+                state["open"].add((proto, port))
+        else:
+            log(f"FAILED to open {port}/{proto.lower()}")
+
+    for proto, port in sorted(set(have) - wanted):
+        # Withdrawing consent is enough: by not re-adding it above, the mapping
+        # is already on its way out. The explicit delete just makes it prompt
+        # where a router honours it.
+        delete(proto, port)
+        log(f"releasing {port}/{proto.lower()} "
+            f"(server not running; lapses in <={LEASE}s)")
+        state["open"].discard((proto, port))
+
+
+def log(msg):
+    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}", flush=True)
+
+
+def main():
+    log(f"pelican-portmap starting; internal={INTERNAL_IP} lease={LEASE}s")
+    state = {"open": set()}
+    while True:
+        try:
+            sync(state)
+        except Exception as exc:
+            log(f"cycle error: {exc}")
+        time.sleep(INTERVAL)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
