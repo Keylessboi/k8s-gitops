@@ -720,6 +720,30 @@ spec:
             - name: mam-seed
               mountPath: /run/secrets/mam
               readOnly: true
+      # Point every container at gluetun's DNS-over-TLS resolver, verified
+      # answering on 127.0.0.1 before this was added. Setting it here is what
+      # actually moves the other four: DNS_KEEP_NAMESERVER only rewrites
+      # gluetun's OWN /etc/resolv.conf, and containers share a network
+      # namespace but not a filesystem, so the rest kept kube-dns - and kept
+      # leaking every tracker lookup out through the node.
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - 127.0.0.1
+        options:
+          - name: ndots
+            value: "1"
+      # gluetun's resolver cannot answer *.svc.cluster.local. This pod needs
+      # exactly one cluster name - Nextcloud, for the completed-torrent upload
+      # hook - so it is pinned rather than handing DNS back to CoreDNS.
+      # If that Service is ever recreated its ClusterIP changes and uploads
+      # fail quietly ("PUT failed" in the hook's output). Check here first.
+      hostAliases:
+        - ip: "10.43.59.73"
+          hostnames:
+            - nextcloud.nextcloud.svc.cluster.local
+            - nextcloud.nextcloud.svc
+            - nextcloud.nextcloud
       volumes:
         # gluetun needs the TUN device to bring WireGuard up. Its container
         # block mounts this; without the volume the whole Deployment is
