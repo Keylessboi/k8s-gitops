@@ -20,6 +20,7 @@ created them. A record made by hand in the Porkbun console is never touched,
 even if its name collides with a server.
 """
 
+import base64
 import json
 import os
 import re
@@ -52,8 +53,28 @@ def log(msg):
 
 
 def creds():
+    """Environment first, then the cluster Secret Doppler manages.
+
+    The credential lives in Doppler and is delivered to the `porkbun` Secret in
+    the pelican namespace; this reads it straight into memory each cycle rather
+    than copying it onto the node's disk, so rotating it in Doppler is the only
+    step and there is no stale second copy to forget about."""
     k, s = os.environ.get("PORKBUN_API_KEY"), os.environ.get("PORKBUN_SECRET_KEY")
-    return (k, s) if k and s else (None, None)
+    if k and s:
+        return k, s
+    out = {}
+    for field in ("api-key", "secret-key"):
+        r = subprocess.run(
+            ["kubectl", "get", "secret", "-n", "pelican", "porkbun",
+             "-o", "jsonpath={.data['" + field + "']}"],
+            capture_output=True, text=True, timeout=30)
+        if r.returncode != 0 or not r.stdout.strip():
+            return None, None
+        try:
+            out[field] = base64.b64decode(r.stdout.strip()).decode().strip()
+        except Exception:
+            return None, None
+    return out["api-key"], out["secret-key"]
 
 
 def api(path, payload, timeout=30):
@@ -174,9 +195,8 @@ def main():
     while True:
         key, secret = creds()
         if not key:
-            log("PORKBUN_API_KEY/PORKBUN_SECRET_KEY not set - nothing to do. "
-                "Enable API access for the domain in the Porkbun console, then "
-                "put the pair in /etc/pelican-dns.env.")
+            log("no Porkbun credential in the environment or the pelican/porkbun "
+                "Secret - nothing to do.")
         else:
             try:
                 sync(key, secret)

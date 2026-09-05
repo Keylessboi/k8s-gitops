@@ -282,24 +282,28 @@ only, and anything off 27015 stays `host:port` no matter what we publish.
 It reads the same allocation the panel shows (`allocations.ip_alias`), so
 published DNS always matches the address already displayed for the server.
 
-**Blocked on a credential.** ADR-0006 records that `sandstorm.chat` is on
-Porkbun with no API credential in Doppler, and that is still true. Until
-`PORKBUN_API_KEY` / `PORKBUN_SECRET_KEY` exist in `/etc/pelican-dns.env`, the
-service runs and logs that it has nothing to do — deliberately the same Phase A
-shape as the qBittorrent WebDAV hook. To finish:
+**The credential.** ADR-0006 recorded that `sandstorm.chat` was on Porkbun with
+no API credential in Doppler. That is now resolved: `PORKBUN_API_KEY` and
+`PORKBUN_SECRET_KEY` live in Doppler `kubernetes/prd` and reach the cluster as
+the `porkbun` Secret in the `pelican` namespace (see
+`apps/doppler/dopplersecrets.yaml`).
 
-1. Porkbun console → Account → **API Access**, create a key + secret.
-2. Enable API access **on `sandstorm.chat` specifically** — it is a per-domain
-   toggle and defaults to off. This is the step that is easy to miss.
-3. `/etc/pelican-dns.env` on CT 200, `0600`:
-   `PORKBUN_API_KEY=pk1_…` / `PORKBUN_SECRET_KEY=sk1_…`
-4. `systemctl restart pelican-dns`
+The daemon reads that Secret directly each cycle rather than keeping a copy in
+an env file on the node. Rotating the value in Doppler is therefore the whole
+procedure — there is no second copy on disk to go stale, and no node to
+re-provision. It still honours `PORKBUN_API_KEY` / `PORKBUN_SECRET_KEY` from the
+environment if set, which is what makes it testable without the cluster.
 
 **Safety.** It only deletes records whose id it recorded when it created them
 (`/var/lib/pelican-dns/created.json`). A record made by hand in the Porkbun
 console is never touched, even if its name collides with a server.
 
-Verified without credentials: the database half derives the right records for
-the existing server —
-`A minecraft.sandstorm.chat` and `SRV _minecraft._tcp.minecraft -> 0 5 25565`.
-The Porkbun API calls themselves are untested until a key exists.
+Verified end to end against the live zone: the daemon created both records for
+the existing server, and they resolve publicly —
+
+```
+A   minecraft.sandstorm.chat             -> 74.101.53.75
+SRV _minecraft._tcp.minecraft.sandstorm.chat -> 0 5 25565 minecraft.sandstorm.chat.
+```
+
+which means a player can now type `minecraft.sandstorm.chat` with no port.
