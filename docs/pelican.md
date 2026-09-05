@@ -142,3 +142,73 @@ that is a panel-side *cap*, not physical memory. On 2026-09-04 the node had
 **~2.2 GB actually available**. A modded Minecraft server sized to the cap will
 OOM the node and take cluster workloads with it. Allocate against what `free -m`
 says, not against the governor.
+
+## Creating servers: eggs, ports, and addresses
+
+### Eggs
+
+**313 eggs are installed** — effectively everything the `pelican-eggs` org
+publishes: all of `minecraft`, `games-steamcmd`, `games-standalone`, `voice`,
+`software`, `database`, `storage`, `monitoring`, `chatbots`, `generic`. So
+Vanilla / Paper / Purpur / Spigot / Forge / NeoForge / Fabric / Bedrock, both
+proxies (Velocity, BungeeCord), CS2 and CS:S, Rust, Valheim, Palworld, ARK,
+Terraria, Project Zomboid and the rest are all pickable in the create-server
+wizard. Version is a per-server startup variable, so switching Minecraft
+versions never needs a new egg.
+
+Beta38 has no `p:egg:import` CLI. Bulk import goes through the service the
+panel's own importer uses:
+
+```php
+// php artisan tinker --execute="require '/tmp/import_all.php';"
+$svc = app(App\Services\Eggs\Sharing\EggImporterService::class);
+$egg = $svc->fromUrl('https://raw.githubusercontent.com/pelican-eggs/<repo>/main/<path>.json');
+```
+
+Two gotchas worth remembering. `php artisan tinker <file>` opens a REPL and
+echoes the file instead of running it — it must be `--execute="require '…';"`.
+And many directories carry both `egg-x.json` and `egg-pterodactyl-x.json` for
+the same egg; dedupe per directory preferring the non-`pterodactyl` variant, or
+the panel fills with pairs.
+
+### Addresses
+
+`*.sandstorm.chat` is a **wildcard A record → 74.101.53.75** (Porkbun NS), so
+any hostname resolves with no DNS work. Each allocation therefore just needs a
+name attached, which is what `allocations.ip_alias` is for — the panel then
+shows players the hostname instead of `192.168.1.172`.
+
+68 allocations exist on node 1, all named:
+
+| Address | Port | For |
+|---|---|---|
+| `minecraft.sandstorm.chat` | 25565 | Minecraft Java (in use) |
+| `papermc` / `forge` / `fabric` / `neoforge` / `purpur` / `spigot` / `vanilla` | 25566-25572 | Minecraft Java |
+| `proxy.sandstorm.chat` | 25573 | Velocity / BungeeCord |
+| `bedrock.sandstorm.chat` | 19132 | Minecraft Bedrock (UDP) |
+| `cs` / `cs2` / `css` | 27015-27017 | Source engine |
+| `terraria` `rust` `palworld` `valheim` `zomboid` | 7777 / 28015 / 8211 / 2456 / 16261 | standalone games |
+| `game1…game50` | remainder | unassigned spares |
+
+### Two things the cluster cannot do for itself
+
+**Router port-forwards.** Web apps work because 80/443 already forward to
+Traefik at `192.168.1.240`. Game traffic is raw TCP/UDP and must forward to the
+Wings node, **`192.168.1.172`**, port-for-port. Until a port is forwarded, a
+server is LAN-only. Forward both TCP and UDP.
+
+**Dropping the port from the address.** Two ways, depending on the game:
+
+- *Minecraft Java* reads SRV records, so one record per name removes the port:
+  `_minecraft._tcp.papermc` → priority 0, weight 5, port 25566, target
+  `papermc.sandstorm.chat`. Players then type `papermc.sandstorm.chat`.
+- *Source games* ignore SRV, but clients default to **27015** — so
+  `cs.sandstorm.chat` works portless as long as that server holds 27015.
+  Anything on 27016+ must be given as `host:port`.
+
+There is a better option for Minecraft specifically. The Java protocol sends
+the hostname it dialed in its handshake, so a **Velocity proxy on 25565 with
+forced-hosts** can route every subdomain to a different backend through a
+**single forwarded port** — no SRV records, no extra forwards per server. If
+more than two or three Minecraft servers are ever wanted, do that instead of
+forwarding a port each.
