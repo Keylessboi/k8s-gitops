@@ -122,9 +122,7 @@ spec:
                   # 1080, not 8388: 8388 is Shadowsocks, which does not answer
                   # a SOCKS5 greeting.
                   proxy:
-                    enabled: true
-                    address: vpn-gateway.vpn.svc.cluster.local
-                    port: 1080
+                    enabled: false
               EOF
               chown 1000:1000 /app/slskd.yml
               chmod 600 /app/slskd.yml
@@ -198,7 +196,7 @@ spec:
                 { if (!skip) print }
               ' "$F" > "$F.tmp"
               mv "$F.tmp" "$F"
-              printf '[LegalNotice]\nAccepted=true\n[Proxy]\nEnabled=true\nType=5\nHost=vpn-gateway.vpn.svc.cluster.local\nPort=1080\nUseProxyForPeerConnections=true\nUseProxyForTrackerConnections=true\n[AutoRun]\nEnabled=true\nProgram=/bin/sh /scripts/qbit-upload.sh "%%L" "%%F"\n' >> "$F"
+              printf '[LegalNotice]\nAccepted=true\n[Proxy]\nEnabled=false\n[AutoRun]\nEnabled=true\nProgram=/bin/sh /scripts/qbit-upload.sh "%%L" "%%F"\n' >> "$F"
               # Seed the category the AutoRun hook keys on. qbit-upload.sh exits
               # 0 unless %L matches, so without this category the hook is wired
               # up correctly and still never fires - which is exactly how it
@@ -223,6 +221,183 @@ spec:
             - name: config
               mountPath: /config
       containers:
+        # gluetun runs HERE, in this pod, rather than in its own Deployment.
+        #
+        # Containers in a pod share a network namespace, so qBittorrent, slskd
+        # and seedboxapi now use tun0 directly instead of dialling a SOCKS5
+        # proxy. That is the whole point: a SOCKS5 proxy carries TCP only, so
+        # UDP trackers and DHT were structurally impossible, and there was no
+        # inbound path at all - qBittorrent reported connection status
+        # "firewalled" with all 2,228 torrents stalled and zero bytes moving.
+        # Through tun0 both work, and AirVPN's forwarded ports (6877/6874,
+        # below) give real inbound peer connections.
+        #
+        # It cannot run in both places: all three airvpn Secrets mirror the same
+        # Doppler keys, so it is ONE WireGuard device key. A second tunnel on it
+        # would fight the first. apps/vpn was removed in the same commit.
+        #
+        # The killswitch moves with it - from the NetworkPolicy (which had to
+        # start allowing internet egress so the WireGuard handshake can happen)
+        # into gluetun's own firewall, which is stricter: it drops everything
+        # not going through the tunnel except the subnets named below.
+        - name: gluetun
+          # v3.41.3 pinned: v3.40.0 aborts at startup on this LXC's IPv6
+          # link-local address ("for ip6tables: failed cleaning up test
+          # rule"). v3.41.3 does not.
+          image: qmcgaw/gluetun:v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+          env:
+            - name: VPN_SERVICE_PROVIDER
+              value: airvpn
+            - name: VPN_TYPE
+              value: wireguard
+            # Pinned exit (owner decision 2026-08-29): a roaming AirVPN exit
+            # changes ASN across providers, which killed the MAM seedbox
+            # session on every restart. SERVER_NAMES pins the exit to one
+            # server so IP+ASN stay stable and one re-seed is the last.
+            # Trade-off: if Aquila dies, the tunnel stays down until the pin
+            # is changed.
+            - name: SERVER_NAMES
+              value: Aquila
+            - name: WIREGUARD_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: airvpn
+                  key: private-key
+            - name: WIREGUARD_PRESHARED_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: airvpn
+                  key: preshared-key
+            - name: WIREGUARD_ADDRESSES
+              valueFrom:
+                secretKeyRef:
+                  name: airvpn
+                  key: addresses
+            # SERVER_COUNTRIES deliberately unset. gluetun filters its AirVPN
+            # server list by literal country name, so a placeholder like
+            # "Earth" matches nothing and startup fails with no server found.
+            # Omitting it entirely is how you say "anywhere", which is what is
+            # wanted here.
+            #
+            # THE KILLSWITCH BOUNDARY. Only these subnets bypass the tunnel:
+            #   10.42.0.0/16 pod CIDR     - so consumer apps can reach this
+            #                               service, and replies get back.
+            #   10.43.0.0/16 service CIDR - so DNS (CoreDNS) works.
+            # Everything else (all public internet) is forced through
+            # WireGuard, and dropped if it is down.
+            - name: FIREWALL_OUTBOUND_SUBNETS
+              value: "10.42.0.0/16,10.43.0.0/16"
+            # AirVPN forwarded ports for this account: 6877 for qBittorrent,
+            # 6874 for slskd. These are forwarded through the VPN tunnel, so
+            # peer connections arrive through the Aquila exit.
+            - name: FIREWALL_VPN_INPUT_PORTS
+              value: "6877,6874"
+            # HTTP proxy: remux points HTTP_PROXY/HTTPS_PROXY at
+            # vpn-proxy.downloads.svc.cluster.local:8888.
+            - name: HTTPPROXY
+              value: "on"
+            # Shadowsocks proxy: consumer apps point their SOCKS5 client at
+            # vpn-proxy.downloads.svc.cluster.local:8388. This carries
+            # qBittorrent's tracker/peer TCP traffic and slskd's Soulseek
+            # connections. The password is in Doppler (VPN_SHADOWSOCKS_PASSWORD).
+            - name: SHADOWSOCKS
+              value: "off"
+            # Keep the original kube-dns nameserver so cluster-internal DNS
+            # (*.svc.cluster.local) keeps working. Without this, gluetun
+            # rewrites resolv.conf to its upstream resolver (e.g. 1.1.1.1)
+            # which cannot resolve cluster names.
+            - name: DNS_KEEP_NAMESERVER
+              value: "on"
+            - name: DOT
+              value: "off"
+            - name: TZ
+              value: UTC
+          ports:
+            - name: http-proxy
+              containerPort: 8888
+            - name: shadowsocks
+              containerPort: 8388
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            # A liveness timeout here RESTARTS gluetun, which drops the VPN.
+            # Far better to tolerate a slow check than tear the tunnel down.
+            timeoutSeconds: 10
+            failureThreshold: 6
+            exec:
+              command: ["/gluetun-entrypoint", "healthcheck"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+          volumeMounts:
+            # WireGuard needs a TUN device; Kubernetes does not expose one by
+            # default. NET_ADMIN alone is not enough - the device node itself
+            # must be passed in or gluetun fails with "operation not permitted".
+            - name: tun
+              mountPath: /dev/net/tun
+        # ---------------------------------------------------------------
+        # Plain SOCKS5, in the SAME POD as gluetun.
+        #
+        # WHY HERE AND NOT A SECOND VPN CONTAINER. Containers in a pod share
+        # one network namespace, so this egresses through gluetun's WireGuard
+        # tunnel automatically - exactly how the old qBittorrent+gluetun
+        # sidecar worked. One tunnel, one AirVPN session, ~2 MB. Giving remux
+        # its own gluetun would have meant a second tunnel and a second
+        # session to do a job this pod already does, which is the per-app
+        # duplication CONTRIBUTING rule 4 exists to stop.
+        #
+        # WHY IT IS NEEDED AT ALL. Neither existing port can carry BitTorrent:
+        #   8888 is an HTTP proxy - CONNECT cannot carry peer or DHT traffic.
+        #   8388 is SHADOWSOCKS, an encrypted protocol, NOT plain SOCKS5. A
+        #   SOCKS5 client cannot speak it; verified by `curl
+        #   --socks5-hostname` timing out against 8388 from both remux and
+        #   qBittorrent. That also means qbittorrent.yaml's
+        #   `[Proxy] Type=5 Port=8388` with no credentials is very likely
+        #   inert and should be repointed here.
+        #
+        # No authentication: this listens on a ClusterIP reachable only from
+        # namespaces the NetworkPolicy names, and a credential would have to
+        # live in every consumer's config for no threat this faces.
+        - name: socks5
+          # Pinned by digest. A 2 MB static Go binary; entrypoint /socks5.
+          image: serjs/go-socks5-proxy:latest@sha256:0af522996f402c03ecd985a87997158eabeb28935365e3a384df37eafcf740ea
+          env:
+            - name: PROXY_PORT
+              value: "1080"
+            # This image defaults REQUIRE_AUTH=true and EXITS at startup if no
+            # PROXY_USER/PROXY_PASSWORD are set - it does not fall back to
+            # open. Turned off deliberately: the listener is a ClusterIP
+            # reachable only from the namespaces vpn/networkpolicy.yaml names,
+            # and a credential would have to be duplicated into every
+            # consumer's config for no threat this actually faces.
+            - name: REQUIRE_AUTH
+              value: "false"
+          ports:
+            - name: socks5
+              containerPort: 1080
+          # Every peer connection for every torrent is a socket held open in
+          # this one process. With ~2,200 torrents in the session, 64Mi was not
+          # a ceiling it approached occasionally - it was OOMKilled 13 times,
+          # and each kill drops every peer connection at once. The result looks
+          # exactly like "the VPN is down": 0 B/s, while a single curl through
+          # the same proxy succeeds because one connection costs nothing.
+          #
+          # The request stays small; only the ceiling moves, so this reserves
+          # nothing extra on an already-tight node.
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
         # --- slskd (Soulseek), SOCKS5-routed through the VPN gateway. ---
         - name: slskd
           image: slskd/slskd:0.23.2
@@ -494,8 +669,6 @@ spec:
             # socks5h:// needs a real SOCKS5 listener. 8388 is Shadowsocks,
             # which curl cannot speak - so the MAM session/IP update has been
             # failing the same way slskd was. 1080 is the plain SOCKS5 sidecar.
-            - name: all_proxy
-              value: socks5h://vpn-gateway.vpn.svc.cluster.local:1080
             - name: TZ
               value: UTC
           resources:

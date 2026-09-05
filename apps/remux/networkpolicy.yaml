@@ -146,10 +146,10 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: vpn
+              kubernetes.io/metadata.name: downloads
       ports:
         - {port: 8888, protocol: TCP}
-        # 8388 = the gateway's Shadowsocks port, usable as a SOCKS5 proxy.
+        # 1080 = the plain SOCKS5 sidecar, now in the qBittorrent pod.
         # This is the path BitTorrent peer traffic has to take: an HTTP CONNECT
         # proxy on 8888 cannot carry peer or DHT connections, which is why
         # qBittorrent routes through 8388 with UseProxyForPeerConnections=true
@@ -158,7 +158,7 @@ spec:
         # fetch an addon's stream list and then reach none of the peers on it.
         # 8388 is Shadowsocks and unusable by a plain SOCKS5 client; kept
         # only so this rule reads as the full set of gateway ports.
-        - {port: 8388, protocol: TCP}
+        - {port: 1080, protocol: TCP}
         # 1080: the plain SOCKS5 sidecar. This is the port the torrent engine
         # actually needs.
         - {port: 1080, protocol: TCP}

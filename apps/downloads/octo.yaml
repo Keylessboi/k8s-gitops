@@ -150,9 +150,9 @@ spec:
             # .NET reads these in both cases (http_proxy then HTTP_PROXY), so
             # the uppercase forms alone are sufficient.
             - name: HTTP_PROXY
-              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+              value: http://vpn-proxy.downloads.svc.cluster.local:8888
             - name: HTTPS_PROXY
-              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+              value: http://vpn-proxy.downloads.svc.cluster.local:8888
             # Cluster-internal calls must NOT go through the tunnel: Navidrome
             # and slskd are reachable directly, and proxying them would route
             # in-cluster traffic out to AirVPN and back, which the VPN

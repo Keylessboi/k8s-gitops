@@ -49,13 +49,13 @@ spec:
             # AirVPN rather than the home WAN - which is the entire reason the
             # downloads namespace has a killswitch.
             - name: HTTP_PROXY
-              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+              value: http://vpn-proxy.downloads.svc.cluster.local:8888
             - name: HTTPS_PROXY
-              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+              value: http://vpn-proxy.downloads.svc.cluster.local:8888
             - name: http_proxy
-              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+              value: http://vpn-proxy.downloads.svc.cluster.local:8888
             - name: https_proxy
-              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+              value: http://vpn-proxy.downloads.svc.cluster.local:8888
             - name: NO_PROXY
               value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,.svc.cluster.local"
             - name: no_proxy

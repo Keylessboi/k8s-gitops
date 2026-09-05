@@ -125,15 +125,15 @@ spec:
             # (self-scraping detection hits BASE_URL) off the tunnel, where
             # gluetun could not resolve them anyway.
             - name: ADDON_PROXY
-              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+              value: http://vpn-proxy.downloads.svc.cluster.local:8888
             - name: ADDON_PROXY_CONFIG
               value: "*:true,aiostreams.remux.svc.cluster.local:false,localhost:false,127.0.0.1:false"
             # Kept because some libraries in the dependency tree do honour them
             # (anything built on node-fetch or axios rather than undici).
             - name: HTTP_PROXY
-              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+              value: http://vpn-proxy.downloads.svc.cluster.local:8888
             - name: HTTPS_PROXY
-              value: http://vpn-gateway.vpn.svc.cluster.local:8888
+              value: http://vpn-proxy.downloads.svc.cluster.local:8888
             #
             # If it ever matters, the fix belongs upstream (make the fetcher use
             # the proxy) or in a sidecar that mirrors the database locally.

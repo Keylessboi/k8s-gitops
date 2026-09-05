@@ -1,0 +1,29 @@
+---
+# The proxy endpoints gluetun exposes, now that it lives in the qBittorrent pod.
+#
+# Only remux uses these. Everything in this pod shares gluetun's network
+# namespace and reaches the internet through tun0 directly, so it needs no
+# proxy at all - that indirection is exactly what stalled every torrent.
+#
+# Kept as a Service rather than deleted because remux is in another namespace
+# and cannot share a network namespace across pods.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vpn-proxy
+  namespace: downloads
+  labels:
+    app.kubernetes.io/name: vpn-proxy
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: qbittorrent
+  ports:
+    - name: http-proxy
+      port: 8888
+      targetPort: 8888
+      protocol: TCP
+    - name: socks5
+      port: 1080
+      targetPort: 1080
+      protocol: TCP

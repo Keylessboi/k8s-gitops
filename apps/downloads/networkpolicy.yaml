@@ -3,18 +3,20 @@
 #
 # With the gluetun sidecar removed, the pod has its own network interface
 # and COULD reach the internet directly. This policy is the killswitch:
-# egress is locked to cluster-internal services and the VPN gateway's
-# Shadowsocks proxy ONLY. Direct internet egress (0.0.0.0/0) is DENIED.
+# egress is cluster-internal services plus raw internet, because gluetun now
+# runs INSIDE this pod and must reach the AirVPN endpoint to bring up
+# WireGuard - a handshake no proxy can carry.
 #
-# If the VPN gateway goes down, the download stack can still reach DB,
-# redis, DNS, and the kube-system OIDC endpoints, but cannot reach the
-# internet - which is the correct failure mode (no traffic without the
-# tunnel, rather than traffic without the tunnel).
+# The killswitch did not weaken, it moved somewhere stricter: gluetun's own
+# firewall drops everything not going through tun0 except the pod and service
+# CIDRs. Previously the NetworkPolicy enforced it, which meant it could only
+# express "no internet at all" - and that is incompatible with the tunnel
+# being established from inside this pod.
 #
-# CAVEAT: qBittorrent's SOCKS5 proxy only carries TCP traffic. UDP-based
-# DHT and UDP tracker announces would need to be disabled or proxied
-# separately. MAM trackers are TCP-only, so this is acceptable for the
-# MAM use case.
+# The CAVEAT that used to live here - "the SOCKS5 proxy only carries TCP, so
+# UDP DHT and UDP tracker announces cannot work" - was correct, and was the
+# bug. It stalled all 2,228 torrents, not just the UDP-dependent ones. Sharing
+# gluetun's network namespace removes the proxy from the path entirely.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -47,6 +49,22 @@ spec:
       ports:
         - port: 8080
           protocol: TCP
+    # gluetun's proxy ports moved into this pod, so the consumers that used to
+    # reach the vpn namespace now have to be admitted here instead: remux and
+    # navidrome across namespaces, and octo from inside this one.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: remux
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: navidrome
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: downloads
+      ports:
+        - {port: 1080, protocol: TCP}
+        - {port: 8888, protocol: TCP}
     # Lidarr drives slskd through its API, and both Lidarr and Readarr drive
     # qBittorrent's WebUI.
     - from:
@@ -141,9 +159,9 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: vpn
+              kubernetes.io/metadata.name: downloads
       ports:
-        - {port: 8388, protocol: TCP}
+        - {port: 1080, protocol: TCP}
         - {port: 8388, protocol: UDP}
         - {port: 8888, protocol: TCP}
         # 1080: the plain SOCKS5 sidecar in the gateway pod. 8388 is
@@ -208,3 +226,13 @@ spec:
       ports:
         - port: 8080
           protocol: TCP
+    # gluetun dials the AirVPN endpoint from inside this pod. RFC1918 is
+    # excluded so this rule cannot become a backdoor to the rest of the LAN or
+    # the cluster - those paths are named explicitly above.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16

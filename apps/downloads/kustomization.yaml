@@ -23,6 +23,7 @@ labels:
 
 resources:
   - namespace.yaml
+  - vpn-proxy-service.yaml
   - media-data-pv.yaml
   - pvc.yaml
   - qbit-upload-config.yaml
