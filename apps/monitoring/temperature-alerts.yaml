@@ -4,10 +4,18 @@
 # triplicated - so the one push that actually said the cluster was gone arrived
 # as the fifth identically-shaped alert and was read as more of the same.
 #
-# avg_over_time smooths a boundary reading; keep_firing_for holds the alert
-# after it clears so one episode is one alert, not a stream. An alert nobody
-# reads is worse than no alert, because it also teaches you to ignore the ones
-# that matter.
+# Two changes, both of which this operator actually supports:
+#   avg_over_time(...[15m]) - a 15-minute mean does not oscillate across the
+#     threshold the way an instantaneous reading does.
+#   for: 15m (was 5m)       - the condition must hold three times longer before
+#     it becomes a notification.
+#
+# keepFiringFor was tried and removed: this prometheus-operator's CRD has no
+# such field, so the apiserver accepted it and dropped it silently. Left in, it
+# would have looked like hysteresis in git while changing nothing.
+#
+# An alert nobody reads is worse than no alert, because it also teaches you to
+# ignore the ones that matter.
 ---
 # Temperature alerts -> email the owner when the homelab runs too hot.
 #
@@ -72,8 +80,7 @@ spec:
               * on(chip, sensor) group_left(label)
               node_hwmon_sensor_label{label="Package id 0"}
             ) >= 82 < 90
-          for: 5m
-          keepFiringFor: 30m
+          for: 15m
           labels:
             severity: warning
           annotations:
@@ -89,8 +96,7 @@ spec:
               * on(chip, sensor) group_left(label)
               node_hwmon_sensor_label{label="Package id 0"}
             ) >= 90
-          for: 5m
-          keepFiringFor: 30m
+          for: 15m
           labels:
             severity: critical
           annotations:
@@ -108,8 +114,7 @@ spec:
         - alert: TempNasDiskHigh
           expr: >-
             avg_over_time(smartctl_device_temperature{temperature_type="current", device=~"sd.*"}[15m]) >= 55 < 60
-          for: 5m
-          keepFiringFor: 30m
+          for: 15m
           labels:
             severity: warning
           annotations:
@@ -120,8 +125,7 @@ spec:
         - alert: TempNasDiskCritical
           expr: >-
             avg_over_time(smartctl_device_temperature{temperature_type="current", device=~"sd.*"}[15m]) >= 60
-          for: 5m
-          keepFiringFor: 30m
+          for: 15m
           labels:
             severity: critical
           annotations:
@@ -138,8 +142,7 @@ spec:
         - alert: TempNasNvmeHigh
           expr: >-
             avg_over_time(smartctl_device_temperature{temperature_type="current", device=~"nvme.*"}[15m]) >= 70 < 80
-          for: 5m
-          keepFiringFor: 30m
+          for: 15m
           labels:
             severity: warning
           annotations:
@@ -150,8 +153,7 @@ spec:
         - alert: TempNasNvmeCritical
           expr: >-
             avg_over_time(smartctl_device_temperature{temperature_type="current", device=~"nvme.*"}[15m]) >= 80
-          for: 5m
-          keepFiringFor: 30m
+          for: 15m
           labels:
             severity: critical
           annotations:
