@@ -199,6 +199,25 @@ spec:
               ' "$F" > "$F.tmp"
               mv "$F.tmp" "$F"
               printf '[LegalNotice]\nAccepted=true\n[Proxy]\nEnabled=true\nType=5\nHost=vpn-gateway.vpn.svc.cluster.local\nPort=1080\nUseProxyForPeerConnections=true\nUseProxyForTrackerConnections=true\n[AutoRun]\nEnabled=true\nProgram=/bin/sh /scripts/qbit-upload.sh "%%L" "%%F"\n' >> "$F"
+              # Seed the category the AutoRun hook keys on. qbit-upload.sh exits
+              # 0 unless %L matches, so without this category the hook is wired
+              # up correctly and still never fires - which is exactly how it
+              # looked: enabled, mounted, and silent. Categories are runtime
+              # state in qBittorrent's own config, so a deploy alone never
+              # creates one; seed it here, idempotently, before qBittorrent
+              # starts and caches the file in memory.
+              CATS="$CONF/categories.json"
+              if ! grep -q '"nextcloud"' "$CATS" 2>/dev/null; then
+                NC='    "nextcloud": {\n        "save_path": "/data/torrents/nextcloud"\n    }'
+                if [ -s "$CATS" ] && grep -q '"' "$CATS"; then
+                  # Existing categories: splice ours in after the opening brace.
+                  awk -v nc="$NC" 'NR==1 && $0 ~ /^\{/ { print "{"; printf "%s,\n", nc; next } { print }' \
+                    "$CATS" > "$CATS.tmp" && mv "$CATS.tmp" "$CATS"
+                else
+                  printf '{\n%b\n}\n' "$NC" > "$CATS"
+                fi
+                echo "seeded nextcloud category"
+              fi
               echo "qBittorrent SOCKS5 proxy + AutoRun configured"
           volumeMounts:
             - name: config
