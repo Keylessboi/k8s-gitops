@@ -960,3 +960,31 @@ is **no IPMI**, it ignored ~25 WoL packets from its own segment, and a full LAN
 sweep found no smart plug. Recovery required a physical power button press.
 See `docs/recovery/cluster-down.md` for the BIOS settings and the one purchase
 that would make this remotely recoverable.
+
+### Signing in with Authentik silently created a second, empty Immich account
+
+Immich's OAuth is `autoRegister: true`, and it matches an incoming login to an
+existing account by **email**. The Authentik identity is `travis@sandstorm.chat`;
+the Immich account holding the library was created with `travis.fiorito@tuta.com`.
+No match, so the first Authentik sign-in did the only other thing it could —
+provisioned a brand-new account.
+
+| account | OAuth bound | admin | assets |
+|---|---|---|---|
+| `travis.fiorito@tuta.com` | no | yes | **10,367** |
+| `travis@sandstorm.chat` (created 2026-09-05 17:58 UTC) | **yes** | no | **0** |
+
+The library was never damaged or lost — the login just landed somewhere else.
+Fixed by moving the OAuth binding onto the account that owns the photos, rather
+than reassigning 10,367 rows: on-disk paths are keyed `upload/<ownerId>/…`, so
+changing `ownerId` would have orphaned every file.
+
+This is the same shape as the outage two entries up: **a control that is
+present, configured, and reporting healthy while delivering nothing.** SSO was
+"working" the whole time. It authenticated correctly, issued a valid session,
+and showed an empty library — and an empty library is indistinguishable from
+data loss at a glance. The failure wasn't in the auth path; it was in the
+assumption that one person's two email addresses describe one identity.
+
+Worth doing: set `autoRegister: false` in Immich's OAuth settings. With it off,
+an unmatched login fails loudly instead of quietly inventing an account.
