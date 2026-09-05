@@ -108,6 +108,13 @@ helmCharts:
                   requests:
                     storage: 20Gi
       grafana:
+        # Disabled to reclaim memory on a node that is out of it. Dashboards are
+        # the part of monitoring you open on purpose; alerting is the part that
+        # has to work when nobody is looking - and it is the part that failed on
+        # 2026-09-04. Prometheus, Alertmanager and the ntfy/email routes are all
+        # untouched, so every alert still fires; only the graphs are gone.
+        # Re-enable by flipping this to true.
+        enabled: false
         admin:
           existingSecret: grafana-admin
         # Loki was deployed and Alloy was shipping every pod's logs into it, but
