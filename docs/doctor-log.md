@@ -988,3 +988,36 @@ assumption that one person's two email addresses describe one identity.
 
 Worth doing: set `autoRegister: false` in Immich's OAuth settings. With it off,
 an unmatched login fails loudly instead of quietly inventing an account.
+
+### `kubectl rollout restart` took the Pelican panel down under ArgoCD
+
+Restarting an ArgoCD-managed Deployment with `selfHeal: true` is not a safe
+no-op. `rollout restart` works by stamping a
+`kubectl.kubernetes.io/restartedAt` annotation on the pod template, which
+creates a new ReplicaSet. ArgoCD sees that annotation as drift from git and
+strips it — orphaning the ReplicaSet it just caused.
+
+The Deployment was then left in a state neither side would resolve:
+
+```
+spec.replicas = 1
+pelican-54f9bcc485   0 desired
+pelican-5c75cdd6     0 desired
+pelican-68d4bc8fbc   0 desired
+Available=False  MinimumReplicasUnavailable
+```
+
+Desired one pod, every ReplicaSet scaled to zero, nothing scheduling. The panel
+served **503** until an explicit ArgoCD sync recreated a pod.
+
+Restart such a Deployment by **deleting the pod** or syncing the app — never by
+annotating the template that git owns.
+
+The same session's Pelican work is the reason this matters twice over: plugins
+install into `/var/www/html/plugins`, which is image filesystem. The PVC already
+carried a `plugins/` directory, but it was never mounted where the panel reads
+from. Every install would have disappeared on the next restart *while the panel
+went on listing the plugins as enabled* — the same shape as the qBittorrent
+category, the empty Immich library, and the watchers that were configured,
+healthy, and reporting nothing. **Verify a thing survives the restart, not just
+that it works once.**
