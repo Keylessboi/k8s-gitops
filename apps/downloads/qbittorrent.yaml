@@ -293,6 +293,15 @@ spec:
             # AirVPN forwarded ports for this account: 6877 for qBittorrent,
             # 6874 for slskd. These are forwarded through the VPN tunnel, so
             # peer connections arrive through the Aquila exit.
+            # Inbound on eth0. Distinct from FIREWALL_VPN_INPUT_PORTS below,
+            # which only opens the tunnel side. Without this gluetun's INPUT
+            # policy drops connections from the rest of the cluster, so the
+            # WebUI answered on localhost and nowhere else - qui, Prowlarr,
+            # Lidarr and Readarr all drive qBittorrent's API over this port.
+            #   8080 qBittorrent WebUI, 5030 slskd, 1080/8888 the proxies
+            #   remux, navidrome and octo still use.
+            - name: FIREWALL_INPUT_PORTS
+              value: "8080,5030,1080,8888"
             - name: FIREWALL_VPN_INPUT_PORTS
               value: "6877,6874"
             # HTTP proxy: remux points HTTP_PROXY/HTTPS_PROXY at
