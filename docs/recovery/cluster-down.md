@@ -96,3 +96,86 @@ ssh root@192.168.1.153 'sensors; for d in /dev/sd?; do smartctl -A $d | grep -i 
 A clean shutdown with no shutdown request in the log is a **thermal or power
 event**. A kernel `Out of memory` immediately before the gap is the memory
 problem in ADR-0005 finally biting the host rather than a pod.
+
+## Resolution — 2026-09-05
+
+The outage had **three** independent causes, stacked. Each one alone would
+have been enough to keep the cluster down.
+
+### 1. The BIOS was configured to stay off after a power loss
+
+`smbios-token-ctl --dump-tokens` on pve (Dell Vostro 3681) read:
+
+| Token | Setting | Was | Now |
+|---|---|---|---|
+| `0x00a1` | AC Power Recovery Mode (Off) | **true** | false |
+| `0x00a3` | AC Power Recovery Mode (On) | false | **true** |
+| `0x0055` | Wake-on-LAN (Disabled) | **true** | false |
+| `0x006d` | Wake-on-LAN (Enabled) | false | **true** |
+
+`AC Power Recovery = Off` is why the machine did not come back when power
+returned, and `Wake-on-LAN = Disabled` is why ~25 magic packets during the
+outage were ignored — the NIC's wake circuit was unpowered by policy.
+
+Both were set **remotely**, without BIOS access, via Dell's SMBIOS token
+interface. The Vostro has no IPMI, but `dcdbas` + `dell_smbios` are loaded,
+so `smbios-utils` can read and write BIOS tokens from a running OS:
+
+```sh
+# Not in the Proxmox repos; pull the Debian debs directly.
+cd /tmp && B=http://deb.debian.org/debian/pool/main/libs/libsmbios
+for f in libsmbios-c2_2.4.3-1_amd64.deb python3-libsmbios_2.4.3-1_all.deb \
+         smbios-utils_2.4.3-1_amd64.deb; do curl -sfLO $B/$f; done
+apt-get install -y ./libsmbios-c2_*.deb ./python3-libsmbios_*.deb ./smbios-utils_*.deb
+
+smbios-token-ctl --token-id=0x00a3 --activate   # AC Power Recovery = On
+smbios-token-ctl --token-id=0x006d --activate   # Wake-on-LAN = Enabled
+```
+
+Activating one token in a mutually-exclusive group clears its siblings, so
+`0x00a1` flipped to false on its own. Verify with `--dump-tokens`.
+
+### 2. CT 200 was never set to start on boot
+
+`/etc/pve/lxc/200.conf` had **no `onboot` line at all**, which defaults to 0.
+The entire cluster — k3s, all ~35 ArgoCD apps, Wings — lived in a container
+that only ever started because someone typed `pct start 200`. Every prior
+reboot had been manual, so the gap was invisible.
+
+```sh
+pct set 200 --onboot 1 --startup order=1
+```
+
+Confirmed on 2026-09-05: pve booted itself at 11:51, and the cluster stayed
+down until 13:55 — a **two-hour** outage *after* the hardware had recovered,
+caused entirely by this one missing line.
+
+### 3. The Minecraft server volume was owned by root
+
+Wings creates server volumes under `/var/lib/pelican/volumes/<uuid>/`, and the
+container runs as `999:988` (`pelican`). That volume was `root:root`, so the
+JVM died with `AccessDeniedException: /home/container/versions`. Unrelated to
+the power loss — the server was installed 2026-09-04 05:09 and had **never
+successfully started**.
+
+```sh
+chown -R 999:988 /var/lib/pelican/volumes/<uuid>
+```
+
+### What the watchdogs did
+
+Both fixes from the previous session behaved exactly as designed:
+
+- The external watchdog on the NAS renotified every 30 min for the entire
+  19-hour outage with correct elapsed times, instead of going silent after one
+  message.
+- Because it probes **pve and k3s separately**, it distinguished "host back,
+  cluster still down" — `RECOVERED: Proxmox host` fired hours before
+  `RECOVERED: k3s API (13:55:46)`. A single-target watcher would have declared
+  victory at 11:51 and hidden cause #2 completely.
+
+### Still manual after a cold boot
+
+Wings does not auto-start game servers; the container is left `Created`.
+Boot the server from the Pelican panel (`pelican.sandstorm.chat`) after a
+restart, or add a boot-time hook that starts it.
