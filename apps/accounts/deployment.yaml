@@ -53,6 +53,13 @@ spec:
               value: http://remux.remux.svc.cluster.local:3000
             - name: REMUX_ADMIN_USER
               value: admin
+            # Prowlarr's key, for configuring remux's torznab addon. remux
+            # cannot use DHT through its TCP-only SOCKS5 proxy, so Torznab is
+            # how it gets sources at all - and this pod already holds the remux
+            # admin credential needed to write that config.
+            - name: PROWLARR_API_KEY
+              valueFrom:
+                secretKeyRef: {name: accounts, key: prowlarr-api-key}
             - name: REMUX_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef: {name: accounts, key: remux-admin-password}
