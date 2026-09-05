@@ -49,8 +49,6 @@ spec:
             - name: AUTHENTIK_TOKEN
               valueFrom:
                 secretKeyRef: {name: accounts, key: authentik-api-token}
-            - name: INVIDIOUS_URL
-              value: http://invidious.invidious.svc.cluster.local
             - name: REMUX_URL
               value: http://remux.remux.svc.cluster.local:3000
             - name: REMUX_ADMIN_USER

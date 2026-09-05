@@ -1,18 +1,19 @@
 """One password, every service on sandstorm.chat that needs one.
 
 WHY THIS EXISTS. Most published apps here take their identity from authentik
-and provision themselves on first login - Navidrome from the forward-auth
-username header, Immich and Nextcloud and Forgejo from OIDC, qui by keeping no
-user record at all. Two do not, and cannot:
+and provision themselves on first login - Navidrome and Calibre-Web from the
+forward-auth username header, Immich and Nextcloud and ConvertX from OIDC. One
+does not, and cannot:
 
-  Invidious  has never had OIDC. PR #3164 sat open from 2022 to 2026 and was
-             closed unmerged; the linked request #3159 was closed as a
-             duplicate. There is nothing to enable, and no fork has it either.
   remux      0.27.0 reads exactly two headers - the Jellyfin
              X-Emby-Authorization and X-Forwarded-For - and has no OIDC
              anywhere in its source.
 
-So for those two the account needs a password, and the useful thing is that it
+(Invidious used to be the other one, for the same reason - it never gained
+OIDC. It was decommissioned on 2026-09-05 to reclaim memory, and its
+provisioner went with it.)
+
+So for that one the account needs a password, and the useful thing is that it
 is the SAME password as authentik. This form does that in one step and reports
 what each system said.
 
@@ -47,7 +48,6 @@ from http.server import BaseHTTPRequestHandler
 
 AK_URL = os.environ["AUTHENTIK_URL"].rstrip("/")
 AK_TOKEN = os.environ["AUTHENTIK_TOKEN"]
-IV_URL = os.environ["INVIDIOUS_URL"].rstrip("/")
 RX_URL = os.environ["REMUX_URL"].rstrip("/")
 RX_USER = os.environ["REMUX_ADMIN_USER"]
 RX_PASS = os.environ["REMUX_ADMIN_PASSWORD"]
@@ -55,23 +55,7 @@ REQUIRED_GROUP = os.environ.get("REQUIRED_GROUP", "authentik Admins")
 NTFY_URL = os.environ.get("NTFY_URL", "")
 PORT = int(os.environ.get("PORT", "8080"))
 
-# Invidious calls the login field "email" but never sends mail and never checks
-# the shape; it is the account name. Keeping it to the same characters
-# authentik allows avoids an account that exists in one system under a name the
-# other cannot express.
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9._-]{2,64}$")
-
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """Surface 3xx as an HTTPError instead of following it.
-
-    Needed because Invidious signals a completed login or signup with a 302
-    whose Set-Cookie carries the session. Following it discards exactly the
-    header that says whether anything worked.
-    """
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
 
 
 def call(url, data=None, headers=None, method=None, timeout=45):
@@ -125,64 +109,6 @@ def authentik_provision(username, email, password):
 
 
 # --------------------------------------------------------------------------
-# Invidious - an HTML form POST, not an API. Registration must be enabled and
-# captcha_enabled must be false (both set in apps/invidious/deployment.yaml);
-# the captcha only ever protected a form that already sits behind forward-auth.
-# --------------------------------------------------------------------------
-def invidious_provision(username, password):
-    """One endpoint does both, so the RESULT is what we report, not the intent.
-
-    src/invidious/routes/login.cr takes the same POST for login and signup and
-    picks by whether the account exists. So "did it work" cannot be read from
-    the status code - a successful login and a successful registration are
-    indistinguishable, and a rendered error page comes back 200 as well.
-
-    What is unambiguous is the SID cookie: Invidious sets it only on a session
-    it actually created. Present means this username and password work here,
-    whichever branch produced that. Absent with a 401 means the account exists
-    under a DIFFERENT password - reported plainly rather than papered over,
-    because Invidious has no admin password reset and nothing here can fix it.
-    """
-    body = urllib.parse.urlencode({"email": username, "password": password}).encode()
-    req = urllib.request.Request(
-        f"{IV_URL}/login?type=invidious&referer=%2F", data=body, method="POST",
-        headers={"Content-Type": "application/x-www-form-urlencoded"})
-    # MUST NOT FOLLOW REDIRECTS. Success here is a 302 that carries the SID in
-    # its Set-Cookie; urllib follows it by default, and then reports the 200 of
-    # the *destination* page with no cookie on it. That is what made a working
-    # registration look like a silent failure - and, before that, a failure
-    # look like a success. The invidious access log settled it: "302 POST
-    # /login" followed immediately by "GET /" from the same client.
-    opener = urllib.request.build_opener(_NoRedirect)
-    try:
-        with opener.open(req, timeout=45) as r:
-            cookies = r.headers.get_all("Set-Cookie") or []
-            status = r.status
-    except urllib.error.HTTPError as e:
-        cookies = e.headers.get_all("Set-Cookie") or []
-        status = e.code
-        if status in (301, 302, 303, 307, 308):
-            pass  # handled below - a redirect is the success case
-        elif status == 401 and not any(c.startswith("SID=") for c in cookies):
-            raise RuntimeError(
-                "account already exists with a different password; Invidious has "
-                "no admin password reset, so change it from its own settings page"
-            ) from None
-        elif status == 400:
-            raise RuntimeError("Invidious refused: registration disabled?") from None
-
-    if any(c.startswith("SID=") for c in cookies):
-        return "credentials work", f"HTTP {status}, session issued"
-    if status in (301, 302, 303, 307, 308):
-        # Redirect without a SID: Invidious bounced the request somewhere else
-        # rather than establishing a session. Not a success.
-        raise RuntimeError(f"redirected (HTTP {status}) without a session cookie")
-    raise RuntimeError(
-        f"no session cookie returned (HTTP {status}) - the account was not "
-        f"created and the credentials do not log in")
-
-
-# --------------------------------------------------------------------------
 # remux - Jellyfin-compatible. Unlike remux-user-sync, which leaves the
 # password empty because forward-auth is the real gate, this sets a real one:
 # the whole point of the form is that the credential matches everywhere.
@@ -217,7 +143,6 @@ def remux_provision(username, password):
 
 TARGETS = [
     ("authentik", lambda u, e, p: authentik_provision(u, e, p)),
-    ("Invidious", lambda u, e, p: invidious_provision(u, p)),
     ("remux", lambda u, e, p: remux_provision(u, p)),
 ]
 
@@ -226,8 +151,9 @@ SELF_PROVISIONING = [
     ("Navidrome", "creates the user from the forward-auth header on first page load"),
     ("Immich", "OIDC autoRegister"),
     ("Nextcloud", "OIDC (user_oidc)"),
-    ("Forgejo", "OIDC source"),
-    ("qui", "keeps no user record - the OIDC session is the account"),
+    ("ConvertX", "OIDC on first login"),
+    ("Calibre-Web", "forward-auth header on first page load"),
+    ("Readarr", "no per-user accounts - forward-auth is the gate"),
     ("Vaultwarden", "first SSO login. Cannot be provisioned here: the master "
                     "password derives the vault key in the browser and never "
                     "reaches the server"),

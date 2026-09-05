@@ -1,7 +1,7 @@
 ---
-# Account provisioning for the two published apps that cannot take an authentik
-# identity by themselves - Invidious and remux - plus authentik itself, so one
-# password ends up the same everywhere. See apps/accounts/app.py.
+# Account provisioning for the one published app that cannot take an authentik
+# identity by itself - remux - plus authentik itself, so one password ends up
+# the same everywhere. See apps/accounts/app.py.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 metadata:
