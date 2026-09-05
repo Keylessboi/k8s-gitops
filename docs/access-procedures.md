@@ -26,24 +26,47 @@ kubectl port-forward -n argocd svc/argocd-server 8080:443
 
 ### Infrastructure
 
-| Component | Location | Details |
-|---|---|---|
-| k3s Server | 192.168.1.172 | LXC CT 200 on Proxmox |
-| Proxmox Host | 192.168.1.153 | Vostro server |
-| NAS | 192.168.1.67 | ZFS storage, NFS, MinIO |
+| Component | LAN | Tailscale | Details |
+|---|---|---|---|
+| k3s Server | 192.168.1.172 | — | LXC CT 200 on Proxmox |
+| Proxmox Host | 192.168.1.153 | 100.125.108.56 | Dell Vostro 3681, **no IPMI** |
+| NAS | 192.168.1.67 | 100.69.240.8 | Arch. ZFS, NFS, MinIO. AMD RX 5500 |
+| travisbackupserver | *(other site)* | 100.81.123.74 | Debian 13, Long Island. ntfy + edge probe. NVIDIA GTX 1050 Ti |
 
 ### SSH Access
 
+**`~/.ssh/worker_key` is the only key any of these accept.** `id_ed25519`,
+`id_rsa` and `eni_agent` are refused everywhere — if a host says
+"Permission denied (publickey)", the key is the first thing to check, not the
+host. **The NAS logs in as `travis`, not `root`.**
+
 ```bash
-# k3s server
-ssh root@192.168.1.172
-
-# Proxmox host
-ssh root@192.168.1.153
-
-# NAS
-ssh root@192.168.1.67
+ssh -i ~/.ssh/worker_key root@100.125.108.56    # Proxmox host   (alias: pve)
+ssh -i ~/.ssh/worker_key travis@100.69.240.8    # NAS            (alias: nas)
+ssh -i ~/.ssh/worker_key root@100.81.123.74     # backup server  (alias: backup)
 ```
+
+Reach the k3s container through Proxmox rather than directly:
+
+```bash
+ssh pve 'pct exec 200 -- kubectl get nodes'
+```
+
+### Privilege escalation differs per host
+
+| Host | Root | Note |
+|---|---|---|
+| pve, backup | already root | — |
+| **NAS** | **`doas`, not `sudo`** | `sudo` is not installed. `doas <cmd>`; it prompts for a password. |
+
+### Notes
+
+- The laptop is **not** on the cluster's LAN. It sits on the backup server's
+  separate `192.168.1.0/24` — same numbering, different L2 — so `192.168.1.153`
+  from the laptop is a *different machine* than pve. Never diagnose cluster
+  reachability from the laptop; use the NAS, which is on the cluster's segment.
+- The backup server runs fail2ban. Guessing usernames will get the IP banned for
+  a while; use the table above.
 
 ### Kubeconfig
 
@@ -169,3 +192,46 @@ ArgoCD has no Ingress either — it is the control plane for everything else, so
 ```bash
 kubectl port-forward -n argocd svc/argocd-server 8080:443
 ```
+
+## GPU on travisbackupserver
+
+NVIDIA GTX 1050 Ti (GP107, 4 GB), driver **550.163.01** via Debian DKMS.
+
+Two things to know if this ever needs redoing:
+
+**The apt sources were missing `main`.** Only `trixie-security` and
+`trixie-updates` were configured, with no `contrib`/`non-free`, so
+`nvidia-driver` was not installable at all. Fixed by adding
+`/etc/apt/sources.list.d/debian-main.list`.
+
+**`linux-headers-amd64` pulls a newer kernel than the running one.** DKMS then
+builds only for that newer kernel, so the driver cannot load until a reboot —
+and headers for the older running kernel are already gone from the archive, so
+building for it is not an option.
+
+### The reboot is the risky part, so it has a fallback
+
+This host is at another site with no remote hands and carries ntfy plus the
+edge probe — the external alerting path. A kernel that fails to boot would take
+that out with no way back. So GRUB is configured to make that survivable:
+
+- `GRUB_DEFAULT=saved`, `GRUB_SAVEDEFAULT=false` — a successful boot does not
+  silently rewrite the fallback.
+- `panic=30` on the kernel cmdline, so a panic **reboots** rather than hanging
+  forever on an unreachable machine.
+- `grub-set-default` pins the known-good kernel; `grub-reboot` arms the new one
+  as a **one-shot**. GRUB consumes `next_entry` at boot regardless of outcome,
+  so a failed boot falls back automatically.
+
+After confirming the new kernel is good, promote it:
+
+```sh
+SUB=gnulinux-advanced-<uuid>
+grub-set-default "$SUB>gnulinux-<version>-advanced-<uuid>"
+```
+
+Skipping that last step leaves the fallback pointing at a kernel with no NVIDIA
+module, so the next routine reboot would silently lose the GPU.
+
+Verified after reboot: `nvidia-smi` reports the card, `nouveau` is gone, and
+ntfy, tailscaled, ssh and `homelab-watch.timer` all came back.
