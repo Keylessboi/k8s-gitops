@@ -1074,3 +1074,80 @@ Fixed by removing gluetun from `apps/image-updater/imageupdaters.yaml` — it is
 pinned by digest deliberately, because v3.40.0 aborts at startup on this LXC's
 IPv6 link-local address. An image it must never auto-update should not be listed
 for auto-update. Pod then survived eight minutes with `generation` frozen.
+
+### One log file took the cluster's storage down, and logrotate was working fine
+
+Pods were being evicted every few minutes. The kubelet said so plainly once
+someone read a *failed* pod rather than a running one:
+
+```
+phase=Failed reason=Evicted
+msg=Pod was rejected: The node had condition: [DiskPressure]
+```
+
+The node's root filesystem was full. `/var/log` was **44 GB**, and effectively
+all of it was one file: `/var/log/ganesha/ganesha.log`, at **43.6 GB**. Every
+line was identical:
+
+```
+svc_dg_rendezvous: Bad message sa_family is 0xffff
+```
+
+nfs-ganesha's **UDP** RPC listener had received a malformed datagram and was
+spinning on it. Measured growth: **~13 MB/s** — 854 MB to 986 MB in ten
+seconds. That is 46 GB an hour, so the disk went from healthy to full inside a
+single evening.
+
+The trap: a logrotate rule for this exact file already existed (`size 500M`,
+`rotate 3`, `copytruncate`), logrotate **was** enabled, and it **had** run that
+morning at 00:04. None of that helps. `size` is only evaluated when logrotate
+runs, and it runs daily. A daily job cannot contain a 13 MB/s writer — by the
+time it next looked, 40+ GB had already landed.
+
+Fixed with `Enable_UDP = false` in `/etc/ganesha/ganesha.conf`. Every export
+there is already `Transports = TCP` and NFSv4 is TCP-only, so nothing needed the
+datagram listener at all — and this ganesha has zero connected clients, because
+the cluster's actual NFS comes from the NAS. Growth went from 13 MB/s to **0
+bytes in 15 seconds**.
+
+**The lesson:** "log rotation is configured" is not the same as "logs are
+bounded". Rotation is a scheduled job; a runaway writer is a rate. When the rate
+beats the schedule, the config is decoration. If a service can log unbounded,
+either cap it at the source or rotate on a timer that matches how fast it can
+write — and treat a service that logs the *same line* forever as a fault to fix,
+not a volume to manage.
+
+### Port forwarding was correct at every layer and still did nothing
+
+qBittorrent reported connection status `firewalled` — no incoming peers, ever.
+Every layer checked out:
+
+- AirVPN forwards port 6877 for the account
+- gluetun opens it: `-A INPUT -i tun0 -p tcp --dport 6877 -j ACCEPT`
+- qBittorrent is configured for it: `Session\Port=6877`
+- `Connection\UPnP=false`, correctly, since the forward comes from the VPN
+
+Four layers agreeing, and inbound was still impossible. The listener sockets
+showed why:
+
+```
+tcp ::1:6877                       LISTEN
+tcp fe80::7c41:5ff:fe21:ddfd:6877  LISTEN
+```
+
+IPv6 loopback and link-local. With no `Session\Interface` set, qBittorrent had
+chosen its own bind addresses, and neither is reachable from anywhere. AirVPN
+was faithfully forwarding a port to a socket that could not be dialled.
+
+Outbound was unaffected, which is exactly why it looked fine — downloads ran at
+3.2 MB/s while inbound was structurally impossible. Binding to `tun0` moved the
+listeners onto the tunnel address and the status flipped to `connected`, with
+throughput going 24 KB/s -> 3.2 MB/s -> **18.7 MB/s**.
+
+Bound by interface **name**, not address: `tun0`'s address changes on every
+reconnect, so a pinned address is a slow-motion version of the same bug.
+
+**The lesson:** checking that each layer is configured correctly is not the same
+as checking that the path works. Every hop here was right in isolation. The only
+question that would have found it in one step is "what address is the process
+actually listening on" — `netstat -lntu` beat four correct config files.
