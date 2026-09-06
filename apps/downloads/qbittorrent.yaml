@@ -216,6 +216,33 @@ spec:
                 fi
                 echo "seeded nextcloud category"
               fi
+              # Bind qBittorrent to the tunnel interface.
+              #
+              # Left unset, it chose IPv6 loopback and link-local for its TCP
+              # listeners - so AirVPN's forwarded port had nothing to reach and
+              # qBittorrent reported connection status "firewalled" with no
+              # incoming peers at all. Downloads still worked outbound, which is
+              # why it looked fine.
+              #
+              # Bound by interface NAME, not address: tun0's address changes
+              # every time the tunnel reconnects, and a pinned address would
+              # silently stop matching. This also means qBittorrent physically
+              # cannot send traffic off tun0, which is a second layer under
+              # gluetun's killswitch rather than a replacement for it.
+              awk '
+                /^\[BitTorrent\]$/ {
+                  print
+                  print "Session\\Interface=tun0"
+                  print "Session\\InterfaceName=tun0"
+                  next
+                }
+                /^Session\\Interface=/ { next }
+                /^Session\\InterfaceName=/ { next }
+                { print }
+              ' "$F" > "$F.tmp" && mv "$F.tmp" "$F"
+              grep -q '^\[BitTorrent\]' "$F" || \
+                printf '[BitTorrent]\nSession\\Interface=tun0\nSession\\InterfaceName=tun0\n' >> "$F"
+              echo "qBittorrent bound to tun0"
               echo "qBittorrent SOCKS5 proxy + AutoRun configured"
           volumeMounts:
             - name: config
