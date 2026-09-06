@@ -25,6 +25,17 @@ kind: Deployment
 metadata:
   name: qbittorrent
   namespace: downloads
+  annotations:
+    # ServerSideApply off for THIS resource only. With it on, argocd-controller
+    # re-applied the Deployment about once a minute - generation climbed from 59
+    # to 294 in a few hours - and every apply recreated the pod. qBittorrent
+    # needs ~3 minutes to load 2,228 torrents, so it was being killed before it
+    # ever finished starting, and Baldur's Gate re-checked on every restart.
+    #
+    # A field-manager loop: SSA drops a field the apiserver then re-defaults,
+    # so the object never settles. Same family as the ServerSideDiff failure on
+    # the accounts app (see docs/doctor-log.md).
+    argocd.argoproj.io/sync-options: ServerSideApply=false
 spec:
   replicas: 1
   strategy:
