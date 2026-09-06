@@ -69,13 +69,18 @@ spec:
           manifestTargets:
             kustomize:
               name: lscr.io/linuxserver/qbittorrent
-        - alias: gluetun
-          imageName: qmcgaw/gluetun:v3.41.3
-          commonUpdateSettings:
-            allowTags: 'regexp:^v3\.\d+\.\d+$'
-          manifestTargets:
-            kustomize:
-              name: qmcgaw/gluetun
+        # gluetun is deliberately NOT auto-updated. apps/downloads/qbittorrent.yaml
+        # pins it by digest because v3.40.0 aborts at startup on this LXC's IPv6
+        # link-local address, and image-updater strips the digest to a bare tag.
+        #
+        # That is not cosmetic: ArgoCD restored the pinned digest from git,
+        # image-updater stripped it again, and each flip changed the pod
+        # template and recreated the pod - roughly every 2.5 minutes. qBittorrent
+        # needs ~3 minutes to load 2,228 torrents before it binds :8080, so it
+        # was killed before it ever finished starting. qui could not connect and
+        # Baldur's Gate re-checked from scratch on every cycle.
+        #
+        # It only began matching when gluetun moved from apps/vpn into this pod.
         - alias: slskd
           # 0.x: minor bumps may break, so this is pinned to the patch stream.
           imageName: slskd/slskd:0.23.2
