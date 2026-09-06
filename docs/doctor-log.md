@@ -1021,3 +1021,56 @@ went on listing the plugins as enabled* — the same shape as the qBittorrent
 category, the empty Immich library, and the watchers that were configured,
 healthy, and reporting nothing. **Verify a thing survives the restart, not just
 that it works once.**
+
+### Two controllers fought over one image digest, and a torrent client paid for it
+
+qBittorrent could not stay up. Every ~2.5 minutes the pod was replaced, and
+because it takes about three minutes to load 2,228 torrents before it binds
+`:8080`, it was killed before it ever finished starting. qui could never
+connect, and Baldur's Gate re-checked from scratch on every cycle.
+
+Nothing looked wrong. `restarts=0` on every pod, so no container was crashing.
+No probes at all. No `activeDeadlineSeconds`. No evictions, no
+Memory/Disk/PIDPressure. ArgoCD reported `Synced` with zero OutOfSync resources
+and logged `Skipping auto-sync: application status is Synced`. Disabling
+auto-sync on the app entirely did not stop it.
+
+The only signal was the Deployment's `generation`: **59 in the afternoon, over
+300 by night** — roughly one change a minute, while the ReplicaSet hash stayed
+the same and a before/after diff showed *no* net change.
+
+That last part was the tell. Generation only moves on a spec change, so a bump
+with no net difference means something changed a field and something else
+changed it back. Sampling the object every two seconds caught it:
+
+```
+gen 310 -> 311  image: qmcgaw/gluetun:v3.41.3@sha256:fa19cc...  ->  qmcgaw/gluetun:v3.41.3
+gen 311 -> 312  image: qmcgaw/gluetun:v3.41.3                   ->  qmcgaw/gluetun:v3.41.3@sha256:fa19cc...
+gen 312 -> 313  (strips it again)
+gen 313 -> 314  (restores it again)
+```
+
+`argocd-image-updater` was rewriting gluetun's digest-pinned reference down to a
+bare tag; ArgoCD restored the pin from git; repeat forever. Each flip changed
+the pod template, and a changed pod template means a new pod.
+
+Neither controller was misbehaving. Both were doing their job. The bug was that
+they had been given contradictory instructions about the same field, and
+**neither one reports a conflict** — image-updater logs a cheerful "Successfully
+updated image", ArgoCD reports `Synced`. Both were telling the truth about
+themselves and nothing was telling the truth about the system.
+
+It had been latent for as long as the `gluetun` entry existed under the
+`downloads` application. It only began firing when gluetun moved out of
+`apps/vpn` and into the qBittorrent pod, so an unrelated change lit a fuse that
+had been sitting there.
+
+**The lesson, and it is the same one as the rest of this log:** when everything
+reports healthy and something is still broken, stop reading status and start
+watching a number change over time. `generation` climbing with no diff is a
+fingerprint for two controllers fighting, and nothing else produces it.
+
+Fixed by removing gluetun from `apps/image-updater/imageupdaters.yaml` — it is
+pinned by digest deliberately, because v3.40.0 aborts at startup on this LXC's
+IPv6 link-local address. An image it must never auto-update should not be listed
+for auto-update. Pod then survived eight minutes with `generation` frozen.
