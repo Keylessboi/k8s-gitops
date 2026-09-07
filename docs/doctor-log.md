@@ -1151,3 +1151,74 @@ reconnect, so a pinned address is a slow-motion version of the same bug.
 as checking that the path works. Every hop here was right in isolation. The only
 question that would have found it in one step is "what address is the process
 actually listening on" — `netstat -lntu` beat four correct config files.
+
+---
+
+## A hook that had never once run, and therefore had never once been tested
+
+**2026-09-07.** Torrents in the `nextcloud` category were downloading to
+`/data/torrents/nextcloud` and going no further. 188 GB sat there. The upload
+path had been built days earlier and every visible part of it was right:
+
+- `[AutoRun] Enabled=true` and a `Program=` line in `qBittorrent.conf`
+- `qbit-upload.sh` mounted at `/scripts`, readable, executable
+- the `nextcloud` category seeded, with the correct save path
+- `NEXTCLOUD_WEBDAV_URL/USER/PASSWORD` all populated from the secret
+- NetworkPolicies on both sides naming each other's namespace
+- both ArgoCD apps `Synced`
+
+Four independent faults, stacked. Any one of them alone would have produced the
+identical symptom: nothing happens, silently.
+
+**1. The hook was never invoked.** qBittorrent reads these through QSettings,
+whose IniFormat keys are case-sensitive, and the keys it asks for are
+`AutoRun/enabled` and `AutoRun/program` — lowercase. `Enabled=true` parsed
+perfectly and answered a question nobody asks. The real key was absent, so it
+defaulted to false. There is no warning for an ini key nobody reads.
+
+The keys were not guessed. The binary stores its settings names as UTF-16
+string literals, so `grep` finds nothing; `tr -d '\0' < qbittorrent-nox | grep
+-i autorun` prints the table, and `AutoRun/OnTorrentAdded/Enabled` sits right
+beside them, capitalised, which is why the wrong casing looked plausible.
+
+**2. The path was blocked anyway.** Both NetworkPolicies named port **8080** —
+the *Service* port. NetworkPolicy is evaluated after kube-proxy's DNAT, so the
+number that has to appear is the destination **pod's** containerPort, which is
+80. `curl` from the qBittorrent pod was REJECTed in 5 ms to the ClusterIP and
+to the pod IP alike. The kube-system rule three lines above the broken one
+already carried both numbers, with a comment explaining exactly this.
+
+**3. The script had three bugs, because it had never run.** It never created
+its own `/qbittorrent` base collection (first PUT: 409). It computed paths
+relative to the torrent folder instead of its parent, so every torrent
+flattened into one directory and two repacks shipping a `setup.exe` would
+overwrite each other. And it issued `MKCOL` for a whole nested path at once,
+which fails unless every parent already exists.
+
+**4. And then a 413 after 0 bytes sent.** Apache in the Nextcloud image caps a
+request at `APACHE_BODY_LIMIT=1073741824`. Raising it does not help: PHP's
+`post_max_size` is 16G and the largest file here is **95 GB**. A single PUT
+cannot carry it at any setting, so chunked upload
+(`/remote.php/dav/uploads/...`, 256 MiB chunks, `MOVE .file` with
+`OC-Total-Length`) is not an optimisation, it is the only implementation that
+exists.
+
+Then a fifth, found only by running it: `curl -T "Red Dead Redemption [DODI
+Repack]/Setup.exe"` fails with `bad range in URL` before a byte moves. curl
+applies its own `{a,b}` / `[1-3]` glob expansion to the **upload file name**,
+not just the URL. Percent-encoding the destination protects the URL argument;
+nothing was protecting `-T`. Scene names contain brackets constantly, so this
+is the common case. `-g`.
+
+**The lesson:** *code that has never executed is not working code, it is
+unwritten code.* Every one of bugs 3, 4 and 5 was latent behind bug 1 — the
+hook was disabled, so nothing downstream had ever been exercised, and the whole
+chain read as "configured" while being untested end to end. A config file, a
+mounted script and a green sync status describe intent, not behaviour.
+
+The corollary is about evidence. The hook wrote to stdout, and qBittorrent
+spawns it detached, so its output never reached `kubectl logs` — a component
+that fails silently *and* logs nowhere cannot be debugged, only rediscovered.
+It now writes one line per invocation to `/config/qbit-upload.log`, **before**
+the category check, so the question "did it fire at all?" is answerable with a
+`tail` instead of a five-hour excavation.
