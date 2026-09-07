@@ -81,7 +81,7 @@ data:
     # No -f: 405 Method Not Allowed is what an existing collection returns, and is
     # the expected answer on every run after the first.
     mkcol_one() {
-      curl -s -o /dev/null --max-time 30 -u "$USER:$PASS" \
+      curl -g -s -o /dev/null --max-time 30 -u "$USER:$PASS" \
         -X MKCOL "$BASEURL${1:+/$(urlenc "$1")}" || true
     }
     # Walk "a/b/c" as a, a/b, a/b/c. Called with "" it creates only the base.
@@ -98,9 +98,16 @@ data:
       done
     }
 
+    # -g (--globoff) on EVERY curl call below, including the ones whose URL is
+    # already percent-encoded. curl applies its own glob expansion - {a,b} and
+    # [1-3] ranges - to the UPLOAD FILE NAME as well as the URL, so `-T` on a
+    # path like "Red Dead Redemption [DODI Repack]/Setup.exe" dies with
+    # "bad range in URL" before a byte is sent. Scene release names contain
+    # brackets constantly, so this is the common case, not the edge case.
+    #
     # One plain PUT. Only used for files under CHUNK_BYTES.
     put_simple() {
-      curl -fsS --max-time 3600 --retry 3 -u "$USER:$PASS" -T "$1" "$2" >/dev/null 2>&1
+      curl -g -fsS --max-time 3600 --retry 3 -u "$USER:$PASS" -T "$1" "$2" >/dev/null 2>&1
     }
 
     # Nextcloud chunked upload (the v2 /remote.php/dav/uploads flow the desktop
@@ -119,7 +126,7 @@ data:
       # The Destination header on MKCOL is what lets Nextcloud stream the chunks
       # straight into an S3 multipart upload instead of assembling them on disk
       # first - this instance's primary storage is MinIO on the NAS.
-      curl -s -o /dev/null --max-time 60 -u "$USER:$PASS" \
+      curl -g -s -o /dev/null --max-time 60 -u "$USER:$PASS" \
         -X MKCOL -H "Destination: $_dst" "$UPLOADS/$_uid" || true
       mkdir -p "$TMPD"
       _n=0; _off=0
@@ -127,11 +134,11 @@ data:
         _n=$((_n + 1))
         dd if="$_src" of="$TMPD/chunk" bs=1048576 \
            skip=$((_off / 1048576)) count="$CHUNK_MB" 2>/dev/null
-        if ! curl -fsS --max-time 1800 --retry 3 -u "$USER:$PASS" \
+        if ! curl -g -fsS --max-time 1800 --retry 3 -u "$USER:$PASS" \
              -T "$TMPD/chunk" "$UPLOADS/$_uid/$(printf '%010d' "$_n")" >/dev/null 2>&1; then
           log "CHUNK FAILED $_n of $_src"
           rm -rf "$TMPD"
-          curl -s -o /dev/null --max-time 60 -u "$USER:$PASS" -X DELETE "$UPLOADS/$_uid" || true
+          curl -g -s -o /dev/null --max-time 60 -u "$USER:$PASS" -X DELETE "$UPLOADS/$_uid" || true
           return 1
         fi
         _off=$((_off + CHUNK_BYTES))
@@ -139,7 +146,7 @@ data:
       rm -rf "$TMPD"
       # OC-Total-Length lets Nextcloud verify the assembled size; a mismatch is
       # rejected here rather than surfacing as a quietly truncated file.
-      curl -fsS --max-time 3600 -u "$USER:$PASS" \
+      curl -g -fsS --max-time 3600 -u "$USER:$PASS" \
         -X MOVE -H "Destination: $_dst" -H "OC-Total-Length: $_size" \
         "$UPLOADS/$_uid/.file" >/dev/null 2>&1
     }
@@ -154,7 +161,7 @@ data:
       # 113 GB backfill interrupted by a pod restart picks up where it
       # stopped instead of starting again, and re-firing the hook on a
       # torrent costs one HEAD per file.
-      _rsz=$(curl -sI --max-time 60 -u "$USER:$PASS" "$_url" 2>/dev/null \
+      _rsz=$(curl -g -sI --max-time 60 -u "$USER:$PASS" "$_url" 2>/dev/null \
              | tr -d "\r" | awk "tolower(\$1) == \"content-length:\" {print \$2}")
       if [ -n "$_rsz" ] && [ "$_rsz" = "$_sz" ]; then
         log "skip (already there, $_sz B) $_url"
