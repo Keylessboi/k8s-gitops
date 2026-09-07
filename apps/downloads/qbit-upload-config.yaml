@@ -149,6 +149,17 @@ data:
       _f="$1"; _url="$2"
       _sz=$(stat -c %s "$_f" 2>/dev/null || echo 0)
       SEQ=$((SEQ + 1))
+      # Skip what is already there at the right size. This is what makes a
+      # re-run cheap and therefore what makes the whole thing resumable: a
+      # 113 GB backfill interrupted by a pod restart picks up where it
+      # stopped instead of starting again, and re-firing the hook on a
+      # torrent costs one HEAD per file.
+      _rsz=$(curl -sI --max-time 60 -u "$USER:$PASS" "$_url" 2>/dev/null \
+             | tr -d "\r" | awk "tolower(\$1) == \"content-length:\" {print \$2}")
+      if [ -n "$_rsz" ] && [ "$_rsz" = "$_sz" ]; then
+        log "skip (already there, $_sz B) $_url"
+        return
+      fi
       if [ "$_sz" -le "$CHUNK_BYTES" ]; then
         if put_simple "$_f" "$_url"; then log "ok $_url"; else log "PUT FAILED $_f"; fi
       else
