@@ -148,8 +148,41 @@ data:
       _n=0; _off=0
       while [ "$_off" -lt "$_size" ]; do
         _n=$((_n + 1))
-        dd if="$_src" of="$TMPD/chunk" bs=1048576 \
-           skip=$((_off / 1048576)) count="$CHUNK_MB" 2>/dev/null
+        # How many bytes this chunk must contain. The last one is short by
+        # design; every other one is exactly CHUNK_BYTES.
+        _want=$((_size - _off))
+        [ "$_want" -gt "$CHUNK_BYTES" ] && _want=$CHUNK_BYTES
+        # iflag=fullblock, AND a size check afterwards.
+        #
+        # Without fullblock, dd counts a SHORT read as a whole block: a read()
+        # that returns less than bs still consumes one of `count`. Over NFS
+        # under concurrent load that is routine, and the result is a chunk
+        # that is quietly too small. This is not hypothetical - it is what
+        # actually happened, and the damage was done three layers away:
+        # every chunk PUT returned 2xx, the MOVE returned 2xx, the log said
+        # `ok (7377 MiB chunked)`, and the file was absent, because Nextcloud
+        # rejected the assembly with "Stream from assembly node shorter than
+        # expected, got 213364620 bytes, expected 268435456" into its own log
+        # and answered the client as if nothing were wrong.
+        #
+        # The explicit size check stays even with fullblock set. dd's
+        # short-read behaviour is the known cause; a truncated chunk is the
+        # thing that must never be uploaded, and those are different claims.
+        _try=0
+        while [ "$_try" -lt 3 ]; do
+          _try=$((_try + 1))
+          dd if="$_src" of="$TMPD/chunk" bs=1048576 \
+             skip=$((_off / 1048576)) count="$CHUNK_MB" iflag=fullblock 2>/dev/null
+          _have=$(stat -c %s "$TMPD/chunk" 2>/dev/null || echo 0)
+          [ "$_have" = "$_want" ] && break
+          log "short read on chunk $_n (got $_have, want $_want) - retry $_try"
+        done
+        if [ "$_have" != "$_want" ]; then
+          log "CHUNK SHORT after $_try tries, aborting $_src"
+          rm -rf "$TMPD"
+          curl -g -s -o /dev/null --max-time 60 -u "$USER:$PASS" -X DELETE "$UPLOADS/$_uid" || true
+          return 1
+        fi
         if ! curl -g -fsS --max-time 1800 --retry 3 -u "$USER:$PASS" \
              -T "$TMPD/chunk" "$UPLOADS/$_uid/$(printf '%010d' "$_n")" >/dev/null 2>&1; then
           log "CHUNK FAILED $_n of $_src"
