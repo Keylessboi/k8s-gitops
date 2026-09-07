@@ -40,8 +40,8 @@ data:
     PATH_ARG="${2:-}"
 
     # qBittorrent spawns this detached, so stdout goes nowhere `kubectl logs`
-    # can see - which is the other half of why the hook's failure was
-    # invisible. Log to the config PVC instead:
+    # can see - which is half of why the hook's failure was invisible for as
+    # long as it was. Log to the config PVC instead:
     #   kubectl exec -n downloads <pod> -c qbittorrent -- tail -f /config/qbit-upload.log
     LOG=/config/qbit-upload.log
     log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*" >> "$LOG" 2>/dev/null; }
@@ -53,25 +53,33 @@ data:
     PASS="${NEXTCLOUD_WEBDAV_PASSWORD:-}"
     [ -n "$URL" ] && [ -n "$USER" ] && [ -n "$PASS" ] || { log "webdav env not set"; exit 1; }
     BASEURL="$URL/remote.php/dav/files/$USER/qbittorrent"
+    UPLOADS="$URL/remote.php/dav/uploads/$USER"
     log "start category=$WANT path=$PATH_ARG"
+
+    # 256 MiB. The ceiling is Apache's LimitRequestBody, which the Nextcloud image
+    # sets to APACHE_BODY_LIMIT=1073741824 (1 GiB) - that is what answered the
+    # first real upload with a bare 413 after 0 bytes sent. Staying well under it
+    # means the cap never has to be raised on a public-facing service.
+    CHUNK_MB=256
+    CHUNK_BYTES=$((CHUNK_MB * 1024 * 1024))
+    TMPD="/tmp/qbit-upload.$$"
 
     # Percent-encode what torrent names reliably contain and URLs reliably
     # mishandle. Path separators are deliberately left alone - here they are
-    # structure, not data - so this is only ever applied to a whole relative
-    # path, never to a single segment that might itself contain a slash.
+    # structure, not data - so this is only applied to a whole relative path.
     urlenc() {
       printf '%s' "$1" | sed -e 's/%/%25/g' -e 's/ /%20/g' \
         -e 's/#/%23/g' -e 's/?/%3F/g' -e 's/&/%26/g' -e 's/+/%2B/g' \
         -e 's/\[/%5B/g' -e 's/\]/%5D/g'
     }
 
-    # MKCOL creates exactly ONE collection and fails when its parent is
-    # missing, so a nested path has to be walked a component at a time. A PUT
-    # into a collection that does not exist answers 409 Conflict, so getting
-    # this wrong does not slow the upload down, it stops it completely.
+    # MKCOL creates exactly ONE collection and fails when its parent is missing,
+    # so a nested path has to be walked a component at a time. A PUT into a
+    # collection that does not exist answers 409 Conflict, so getting this wrong
+    # does not slow the upload down, it stops it completely.
     #
-    # No -f: 405 Method Not Allowed is what an existing collection returns and
-    # is the expected answer on every run after the first.
+    # No -f: 405 Method Not Allowed is what an existing collection returns, and is
+    # the expected answer on every run after the first.
     mkcol_one() {
       curl -s -o /dev/null --max-time 30 -u "$USER:$PASS" \
         -X MKCOL "$BASEURL${1:+/$(urlenc "$1")}" || true
@@ -90,22 +98,81 @@ data:
       done
     }
 
+    # One plain PUT. Only used for files under CHUNK_BYTES.
+    put_simple() {
+      curl -fsS --max-time 3600 --retry 3 -u "$USER:$PASS" -T "$1" "$2" >/dev/null 2>&1
+    }
+
+    # Nextcloud chunked upload (the v2 /remote.php/dav/uploads flow the desktop
+    # client uses). MANDATORY here, not an optimisation: the largest file in this
+    # category is 95 GB, and a single PUT cannot carry it at any Apache setting -
+    # PHP's post_max_size is 16G, so 16 GiB is the hard ceiling on one request.
+    # Chunking also means one failed 256 MiB PUT costs 256 MiB, not 95 GB.
+    #
+    # Each chunk is staged to a temp file rather than piped from dd, so every
+    # request carries a real Content-Length. Piping would make curl fall back to
+    # Transfer-Encoding: chunked, which is a second thing to be right about
+    # against Apache's body limit for no benefit.
+    put_chunked() {
+      _src="$1"; _dst="$2"; _size="$3"
+      _uid="qbit-$(date +%s)-$$-$4"
+      # The Destination header on MKCOL is what lets Nextcloud stream the chunks
+      # straight into an S3 multipart upload instead of assembling them on disk
+      # first - this instance's primary storage is MinIO on the NAS.
+      curl -s -o /dev/null --max-time 60 -u "$USER:$PASS" \
+        -X MKCOL -H "Destination: $_dst" "$UPLOADS/$_uid" || true
+      mkdir -p "$TMPD"
+      _n=0; _off=0
+      while [ "$_off" -lt "$_size" ]; do
+        _n=$((_n + 1))
+        dd if="$_src" of="$TMPD/chunk" bs=1048576 \
+           skip=$((_off / 1048576)) count="$CHUNK_MB" 2>/dev/null
+        if ! curl -fsS --max-time 1800 --retry 3 -u "$USER:$PASS" \
+             -T "$TMPD/chunk" "$UPLOADS/$_uid/$(printf '%010d' "$_n")" >/dev/null 2>&1; then
+          log "CHUNK FAILED $_n of $_src"
+          rm -rf "$TMPD"
+          curl -s -o /dev/null --max-time 60 -u "$USER:$PASS" -X DELETE "$UPLOADS/$_uid" || true
+          return 1
+        fi
+        _off=$((_off + CHUNK_BYTES))
+      done
+      rm -rf "$TMPD"
+      # OC-Total-Length lets Nextcloud verify the assembled size; a mismatch is
+      # rejected here rather than surfacing as a quietly truncated file.
+      curl -fsS --max-time 3600 -u "$USER:$PASS" \
+        -X MOVE -H "Destination: $_dst" -H "OC-Total-Length: $_size" \
+        "$UPLOADS/$_uid/.file" >/dev/null 2>&1
+    }
+
+    SEQ=0
     upload() {
-      if curl -fsS --max-time 7200 --retry 3 -u "$USER:$PASS" -T "$1" "$2" >/dev/null 2>&1; then
-        log "ok $2"
+      _f="$1"; _url="$2"
+      _sz=$(stat -c %s "$_f" 2>/dev/null || echo 0)
+      SEQ=$((SEQ + 1))
+      if [ "$_sz" -le "$CHUNK_BYTES" ]; then
+        if put_simple "$_f" "$_url"; then log "ok $_url"; else log "PUT FAILED $_f"; fi
       else
-        log "PUT FAILED $1 -> $2"
+        if put_chunked "$_f" "$_url" "$_sz" "$SEQ"; then
+          log "ok ($((_sz / 1048576)) MiB chunked) $_url"
+        else
+          log "CHUNKED FAILED $_f"
+        fi
       fi
     }
 
     if [ -d "$PATH_ARG" ]; then
-      # rel is relative to the PARENT, so the torrent's own folder name is
-      # part of the destination path. Made relative to $PATH_ARG itself - as
-      # this was - every torrent's files land side by side in /qbittorrent,
-      # and two repacks that both ship a `setup.exe` overwrite each other.
+      # rel is relative to the PARENT, so the torrent's own folder name is part of
+      # the destination path. Made relative to $PATH_ARG itself - as this was -
+      # every torrent's files land side by side in /qbittorrent, and two repacks
+      # that both ship a `setup.exe` overwrite each other.
       PARENT=$(dirname "$PATH_ARG")
       LASTDIR=""
-      find "$PATH_ARG" -type f | while read -r f; do
+      # -name '*.!qB' excluded: that suffix marks a file qBittorrent has not
+      # finished writing. AutoRun only fires on completion so it should never
+      # match here, but the same script is what backfills already-finished
+      # torrents by hand, and there it matters - it is how an unfinished torrent
+      # gets noticed instead of half-uploaded.
+      find "$PATH_ARG" -type f ! -name '*.!qB' | while read -r f; do
         rel="${f#"$PARENT"/}"
         dir="${rel%/*}"
         [ "$dir" = "$rel" ] && dir=""
