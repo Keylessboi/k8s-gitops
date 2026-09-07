@@ -1222,3 +1222,59 @@ that fails silently *and* logs nowhere cannot be debugged, only rediscovered.
 It now writes one line per invocation to `/config/qbit-upload.log`, **before**
 the category check, so the question "did it fire at all?" is answerable with a
 `tail` instead of a five-hour excavation.
+
+---
+
+## Three layers of green over one short read
+
+**2026-09-07, continued.** With the hook finally firing and the path finally
+open, the backfill uploaded Red Dead Redemption's 7.2 GB `data1.doi` and
+logged:
+
+```
+22:20:26  ok (7377 MiB chunked) .../Red Dead Redemption [DODI Repack]/data1.doi
+```
+
+Three minutes later a `HEAD` on that URL answered **404**, while the two files
+uploaded immediately after it sat in the same directory perfectly happily.
+
+Every layer had reported success. All 29 chunk PUTs returned 2xx. The final
+`MOVE` returned 2xx and curl exited 0. The hook wrote `ok`. Nextcloud's own log
+had the truth and had kept it to itself:
+
+```
+Stream from assembly node shorter than expected,
+got 213364620 bytes, expected 268435456
+```
+
+One chunk was short. `dd` without `iflag=fullblock` counts a **short read as a
+whole block** — a `read()` that returns less than `bs` still consumes one of
+`count` — so `bs=1M count=256` produced 213 MB instead of 256 MB. Over NFS
+under concurrent load that is routine. It does not reproduce on an idle
+filesystem: three back-to-back runs of the exact same `dd` returned the full
+268435456 bytes every time. The chunk that broke was the one written while
+qBittorrent was saturating the same mount.
+
+Nextcloud rejected the assembly and answered the client as if nothing had
+happened, so the only place the truth existed was a log nobody was reading.
+
+Two fixes, deliberately redundant: `iflag=fullblock`, and an explicit size
+check on every chunk before it is uploaded. Those are different claims —
+"dd's short-read behaviour is the known cause" and "a truncated chunk must
+never be uploaded" — and only the second one is worth enforcing.
+
+And separately, the hook now **asks the server** after every upload instead of
+trusting its own exit code. An upload that reports success and delivers
+nothing is worse than one that fails, because the retry never happens and the
+log actively argues against looking.
+
+**The lesson:** *a success report is a claim about a process, not about a
+result.* Every exit code in that chain was honest about its own step and the
+file still was not there. Where a component can confirm the outcome — a HEAD,
+a size, a checksum — believing it over your own return value costs one round
+trip and is the difference between "it worked" and "it says it worked".
+
+The corollary, again: the failing component logged the exact answer, in
+detail, immediately, to a file nobody had thought to read. Checking the
+*destination's* logs, not just the sender's, would have turned five hours into
+five minutes.
