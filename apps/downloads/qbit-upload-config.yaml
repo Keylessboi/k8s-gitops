@@ -46,6 +46,15 @@ data:
     LOG=/config/qbit-upload.log
     log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*" >> "$LOG" 2>/dev/null; }
 
+    # Logged BEFORE the category gate, unconditionally, one line per completed
+    # torrent. This is the line that answers "did the hook fire at all?" -
+    # the question that was unanswerable for as long as it was broken, because
+    # a hook that is never invoked leaves no trace anywhere by construction.
+    # It also pins down argument passing: qBittorrent renders the substituted
+    # command in its own log without re-quoting, so `"%L" "%F"` prints as
+    # `music/data/torrents/music/...` and looks like one mashed-together
+    # argument even when it is two.
+    log "invoked argc=$# category='${1:-}' path='${2:-}'"
     [ "$WANT" = "$CATEGORY" ] || exit 0
     [ -n "$PATH_ARG" ] && [ -e "$PATH_ARG" ] || { log "nothing at '$PATH_ARG'"; exit 1; }
     URL="${NEXTCLOUD_WEBDAV_URL:-}"
