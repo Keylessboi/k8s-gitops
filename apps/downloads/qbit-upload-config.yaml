@@ -15,6 +15,15 @@
 # AutoRun is a completion hook, not a readiness-coupled sidecar: a failed
 # upload is logged here and never empties the qbittorrent/slskd Service
 # endpoints. (The same lesson that made seedboxapi a supervised loop.)
+#
+# EVERY LINE BELOW IS UNTESTED-IN-ANGER CODE UNTIL 2026-09-07. The AutoRun key
+# that invokes it was written with the wrong letter case (see
+# qbittorrent.yaml), so this script had never executed once - which is how it
+# accumulated three independent bugs that a single real run would have caught:
+# it never created its own base collection, it stripped each torrent's folder
+# name and flattened everything together, and it issued MKCOL for nested paths
+# whose parents did not exist yet. Treat a hook that has never fired as
+# unwritten code, not as working code.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -29,30 +38,86 @@ data:
     CATEGORY="${NEXTCLOUD_CATEGORY:-nextcloud}"
     WANT="${1:-}"
     PATH_ARG="${2:-}"
+
+    # qBittorrent spawns this detached, so stdout goes nowhere `kubectl logs`
+    # can see - which is the other half of why the hook's failure was
+    # invisible. Log to the config PVC instead:
+    #   kubectl exec -n downloads <pod> -c qbittorrent -- tail -f /config/qbit-upload.log
+    LOG=/config/qbit-upload.log
+    log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*" >> "$LOG" 2>/dev/null; }
+
     [ "$WANT" = "$CATEGORY" ] || exit 0
-    [ -n "$PATH_ARG" ] && [ -e "$PATH_ARG" ] || { echo "qbit-upload: nothing at '$PATH_ARG'" >&2; exit 1; }
+    [ -n "$PATH_ARG" ] && [ -e "$PATH_ARG" ] || { log "nothing at '$PATH_ARG'"; exit 1; }
     URL="${NEXTCLOUD_WEBDAV_URL:-}"
     USER="${NEXTCLOUD_WEBDAV_USER:-}"
     PASS="${NEXTCLOUD_WEBDAV_PASSWORD:-}"
-    [ -n "$URL" ] && [ -n "$USER" ] && [ -n "$PASS" ] || { echo "qbit-upload: webdav env not set" >&2; exit 1; }
+    [ -n "$URL" ] && [ -n "$USER" ] && [ -n "$PASS" ] || { log "webdav env not set"; exit 1; }
     BASEURL="$URL/remote.php/dav/files/$USER/qbittorrent"
-    upload() {
-      src="$1"
-      dst="$2"
-      curl -fsS --max-time 3600 --retry 3 -u "$USER:$PASS" -T "$src" "$dst" >/dev/null \
-        || echo "qbit-upload: PUT failed: $src" >&2
+    log "start category=$WANT path=$PATH_ARG"
+
+    # Percent-encode what torrent names reliably contain and URLs reliably
+    # mishandle. Path separators are deliberately left alone - here they are
+    # structure, not data - so this is only ever applied to a whole relative
+    # path, never to a single segment that might itself contain a slash.
+    urlenc() {
+      printf '%s' "$1" | sed -e 's/%/%25/g' -e 's/ /%20/g' \
+        -e 's/#/%23/g' -e 's/?/%3F/g' -e 's/&/%26/g' -e 's/+/%2B/g' \
+        -e 's/\[/%5B/g' -e 's/\]/%5D/g'
     }
+
+    # MKCOL creates exactly ONE collection and fails when its parent is
+    # missing, so a nested path has to be walked a component at a time. A PUT
+    # into a collection that does not exist answers 409 Conflict, so getting
+    # this wrong does not slow the upload down, it stops it completely.
+    #
+    # No -f: 405 Method Not Allowed is what an existing collection returns and
+    # is the expected answer on every run after the first.
+    mkcol_one() {
+      curl -s -o /dev/null --max-time 30 -u "$USER:$PASS" \
+        -X MKCOL "$BASEURL${1:+/$(urlenc "$1")}" || true
+    }
+    # Walk "a/b/c" as a, a/b, a/b/c. Called with "" it creates only the base.
+    mkcol_p() {
+      _acc=""
+      _rest="$1"
+      mkcol_one ""
+      while [ -n "$_rest" ]; do
+        _seg="${_rest%%/*}"
+        if [ "$_seg" = "$_rest" ]; then _rest=""; else _rest="${_rest#*/}"; fi
+        [ -n "$_seg" ] || continue
+        _acc="${_acc:+$_acc/}$_seg"
+        mkcol_one "$_acc"
+      done
+    }
+
+    upload() {
+      if curl -fsS --max-time 7200 --retry 3 -u "$USER:$PASS" -T "$1" "$2" >/dev/null 2>&1; then
+        log "ok $2"
+      else
+        log "PUT FAILED $1 -> $2"
+      fi
+    }
+
     if [ -d "$PATH_ARG" ]; then
+      # rel is relative to the PARENT, so the torrent's own folder name is
+      # part of the destination path. Made relative to $PATH_ARG itself - as
+      # this was - every torrent's files land side by side in /qbittorrent,
+      # and two repacks that both ship a `setup.exe` overwrite each other.
+      PARENT=$(dirname "$PATH_ARG")
+      LASTDIR=""
       find "$PATH_ARG" -type f | while read -r f; do
-        rel="${f#"$PATH_ARG"/}"
+        rel="${f#"$PARENT"/}"
         dir="${rel%/*}"
         [ "$dir" = "$rel" ] && dir=""
-        if [ -n "$dir" ]; then
-          curl -fsS --max-time 30 -u "$USER:$PASS" -X MKCOL "$BASEURL/$dir" >/dev/null 2>&1 || true
+        # One MKCOL walk per directory, not per file.
+        if [ "$dir" != "$LASTDIR" ]; then
+          mkcol_p "$dir"
+          LASTDIR="$dir"
         fi
-        upload "$f" "$BASEURL/$rel"
+        upload "$f" "$BASEURL/$(urlenc "$rel")"
       done
     else
-      upload "$PATH_ARG" "$BASEURL/$(basename "$PATH_ARG")"
+      mkcol_p ""
+      upload "$PATH_ARG" "$BASEURL/$(urlenc "$(basename "$PATH_ARG")")"
     fi
-    echo "qbit-upload: done"
+    log "done $PATH_ARG"

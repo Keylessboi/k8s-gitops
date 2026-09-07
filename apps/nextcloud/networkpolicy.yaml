@@ -29,11 +29,19 @@ spec:
   # qBittorrent's AutoRun hook pushes completed torrents to a bot WebDAV
   # account over the cluster-internal DAV endpoint. This is the ingress side
   # of that handshake; the egress side lives in apps/downloads/networkpolicy.yaml.
+  #
+  # 80, for exactly the reason the kube-system rule above already carries both
+  # numbers: the port matched here is this pod's containerPort, not the
+  # Service port in front of it. Written as 8080 alone, this rule admitted
+  # traffic to a port nothing in the pod listens on and silently rejected
+  # every WebDAV PUT.
   - from:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: downloads
     ports:
+    - port: 80
+      protocol: TCP
     - port: 8080
       protocol: TCP
   podSelector: {}

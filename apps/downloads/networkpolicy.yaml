@@ -219,11 +219,24 @@ spec:
     # Goes to the cluster-internal Service (nextcloud.nextcloud.svc.cluster.local),
     # not the public Traefik host, so the upload is not rate-limited. Nextcloud's
     # own NetworkPolicy must allow this ingress - see apps/nextcloud/networkpolicy.yaml.
+    #
+    # 80 IS THE ONE THAT MATTERS. NetworkPolicy ports are evaluated after
+    # kube-proxy's DNAT, so the number that has to appear here is the
+    # DESTINATION POD's containerPort, never the Service port. The Service is
+    # 8080 and its endpoint is 10.42.0.15:80, so a rule naming only 8080
+    # matches nothing: curl from the qBittorrent pod was REJECTed by
+    # kube-router in 5 ms, to the ClusterIP and to the pod IP alike, while
+    # both this rule and its counterpart read as correct and both apps showed
+    # Synced. 8080 is kept because a chart upgrade could move the container
+    # port to match the Service, and an extra allowed port to one namespace
+    # costs nothing.
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: nextcloud
       ports:
+        - port: 80
+          protocol: TCP
         - port: 8080
           protocol: TCP
     # gluetun dials the AirVPN endpoint from inside this pod. RFC1918 is

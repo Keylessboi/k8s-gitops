@@ -196,7 +196,23 @@ spec:
                 { if (!skip) print }
               ' "$F" > "$F.tmp"
               mv "$F.tmp" "$F"
-              printf '[LegalNotice]\nAccepted=true\n[Proxy]\nEnabled=false\n[AutoRun]\nEnabled=true\nProgram=/bin/sh /scripts/qbit-upload.sh "%%L" "%%F"\n' >> "$F"
+              # LOWERCASE `enabled` and `program`. This is not a style choice
+              # and it is the whole reason the Nextcloud hook never ran once.
+              # qBittorrent stores these through QSettings, whose IniFormat
+              # keys are CASE-SENSITIVE, and the keys it asks for - read
+              # straight out of the 5.1.2 binary's settings table, alongside
+              # `AutoRun/OnTorrentAdded/Enabled` which is capitalised - are:
+              #     AutoRun/enabled
+              #     AutoRun/program
+              # `Enabled=true` therefore parsed fine, landed in the ini, and
+              # answered a question qBittorrent never asked; the real
+              # `AutoRun/enabled` was absent, so it defaulted to false. The
+              # config file looked completely correct on inspection, the
+              # script was mounted and executable, the category existed, and
+              # `grep -i autorun qbittorrent.log` had zero hits across every
+              # completed torrent. Nothing reports this - there is no warning
+              # for an ini key nobody reads.
+              printf '[LegalNotice]\nAccepted=true\n[Proxy]\nEnabled=false\n[AutoRun]\nenabled=true\nprogram=/bin/sh /scripts/qbit-upload.sh "%%L" "%%F"\n' >> "$F"
               # Seed the category the AutoRun hook keys on. qbit-upload.sh exits
               # 0 unless %L matches, so without this category the hook is wired
               # up correctly and still never fires - which is exactly how it
