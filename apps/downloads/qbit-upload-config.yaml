@@ -114,6 +114,13 @@ data:
     # "bad range in URL" before a byte is sent. Scene release names contain
     # brackets constantly, so this is the common case, not the edge case.
     #
+    # What Nextcloud says this file's size is, or empty if it does not exist.
+    # Used both to skip work and - more importantly - to check it afterwards.
+    remote_size() {
+      curl -g -sI --max-time 60 -u "$USER:$PASS" "$1" 2>/dev/null \
+        | tr -d "\r" | awk 'tolower($1) == "content-length:" {print $2}'
+    }
+
     # One plain PUT. Only used for files under CHUNK_BYTES.
     put_simple() {
       curl -g -fsS --max-time 3600 --retry 3 -u "$USER:$PASS" -T "$1" "$2" >/dev/null 2>&1
@@ -170,20 +177,27 @@ data:
       # 113 GB backfill interrupted by a pod restart picks up where it
       # stopped instead of starting again, and re-firing the hook on a
       # torrent costs one HEAD per file.
-      _rsz=$(curl -g -sI --max-time 60 -u "$USER:$PASS" "$_url" 2>/dev/null \
-             | tr -d "\r" | awk "tolower(\$1) == \"content-length:\" {print \$2}")
-      if [ -n "$_rsz" ] && [ "$_rsz" = "$_sz" ]; then
+      if [ "$(remote_size "$_url")" = "$_sz" ]; then
         log "skip (already there, $_sz B) $_url"
         return
       fi
       if [ "$_sz" -le "$CHUNK_BYTES" ]; then
-        if put_simple "$_f" "$_url"; then log "ok $_url"; else log "PUT FAILED $_f"; fi
+        put_simple "$_f" "$_url" || true
       else
-        if put_chunked "$_f" "$_url" "$_sz" "$SEQ"; then
-          log "ok ($((_sz / 1048576)) MiB chunked) $_url"
-        else
-          log "CHUNKED FAILED $_f"
-        fi
+        put_chunked "$_f" "$_url" "$_sz" "$SEQ" || true
+      fi
+      # ASK THE SERVER, DO NOT BELIEVE THE EXIT CODE. A 7.2 GB chunked upload
+      # reported success - every chunk PUT returned 2xx and the final MOVE
+      # exited 0 - and the file was simply not there afterwards: a HEAD on it
+      # answered 404 while the log line above it said "ok". An upload that
+      # reports success and delivers nothing is worse than one that fails,
+      # because the retry never happens. The only trustworthy statement about
+      # whether a file is in Nextcloud comes from Nextcloud.
+      _got=$(remote_size "$_url")
+      if [ "$_got" = "$_sz" ]; then
+        log "ok ($((_sz / 1048576)) MiB) $_url"
+      else
+        log "VERIFY FAILED (sent $_sz B, server reports '${_got:-absent}') $_url"
       fi
     }
 
