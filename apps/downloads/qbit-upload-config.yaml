@@ -71,8 +71,9 @@ data:
     # means the cap never has to be raised on a public-facing service.
     CHUNK_MB=256
     CHUNK_BYTES=$((CHUNK_MB * 1024 * 1024))
-    # Prefer ONE PUT for anything up to 15 GiB, well under PHP's 16G
-    # post_max_size, and chunk only above that.
+    # Prefer ONE PUT for anything up to 60 GiB, under PHP's 64G post_max_size,
+    # and chunk only above that. In practice nothing in this category reaches
+    # that, so the chunked path below is now a fallback that should never run.
     #
     # This inverts the earlier assumption. Chunking was introduced because
     # Apache capped a request at 1 GiB; with APACHE_BODY_LIMIT=0 that cap is
@@ -85,7 +86,7 @@ data:
     # A single PUT streams straight into the object store and never does that
     # read - and it halves the traffic across the NAS, which serves both the
     # NFS source and the MinIO destination.
-    SIMPLE_MAX=${NEXTCLOUD_SIMPLE_MAX:-16106127360}
+    SIMPLE_MAX=${NEXTCLOUD_SIMPLE_MAX:-64424509440}
     TMPD="/tmp/qbit-upload.$$"
 
     # Percent-encode what torrent names reliably contain and URLs reliably
