@@ -1278,3 +1278,46 @@ The corollary, again: the failing component logged the exact answer, in
 detail, immediately, to a file nobody had thought to read. Checking the
 *destination's* logs, not just the sender's, would have turned five hours into
 five minutes.
+
+### Correction to the entry above
+
+The `dd` short read was real and worth fixing, but it was **not** the cause of
+the false success. With `iflag=fullblock` in place and every chunk verified
+byte-correct before upload, the failure reproduced exactly.
+
+The actual cause is Nextcloud's chunked upload against S3 primary storage. A
+clean single-run probe (the two before it were contaminated by my own orphaned
+processes — see below):
+
+- 29 chunks uploaded, **0** local or PUT problems
+- server-side sizes: 28 x 268435456 + 1 x 219640692, `.file` = 7735833460 — exact
+- `MOVE` -> **201**, after 100s
+- `HEAD` on the destination -> **404**
+
+Nextcloud logged `Stream from assembly node shorter than expected` and answered
+the client 201 regardless. Re-run at 64 MiB chunks: 116 chunks, all correct,
+MOVE 201 in 105s, still 404 — so it is not chunk size, and the byte counts at
+which it died (212574486, 213364620, 213978412, then 12980658 of a 64 MiB
+chunk) were not a fixed quantity but wherever the read happened to be when the
+assembly gave up.
+
+The fix was to stop chunking. Apache's `LimitRequestBody` (1 GiB by default in
+that image) was the only reason chunking was introduced; with
+`APACHE_BODY_LIMIT=0` and PHP at 64G, files go up in a single PUT that streams
+straight into the object store and never performs the server-side reassembly.
+**The same 7.7 GB file that failed three times as chunks uploaded first try as
+one PUT** — 201, 636s at 12.1 MB/s, HEAD confirming 7735833460 bytes.
+
+**The lesson:** the workaround was the bug. Chunking was added to get around a
+1 GiB request cap, and it introduced a failure mode far worse than the cap it
+solved — a silent one. Removing the constraint was cheaper and safer than
+engineering around it, and that option was available from the first 413.
+
+**And a lesson about the debugging, not the system:** two of the three probes
+that produced my early conclusions were contaminated by my own leftover
+processes. A `kubectl exec` killed at the ssh layer leaves its script running
+inside the pod as an orphan; two runs then shared `/tmp/ct`, and one's cleanup
+deleted the other's working directory mid-run. Both runs looked like system
+failures and neither was. Use a unique temp dir per run, and confirm the
+previous run is actually dead — `ps` in the pod, not an assumption — before
+believing anything a second run tells you.
