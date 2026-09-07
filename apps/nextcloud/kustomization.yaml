@@ -56,6 +56,25 @@ helmCharts:
         # was redirecting to http:// URLs. These make it aware it is behind a
         # TLS proxy; without them login redirects downgrade to HTTP.
         extraEnv:
+          # Apache's LimitRequestBody, which this image defaults to 1 GiB.
+          # That default is what answered the first real upload from the
+          # qBittorrent hook with a bare 413 after 0 bytes sent.
+          #
+          # 0 means "no Apache limit" - NOT unlimited. PHP's post_max_size and
+          # upload_max_filesize (16G, in phpConfigs below) remain the real
+          # ceiling, so this hands the decision to the one place it is already
+          # configured rather than having two limits disagree.
+          #
+          # The point is not merely to allow bigger PUTs. It is to make single
+          # PUTs possible for multi-GB files so they DO NOT take the chunked
+          # /remote.php/dav/uploads path, whose final MOVE reassembles the file
+          # by reading every chunk back out of S3. That read is what fails here:
+          # with the chunks all verified byte-correct on the server and their
+          # sizes summing exactly, the MOVE still returns 201 while Nextcloud
+          # logs "Stream from assembly node shorter than expected" and no file
+          # appears. Reproduced at both 256 MiB and 64 MiB chunk sizes.
+          - name: APACHE_BODY_LIMIT
+            value: "0"
           - name: OVERWRITEPROTOCOL
             value: https
           - name: OVERWRITEHOST

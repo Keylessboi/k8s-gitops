@@ -71,6 +71,21 @@ data:
     # means the cap never has to be raised on a public-facing service.
     CHUNK_MB=256
     CHUNK_BYTES=$((CHUNK_MB * 1024 * 1024))
+    # Prefer ONE PUT for anything up to 15 GiB, well under PHP's 16G
+    # post_max_size, and chunk only above that.
+    #
+    # This inverts the earlier assumption. Chunking was introduced because
+    # Apache capped a request at 1 GiB; with APACHE_BODY_LIMIT=0 that cap is
+    # gone, and chunking turns out to be the FRAGILE path here, not the safe
+    # one. Its final MOVE reassembles the file by reading every chunk back out
+    # of S3 on the server, and that read fails on this hardware: chunks all
+    # verified byte-correct and summing exactly, MOVE returns 201, Nextcloud
+    # logs "Stream from assembly node shorter than expected", no file appears.
+    # Reproduced at 256 MiB and again at 64 MiB, so it is not chunk size.
+    # A single PUT streams straight into the object store and never does that
+    # read - and it halves the traffic across the NAS, which serves both the
+    # NFS source and the MinIO destination.
+    SIMPLE_MAX=${NEXTCLOUD_SIMPLE_MAX:-16106127360}
     TMPD="/tmp/qbit-upload.$$"
 
     # Percent-encode what torrent names reliably contain and URLs reliably
@@ -123,7 +138,7 @@ data:
 
     # One plain PUT. Only used for files under CHUNK_BYTES.
     put_simple() {
-      curl -g -fsS --max-time 3600 --retry 3 -u "$USER:$PASS" -T "$1" "$2" >/dev/null 2>&1
+      curl -g -fsS --max-time 14400 --retry 3 -u "$USER:$PASS" -T "$1" "$2" >/dev/null 2>&1
     }
 
     # Nextcloud chunked upload (the v2 /remote.php/dav/uploads flow the desktop
@@ -214,7 +229,7 @@ data:
         log "skip (already there, $_sz B) $_url"
         return
       fi
-      if [ "$_sz" -le "$CHUNK_BYTES" ]; then
+      if [ "$_sz" -le "$SIMPLE_MAX" ]; then
         put_simple "$_f" "$_url" || true
       else
         put_chunked "$_f" "$_url" "$_sz" "$SEQ" || true
