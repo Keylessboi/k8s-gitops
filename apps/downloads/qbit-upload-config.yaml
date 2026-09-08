@@ -36,8 +36,39 @@ data:
     # Usage: qbit-upload.sh "<category>" "<path>"   (qBittorrent AutoRun args)
     set -u
     CATEGORY="${NEXTCLOUD_CATEGORY:-nextcloud}"
-    WANT="${1:-}"
-    PATH_ARG="${2:-}"
+
+    # qBittorrent passes ONE argument, not two.
+    #
+    # The AutoRun line is written `... "%L|%F"` and qBittorrent substitutes
+    # into it, handing us a single string `<category>|<path>`. This is not a
+    # preference - `"%L" "%F"` as two quoted placeholders arrives CONCATENATED
+    # WITH NO SEPARATOR AT ALL:
+    #
+    #   invoked argc=1 category='music/data/torrents/music/Grateful Dead - ...'
+    #
+    # so $1 was "music/data/torrents/..." and never equalled a category name,
+    # and the hook exited 0 on every single completion. That is the third
+    # distinct way this one hook has managed to be configured, mounted,
+    # executable and silent.
+    #
+    # It went unnoticed because a manual run - the backfill - passes two real
+    # arguments and works perfectly. Verifying the script by calling it
+    # yourself proves nothing about how qBittorrent calls it.
+    #
+    # Both forms are accepted: two arguments when a human or the backfill
+    # invokes it, one `cat|path` string when qBittorrent does. The fallback
+    # splits on the first `/` for the un-delimited form, so an old AutoRun
+    # line left in a config file still does the right thing.
+    if [ "$#" -ge 2 ] && [ -n "${2:-}" ]; then
+      WANT="$1"; PATH_ARG="$2"
+    else
+      _raw="${1:-}"
+      case "$_raw" in
+        *"|"*) WANT="${_raw%%|*}"; PATH_ARG="${_raw#*|}" ;;
+        */*)   WANT="${_raw%%/*}"; PATH_ARG="/${_raw#*/}" ;;
+        *)     WANT="$_raw"; PATH_ARG="" ;;
+      esac
+    fi
 
     # qBittorrent spawns this detached, so stdout goes nowhere `kubectl logs`
     # can see - which is half of why the hook's failure was invisible for as

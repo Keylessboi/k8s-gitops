@@ -212,7 +212,13 @@ spec:
               # `grep -i autorun qbittorrent.log` had zero hits across every
               # completed torrent. Nothing reports this - there is no warning
               # for an ini key nobody reads.
-              printf '[LegalNotice]\nAccepted=true\n[Proxy]\nEnabled=false\n[AutoRun]\nenabled=true\nprogram=/bin/sh /scripts/qbit-upload.sh "%%L" "%%F"\n' >> "$F"
+              # ONE quoted argument, "%%L|%%F", not two.
+              # qBittorrent hands `"%%L" "%%F"` to the program CONCATENATED with
+              # no separator - the hook logged
+              #   invoked argc=1 category='music/data/torrents/music/...'
+              # so $1 never matched a category name and every real completion
+              # exited 0. A single delimited token is unambiguous.
+              printf '[LegalNotice]\nAccepted=true\n[Proxy]\nEnabled=false\n[AutoRun]\nenabled=true\nprogram=/bin/sh /scripts/qbit-upload.sh "%%L|%%F"\n' >> "$F"
               # Seed the category the AutoRun hook keys on. qbit-upload.sh exits
               # 0 unless %L matches, so without this category the hook is wired
               # up correctly and still never fires - which is exactly how it
