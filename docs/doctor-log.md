@@ -1321,3 +1321,82 @@ deleted the other's working directory mid-run. Both runs looked like system
 failures and neither was. Use a unique temp dir per run, and confirm the
 previous run is actually dead — `ps` in the pod, not an assumption — before
 believing anything a second run tells you.
+
+---
+
+## The same log file took the cluster down again, with the fix already in place
+
+**2026-09-08.** `/var/log/ganesha/ganesha.log` reached **72.8 GB**, filled the
+LXC root disk to 100%, and took the k3s API server down with it. Every service
+went with it.
+
+This is the *same file*, the *same message*, and the *same failure* as
+"One log file took the cluster's storage down" above — written up a day
+earlier, with a fix applied and a lesson recorded. Both defences were in place.
+Both did nothing.
+
+**The config fix parsed cleanly and was never read.** `Enable_UDP = false` had
+been added as a **second** `NFS_CORE_PARAM` block at the end of
+`ganesha.conf`. Ganesha keeps the first block of a given name and ignores
+later duplicates. The setting was syntactically valid, visible in the file,
+committed to git, and described in this log — and the UDP listener kept
+running the whole time.
+
+That is the identical shape as the qBittorrent AutoRun key from the same week:
+`Enabled=true` where the program reads `enabled`. Both were *config that
+parsed and nothing consumed*. Neither produced a warning, because there is no
+warning to produce: a key nobody reads and a block nobody reaches both look
+exactly like a key that works.
+
+**The rotation fix was correct and ran on the wrong clock.** The logrotate rule
+said `maxsize 200M` — and logrotate itself runs **daily**. The previous entry
+here even records the lesson, "rotation is a scheduled job; a runaway writer is
+a rate," and the remedy applied at the time was to fix the *writer* while
+leaving the schedule alone. When the writer came back, the schedule was still
+daily: at 13 MB/s, a daily check permits about a terabyte.
+
+**What is different now:**
+
+- `Enable_UDP = false` lives in the first `NFS_CORE_PARAM` block, and was
+  verified by `ss -lunp` showing no UDP listener plus the log being
+  byte-identical across repeated samples — not by reading the config back.
+- `ganesha-logrotate.timer` runs the existing rule **every minute** against its
+  own state file. Worst case goes from ~1 TB to ~800 MB.
+
+Both live in `scripts/host/ganesha/` now, because nothing in this repo deployed
+them and that is why the first fix could quietly rot.
+
+**The lesson:** *a fix you have not observed working is a hypothesis.* Every
+step of the first repair was reasonable — right diagnosis, right setting, right
+file, committed, documented — and it never once ran. What was missing was the
+five-second check that the thing had actually changed: `ss -lunp` for the
+listener, two `stat` calls for the growth rate. Verifying the config is not
+verifying the behaviour; the only evidence that counts comes from the running
+system, not the file you edited.
+
+The corollary, which cost the most time: **when a failure recurs, suspect your
+own fix before you suspect a new cause.** Several hours went into Nextcloud
+upload paths on the assumption that the uploads had filled the disk. They had
+not. The disk was filled by the thing that had filled it before, whose fix I
+had already written and never confirmed.
+
+### Two other things this outage exposed
+
+**CT 200 was on DHCP.** During the outage its lease moved from `.172` to
+`.198`, and k3s then refused to start: `this server is a not a member of the
+etcd cluster. Found [...192.168.1.172:2380], expect: [...192.168.1.198:2380]`.
+etcd pins members by URL, so a DHCP lease change is a cluster-destroying event
+for a single-node control plane. Now a static `192.168.1.172`. Note the
+follow-on: switching off DHCP also dropped the DHCP-supplied nameserver, and
+the container inherited the Proxmox host's Tailscale resolver
+(`100.100.100.100`), which is unreachable from inside the CT — every image pull
+failed with `lookup quay.io: Try again` until an explicit nameserver was set.
+
+**Two services came back up but stayed broken, in ways nothing reported.**
+Redis crashlooped on a truncated AOF (`Bad file format reading the append only
+file`) — the disk filled mid-append; `redis-check-aof --fix` truncated 1.18 MB
+of corrupt tail and kept the other 49.4 MB. And Traefik came up *healthy*
+while serving **404 for all 35 Ingresses**, because it started before the API
+server was available and never rebuilt its routes. A running, ready Traefik
+answering 404 for the entire homelab is the same genre as everything else in
+this log: green status, no function. Deleting the pod fixed it.
