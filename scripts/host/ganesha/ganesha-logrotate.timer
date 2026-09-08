@@ -1,0 +1,12 @@
+[Unit]
+Description=Check the ganesha log size every minute
+Documentation=https://github.com/Keylessboi/k8s-gitops/blob/main/docs/doctor-log.md
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=ganesha-logrotate.service
+
+[Install]
+WantedBy=timers.target

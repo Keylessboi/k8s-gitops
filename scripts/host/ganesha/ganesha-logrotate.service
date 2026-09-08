@@ -1,0 +1,8 @@
+[Unit]
+Description=Size-check rotation for the nfs-ganesha log
+Documentation=https://github.com/Keylessboi/k8s-gitops/blob/main/docs/doctor-log.md
+
+[Service]
+Type=oneshot
+# Separate state file so this never interferes with the daily system run.
+ExecStart=/usr/sbin/logrotate /etc/logrotate.d/ganesha --state /var/lib/logrotate/ganesha.status
