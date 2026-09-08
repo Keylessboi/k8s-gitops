@@ -1,0 +1,66 @@
+---
+# Jellyfin-client API routes, WITHOUT Authentik forward-auth.
+#
+# Native clients (JellyCon, Infuse, Swiftfin, Jellyfin for Android) authenticate
+# against Remux's own Jellyfin-style API. Forward-auth answers any request with
+# no Authentik session with a 302 to the login flow, and a native client cannot
+# follow an OAuth redirect - so pointed at remux.sandstorm.chat they simply
+# fail. This is the "carve the API paths out of forward-auth" option that
+# ingress.yaml names as the way to get native clients working.
+#
+# The gate for these paths becomes Remux's own auth
+# (/Users/AuthenticateByName + QuickConnect), which is exactly the arrangement
+# the Jellyfin Ingress next door already uses. CrowdSec and the rate limiter
+# still apply - only the Authentik middleware is dropped.
+#
+# The browser dashboard is unaffected: ingress.yaml still serves "/" behind
+# forward-auth, and Traefik prefers the longer, more specific prefix, so these
+# routes win for API calls and nothing else changes.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: remux-api
+  namespace: remux
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # No authentik-forward-auth here. That omission IS the feature.
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - remux.sandstorm.chat
+      secretName: remux-tls
+  rules:
+    - host: remux.sandstorm.chat
+      http:
+        paths:
+          # QuickConnect first - it is the whole point of this file for a
+          # client that cannot type credentials comfortably.
+          - {path: /QuickConnect, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /Users, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /System, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /Branding, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /Items, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /UserItems, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /UserViews, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /Shows, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /Videos, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /Audio, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /Artists, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /Albums, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /Genres, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /MusicGenres, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /Persons, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /Studios, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /Library, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /Sessions, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /Playback, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /DisplayPreferences, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /Plugins, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          - {path: /LiveTv, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          # WebSocket for session/playback state.
+          - {path: /socket, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}
+          # Some clients prefix every call with /emby.
+          - {path: /emby, pathType: Prefix, backend: {service: {name: remux, port: {number: 3000}}}}

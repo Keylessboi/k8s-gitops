@@ -38,4 +38,5 @@ resources:
   - aiostreams-deployment.yaml
   - aiostreams-service.yaml
   - ingress.yaml
+  - ingress-api.yaml
   - authentik-outpost.yaml
