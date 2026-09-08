@@ -86,7 +86,7 @@ data:
     # A single PUT streams straight into the object store and never does that
     # read - and it halves the traffic across the NAS, which serves both the
     # NFS source and the MinIO destination.
-    SIMPLE_MAX=${NEXTCLOUD_SIMPLE_MAX:-64424509440}
+    SIMPLE_MAX=${NEXTCLOUD_SIMPLE_MAX:-10737418240}
     TMPD="/tmp/qbit-upload.$$"
 
     # Percent-encode what torrent names reliably contain and URLs reliably
@@ -233,7 +233,12 @@ data:
       if [ "$_sz" -le "$SIMPLE_MAX" ]; then
         put_simple "$_f" "$_url" || true
       else
-        put_chunked "$_f" "$_url" "$_sz" "$SEQ" || true
+        # Do NOT fall back to chunking. It does not work here - the MOVE
+        # returns 201 and writes nothing - so attempting it burns an hour and
+        # ends in the same place, except louder. Skip loudly instead, so the
+        # file is visibly outstanding rather than quietly retried forever.
+        log "TOO LARGE ($_sz B > $SIMPLE_MAX) - needs more scratch disk on the Nextcloud host: $_f"
+        return
       fi
       # ASK THE SERVER, DO NOT BELIEVE THE EXIT CODE. A 7.2 GB chunked upload
       # reported success - every chunk PUT returned 2xx and the final MOVE

@@ -156,7 +156,32 @@ helmCharts:
           usernameKey: admin-user
           passwordKey: admin-password
         phpConfigs:
-          # 64G, not 16G, and no execution-time cap.
+          # 10G, and here is why it is not larger.
+          #
+          # PHP buffers the ENTIRE PUT body to a temp file in the container's
+          # /tmp before Nextcloud writes it to S3. That /tmp is the LXC's root
+          # disk - the same disk k3s runs on - with ~31 GB free. So
+          # post_max_size is not just a policy limit, it is a promise about how
+          # much local scratch a single request may consume, and 64G was a
+          # promise this host cannot keep.
+          #
+          # Measured, not assumed: a 50 GB single PUT was observed writing a
+          # steadily growing php* temp file (2.4 GB -> 2.8 GB while watched,
+          # and still growing after the client was killed), and Nextcloud died
+          # exactly 40 minutes into that upload - about 29 GB at the ~12 MB/s
+          # this hardware sustains, which is precisely where the free space
+          # ran out. Liveness probe 500, container exit 255, and every
+          # in-flight upload failing in the same second.
+          #
+          # 10G leaves ~21 GB of headroom and still covers every file in the
+          # torrent category except one 50 GB repack, which cannot be uploaded
+          # by any path available here: the chunked route's server-side
+          # reassembly is broken (see doctor-log), and the single-PUT route is
+          # bounded by this disk. Fixing that needs either more disk on CT 200
+          # or PHP's temp dir moved onto the NAS.
+          #
+          # This is the ganesha-log lesson again: the thing that fills the
+          # cluster's root disk does not announce itself as a disk problem.
           #
           # These are what actually bound a single PUT now that Apache's
           # LimitRequestBody is out of the way (APACHE_BODY_LIMIT=0 above), and
@@ -174,8 +199,8 @@ helmCharts:
           # roughly the 50 GB mark, and the failure would look like a network
           # problem rather than a limit.
           uploadlimit.ini: |
-            upload_max_filesize = 64G
-            post_max_size = 64G
+            upload_max_filesize = 10G
+            post_max_size = 10G
             max_input_time = -1
             max_execution_time = 0
       internalDatabase:
