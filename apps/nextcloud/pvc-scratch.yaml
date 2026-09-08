@@ -1,0 +1,29 @@
+---
+# PHP scratch space for Nextcloud, on the NAS rather than the cluster's root disk.
+#
+# PHP buffers an ENTIRE PUT body to a temp file before Nextcloud streams it into
+# S3. By default that lands in the container's /tmp, which is the k3s LXC's root
+# disk - so a 50 GB upload is a 50 GB file on the same 112 GB volume that holds
+# etcd, containerd and every local-path PVC. That is not a theory: a 50 GB PUT
+# killed Nextcloud exactly 40 minutes in, at roughly the point free space ran
+# out, and the root disk hitting 100% has taken this cluster down once already.
+#
+# Growing the LXC disk was the obvious alternative and is the wrong one: the
+# LVM thin pool has ~41 GB free and the volume group has 4 MB, so sizing for a
+# 50 GB buffer would leave the pool nearly full - and a full thin pool breaks
+# every volume on it, not just this one.
+#
+# 300Gi on the NAS (3.14 TB free) instead. Retain, because losing scratch mid
+# upload is harmless but an accidental delete of a bound PV is not.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nextcloud-scratch
+  namespace: nextcloud
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 300Gi

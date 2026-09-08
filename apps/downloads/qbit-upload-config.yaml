@@ -106,6 +106,14 @@ data:
     # and chunk only above that. In practice nothing in this category reaches
     # that, so the chunked path below is now a fallback that should never run.
     #
+    # 60 GiB is only safe because Nextcloud's PHP scratch dir now lives on the
+    # NAS (apps/nextcloud/pvc-scratch.yaml). PHP buffers the whole PUT body to
+    # a temp file first, so this number is a claim about the SIZE OF THAT
+    # BUFFER, not just about what the server will accept. It was briefly 64 GiB
+    # while the buffer was still on the cluster's root disk, and a 50 GB upload
+    # took Nextcloud down 40 minutes in. Never raise this without checking
+    # where sys_temp_dir points and how much room is actually there.
+    #
     # This inverts the earlier assumption. Chunking was introduced because
     # Apache capped a request at 1 GiB; with APACHE_BODY_LIMIT=0 that cap is
     # gone, and chunking turns out to be the FRAGILE path here, not the safe
@@ -117,7 +125,7 @@ data:
     # A single PUT streams straight into the object store and never does that
     # read - and it halves the traffic across the NAS, which serves both the
     # NFS source and the MinIO destination.
-    SIMPLE_MAX=${NEXTCLOUD_SIMPLE_MAX:-10737418240}
+    SIMPLE_MAX=${NEXTCLOUD_SIMPLE_MAX:-64424509440}
     TMPD="/tmp/qbit-upload.$$"
 
     # Percent-encode what torrent names reliably contain and URLs reliably

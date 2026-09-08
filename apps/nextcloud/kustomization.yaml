@@ -34,6 +34,7 @@ labels:
 resources:
   - namespace.yaml
   - pvc-config.yaml
+  - pvc-scratch.yaml
   - networkpolicy.yaml
   - ingress.yaml
 
@@ -199,10 +200,16 @@ helmCharts:
           # roughly the 50 GB mark, and the failure would look like a network
           # problem rather than a limit.
           uploadlimit.ini: |
-            upload_max_filesize = 10G
-            post_max_size = 10G
+            upload_max_filesize = 64G
+            post_max_size = 64G
             max_input_time = -1
             max_execution_time = 0
+            ; Both of these, not just one. upload_tmp_dir covers multipart form
+            ; uploads; sys_temp_dir is what php://temp spills to, and THAT is
+            ; the one a WebDAV PUT actually uses. Setting only the obvious one
+            ; would leave the 50 GB buffer exactly where it was.
+            upload_tmp_dir = /scratch
+            sys_temp_dir = /scratch
       internalDatabase:
         enabled: false
       externalDatabase:
@@ -265,3 +272,47 @@ helmCharts:
           ports:
             http:
               port: 8080
+
+# Mount the scratch PVC and make it writable, as a strategic-merge patch on the
+# Deployment rather than through chart values.
+#
+# Deliberate choice: this chart's extraVolumes/extraVolumeMounts keys would be
+# quicker, but a mistyped or renamed chart value fails SILENTLY - it renders
+# nothing and the pod comes up looking healthy with the buffer still on the root
+# disk. That is the exact failure mode that cost this repo two outages and three
+# broken hooks. A patch that does not match its target makes kustomize fail
+# loudly instead.
+#
+# The initContainer exists because the NFS CSI driver creates the subdirectory
+# root-owned 0755 and Nextcloud runs as www-data (33); without it every upload
+# fails with permission denied on the temp file.
+patches:
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: nextcloud
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: nextcloud
+      spec:
+        template:
+          spec:
+            initContainers:
+              - name: scratch-perms
+                image: busybox:1.36
+                command: ["sh", "-c", "chmod 1777 /scratch && echo scratch ready"]
+                volumeMounts:
+                  - name: nextcloud-scratch
+                    mountPath: /scratch
+            containers:
+              - name: nextcloud
+                volumeMounts:
+                  - name: nextcloud-scratch
+                    mountPath: /scratch
+            volumes:
+              - name: nextcloud-scratch
+                persistentVolumeClaim:
+                  claimName: nextcloud-scratch
