@@ -72,6 +72,25 @@ helmCharts:
           # 15 days cannot answer "how far have we come"; six months can, for
           # storage that is effectively free on this hardware.
           retention: 180d
+          # THE ONLY CEILING THAT EXISTS. The PVC says 20Gi, but nfs-csi is a
+          # plain directory on an NFS export with no quota - `df` inside the
+          # pod reports the whole 5.4T pool, 2.7T free. Nothing enforces that
+          # 20Gi. Without retentionSize, `retention: 180d` is an instruction to
+          # grow unbounded for six months on the same pool that holds the music
+          # library and the games, and the only thing that would stop it is the
+          # pool filling. This repo has already had one outage from a full disk;
+          # this is the line that prevents the second.
+          #
+          # 45GB, from measurement rather than a guess: 4.5G held ~14 days at
+          # 152k active series (~320 MB/day), and the metricRelabelings below
+          # drop 36% of those series, so ~205 MB/day. 180 days is therefore
+          # ~36GB, and 45GB carries that with room for compaction - which needs
+          # working space, since retentionSize governs blocks and not the WAL.
+          #
+          # If these two ever disagree, size wins and history is truncated
+          # early. That is the correct failure: losing the oldest month is
+          # recoverable, filling /extra is not.
+          retentionSize: 45GB
           # SMART metrics from the two bare-metal hosts. These cannot be a
           # DaemonSet: LXC 200 has no block devices in /dev at all, so a pod has
           # nothing to read, and the disks that matter (the NAS pool disks)
@@ -108,11 +127,65 @@ helmCharts:
               spec:
                 # TSDB does heavy random IO and mmap; block storage, not a
                 # network/object-backed filesystem.
+                #
+                # THIS DOES NOT DESCRIBE THE RUNNING SYSTEM. The live PVC is
+                # nfs-csi, provisioned before this line said local-path, and a
+                # StatefulSet's volumeClaimTemplate is immutable - so the
+                # operator cannot migrate it and this value is inert. It is
+                # left as the intent rather than edited to match, because
+                # rewriting it would change nothing on disk while implying the
+                # move had happened.
+                #
+                # It only ever bites if someone deletes that PVC: the volume is
+                # then re-provisioned on local-path, which is CT200's root disk
+                # with ~35 GB free, and retentionSize above is 45GB. Moving the
+                # data is the real fix; until then, anyone deleting this PVC
+                # must lower retentionSize in the same change.
                 storageClassName: local-path
                 accessModes: [ReadWriteOnce]
                 resources:
                   requests:
                     storage: 20Gi
+      # DROPPED AT SCRAPE TIME: 55,228 series, 36% of the whole TSDB.
+      #
+      # Measured, not assumed. `/api/v1/status/tsdb` ranked every metric by
+      # series count and the top of that list is entirely Kubernetes
+      # control-plane latency histograms - 18,666 series for
+      # apiserver_request_duration_seconds_bucket alone, 15,232 for
+      # etcd_request_duration_seconds_bucket. A histogram bucket is one series
+      # per bucket per label combination, which is why eight metric families
+      # outweigh every application in the cluster put together.
+      #
+      # These exist to compute request-latency quantiles across a large
+      # multi-tenant API server. This is a single-node k3s cluster with one
+      # user; nobody has ever asked what the p99 latency of a LIST verb was.
+      #
+      # SAFE BECAUSE IT WAS CHECKED, NOT BECAUSE IT LOOKS UNUSED. Every rule in
+      # /api/v1/rules was searched for these names: all eight have zero
+      # recording rules and zero alerts behind them.
+      # apiserver_request_sli_duration_seconds is deliberately NOT in this list
+      # despite being the third-largest metric (10,770 series) - it has 23
+      # rules behind it (the KubeAPIErrorBudgetBurn SLO chain), and dropping it
+      # would leave those rules silently evaluating nothing, which is worse
+      # than the disk they cost.
+      #
+      # Only `_bucket` is dropped. The matching _count and _sum stay, so
+      # request rates and mean latencies still work - it is the per-bucket
+      # quantile detail that goes, and only that.
+      #
+      # Applied to both jobs because k3s runs the control plane as one process:
+      # apiserver, etcd and controller-manager metrics all surface on endpoints
+      # this cluster labels `apiserver` and `kubelet`, and a drop rule that
+      # matches nothing costs nothing.
+      kubeApiServer:
+        serviceMonitor:
+          metricRelabelings: &dropControlPlaneHistograms
+            - sourceLabels: [__name__]
+              action: drop
+              regex: (apiserver_request_duration_seconds|etcd_request_duration_seconds|apiserver_request_body_size_bytes|apiserver_response_sizes|apiserver_watch_cache_read_wait_seconds|apiserver_watch_events_sizes|workqueue_work_duration_seconds|workqueue_queue_duration_seconds)_bucket
+      kubelet:
+        serviceMonitor:
+          metricRelabelings: *dropControlPlaneHistograms
       grafana:
         # Disabled to reclaim memory on a node that is out of it. Dashboards are
         # the part of monitoring you open on purpose; alerting is the part that
