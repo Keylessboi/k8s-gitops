@@ -340,6 +340,74 @@ def check_netpol_pairs(findings: list[str], passes: list[str]) -> None:
                 )
 
 
+def _all_pod_specs(doc: dict):
+    """Every podSpec in a manifest, whatever wraps it.
+
+    pod_spec_of() deliberately returns None for Deployments - check_wait_init
+    depends on that - so this walks the wrappers itself rather than widening it.
+    """
+    kind = doc.get("kind")
+    spec = doc.get("spec") or {}
+    if kind == "Pod":
+        yield spec
+    elif kind in ("Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job"):
+        t = (spec.get("template") or {}).get("spec")
+        if t:
+            yield t
+    elif kind == "CronJob":
+        job = (spec.get("jobTemplate") or {}).get("spec") or {}
+        t = (job.get("template") or {}).get("spec")
+        if t:
+            yield t
+
+
+def check_fsgroup_policy(findings: list[str], passes: list[str]) -> None:
+    """fsGroup without fsGroupChangePolicy chowns every mounted volume, forever.
+
+    The default policy is Always, which makes the kubelet recursively chown and
+    chmod EVERY file in EVERY volume the pod mounts before the container starts.
+    On a volume backed by a large NFS export that walk is O(files) and does not
+    finish in any useful time.
+
+    This is not hypothetical. On 2026-09-09 the beets-import CronJob sat in
+    ContainerCreating for NINE HOURS against /extra/nfs-csi/data, and with
+    concurrencyPolicy: Forbid it blocked every later run, so music imports were
+    dead. It is close to undiagnosable from inside Kubernetes: the pod emits no
+    events at all, the kubelet says only "unmounted volumes=[data] ... context
+    deadline exceeded", and meanwhile /proc/mounts shows the volume mounted and
+    the CSI driver logs the mount as successful - because the mount DID succeed,
+    in milliseconds, and it is the ownership pass afterwards that never returns.
+    The proof was on the NAS: 12,448 files chowned in 30 minutes, marching
+    alphabetically through the library.
+
+    OnRootMismatch checks the volume root only and skips the walk when it already
+    matches, which it does here. Setting the policy explicitly - either value -
+    satisfies this check; the point is that it was a decision.
+    """
+    for path in sorted(APPS.rglob("*.yaml")):
+        for doc in load_docs(path):
+            if not isinstance(doc, dict):
+                continue
+            name = (doc.get("metadata") or {}).get("name", "?")
+            for pod in _all_pod_specs(doc):
+                sc = pod.get("securityContext") or {}
+                if "fsGroup" not in sc:
+                    continue
+                rel = path.relative_to(REPO)
+                if "fsGroupChangePolicy" in sc:
+                    passes.append(f"{rel}: {name} sets fsGroup with an explicit policy")
+                else:
+                    findings.append(
+                        f"{rel}: {doc.get('kind')} {name} sets fsGroup "
+                        f"({sc['fsGroup']}) with no fsGroupChangePolicy. The default "
+                        f"is Always, which recursively chowns every mounted volume "
+                        f"before the container starts - on an NFS-backed media volume "
+                        f"that never finishes and the pod hangs in ContainerCreating "
+                        f"with no events. Add fsGroupChangePolicy: OnRootMismatch. "
+                        f"See docs/doctor-log.md 2026-09-09 (beets-import)."
+                    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--list", action="store_true", help="also print what passed")
@@ -352,6 +420,7 @@ def main() -> int:
     check_wait_init(findings, passes)
     check_netpol_pairs(findings, passes)
     check_intra_namespace(findings, passes)
+    check_fsgroup_policy(findings, passes)
 
     if args.list:
         print(f"--- {len(passes)} checks passed ---")
