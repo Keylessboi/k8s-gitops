@@ -393,26 +393,34 @@ data:
     gb=$(awk '$1=="ok"{s+=$2} END {printf "%.1f", s/1073741824}' "$RESULTS" 2>/dev/null)
     rm -f "$RESULTS"
 
-    # Nothing actually moved and nothing broke: a re-run over a torrent that
-    # was already complete. Staying quiet is the point - otherwise every sweep
-    # notifies about every finished game and the alerts stop being read.
-    if [ "$n_ok" = "0" ] && [ "$n_fail" = "0" ] && [ "$n_big" = "0" ]; then
-      exit 0
-    fi
-
-    # Mark it finished ONLY if nothing failed and nothing was skipped for being
-    # too large - i.e. every file is on the server at the right size, which the
+    # Mark it finished if nothing failed and nothing was skipped for being too
+    # large - i.e. every file is on the server at the right size, which the
     # per-file verify already established.
-    if [ "$n_fail" = "0" ] && [ "$n_big" = "0" ] && [ "$ALREADY_FINISHED" = "0" ]; then
+    #
+    # THIS MUST COME BEFORE THE QUIET-EXIT BELOW. It originally sat after it,
+    # and the quiet-exit triggers precisely when a sweep finds everything
+    # already uploaded (n_ok=0, all skips) - which is exactly the case where an
+    # existing game most needs marking. Result: no game was ever labelled.
+    # "Nothing moved" is a reason to stay silent, not a reason to skip work.
+    RENAMED=0
+    if [ "$n_fail" = "0" ] && [ "$n_big" = "0" ] && [ "$ALREADY_FINISHED" = "0" ] \
+       && [ "$((n_ok + n_skip))" -gt 0 ]; then
       if curl -g -fsS --max-time 120 -u "$USER:$PASS" -X MOVE \
            -H "Destination: $BASEURL/$(urlenc "$FINNAME")" \
            -H "Overwrite: F" \
            "$BASEURL/$(urlenc "$TNAME")" >/dev/null 2>&1; then
         log "marked finished: $FINNAME"
         REMOTE_DIR="$FINNAME"
+        RENAMED=1
       else
         log "could not rename to '$FINNAME' (upload itself is fine)"
       fi
+    fi
+
+    # Now decide whether to say anything. Silent only if nothing moved, nothing
+    # broke, and nothing was newly marked.
+    if [ "$n_ok" = "0" ] && [ "$n_fail" = "0" ] && [ "$n_big" = "0" ] && [ "$RENAMED" = "0" ]; then
+      exit 0
     fi
 
     if [ "$n_fail" != "0" ] || [ "$n_big" != "0" ]; then

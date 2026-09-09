@@ -337,8 +337,17 @@ spec:
             #   10.43.0.0/16 service CIDR - so DNS (CoreDNS) works.
             # Everything else (all public internet) is forced through
             # WireGuard, and dropped if it is down.
+            # 192.168.1.153/32 is the ntfy relay on the Proxmox host, and it
+            # is here because the upload hook's notifications were silently
+            # failing: this pod shares gluetun's network namespace, so the
+            # downloads NetworkPolicy allowing 192.168.1.153:9098 was only half
+            # the path - gluetun's own killswitch dropped it. Both ends, again.
+            #
+            # A single host on the LAN, for outbound notification only. It does
+            # not widen the torrent path: peer and tracker traffic is bound to
+            # tun0 by Session\Interface and cannot use this route.
             - name: FIREWALL_OUTBOUND_SUBNETS
-              value: "10.42.0.0/16,10.43.0.0/16"
+              value: "10.42.0.0/16,10.43.0.0/16,192.168.1.153/32"
             # AirVPN forwarded ports for this account: 6877 for qBittorrent,
             # 6874 for slskd. These are forwarded through the VPN tunnel, so
             # peer connections arrive through the Aquila exit.
