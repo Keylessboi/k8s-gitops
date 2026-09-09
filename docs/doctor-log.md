@@ -36,8 +36,7 @@ the literal string you are seeing, then read the entry.
 | Every downstream *arr broken after a key change | Prowlarr API key rotation — 2026-08-29 |
 | A CronJob that vanishes seconds after you create it | manual CronJob run — 2026-08-29 |
 | Stale NFS handles, pods stuck ContainerCreating | closet move — 2026-08-28 |
-| `unmounted volumes=[…]: context deadline exceeded`, pod stuck ContainerCreating on a CSI volume | kubelet never issues the call — 2026-09-09 (OPEN) |
-| A pod mounting two nfs-csi PVCs hangs; either one alone is fine | same entry — 2026-09-09 (OPEN) |
+| Pod stuck ContainerCreating, no events, `unmounted volumes=[…]: context deadline exceeded`, but the volume IS mounted | fsGroup chowning a huge NFS volume — 2026-09-09 (**check `fsGroupChangePolicy`**) |
 | A pod recreated every couple of minutes, Deployment revision in the dozens | ArgoCD vs image-updater — 2026-09-05 (gluetun), 2026-09-09 (navidrome) |
 | An alert that has been firing for days and never clears | scraping something k3s does not expose / probes for deleted apps — 2026-09-09 |
 
@@ -53,56 +52,70 @@ prose version of the prevention failed:
 - **Duplicate YAML keys** (1×, but silent) — PyYAML accepts them, Go's yaml does
   not. Validate with the same parser as the consumer.
 
-## 2026-09-09 — beets-import cannot mount: kubelet never issues the call. OPEN.
+## 2026-09-09 — beets-import sat in ContainerCreating for 9 hours: fsGroup was chowning a 2 TB NFS tree
 
-- **Symptom:** `beets-import` sat in `ContainerCreating` for **9 hours** and,
-  because its CronJob is `concurrencyPolicy: Forbid`, blocked every later run —
-  music imports have been dead since. kubelet repeats, every ~2 minutes:
-  `unmounted volumes=[data], unattached volumes=[], failed to process
-  volumes=[]: context deadline exceeded`.
-- **What is NOT wrong,** each ruled out by direct test rather than argument:
-  - The NFS server. The export mounts by hand on the node in under a second and
-    no NFS mount on the node is hung.
-  - The CSI driver. It is responsive, and it mounts other volumes from the *same*
-    source (`192.168.1.67:/extra/nfs-csi/data`) for Navidrome, successfully.
-  - The attach path. `attachRequired=false` and there are zero VolumeAttachments.
-  - Navidrome's restart loop (see the next entry), which was hammering that same
-    NFS export. Fixing it changed nothing here.
-- **The finding that matters:** for a failing pod the driver receives
-  `NodePublishVolume` for the *other* volume in the pod and **no call at all for
-  `media-data-music`**. kubelet never asks. This is kubelet-side — consistent
-  with a leaked pending operation in the volume manager, which dedups by volume
-  name and will silently refuse every later operation on that volume until
-  kubelet restarts. It has not been proven to that level, so it is a hypothesis,
-  not the cause.
-- **Reproduction, which is sharp:** a pod mounting `media-data` *alone* starts in
-  ~20 seconds. A pod mounting `media-data` **and** `beets-config` hangs forever
-  — plain busybox, no beets image, no Job wrapper. Either PVC alone is fine.
-  Both are nfs-csi on the same server and share, differing only by subDir — and
-  Navidrome mounts two volumes from that same share without trouble, so "two
-  PVCs from one share" is not sufficient on its own to explain it.
-- **A real but separate defect found on the way:** force-deleting a pod stuck on
-  a CSI volume leaves an **orphaned kubelet pod directory still holding the NFS
-  mount**, which kubelet cannot clean up (it logs "Cleaned up orphaned pod
-  volumes dir" only for orphans with no mounts). Clearing one — `umount -l` then
-  remove `/var/lib/kubelet/pods/<uid>` — did restore single-volume mounts. This
-  is worth knowing and worth avoiding, but it is **not** the cause of the
-  headline symptom: with zero mounted orphans present, the two-volume pod still
-  hangs.
-- **This cost two wrong conclusions before the right question.** I reported the
-  two-PVC combination as the cause, then retracted it when a single-PVC pod also
-  failed — not realising a new orphan had appeared between the tests. Then I
-  blamed the Navidrome loop. Both were **inferred from correlation across tests
-  run minutes apart in a changing system**, and neither was checked against what
-  the CSI driver was actually being asked to do. The one log line that settled
-  it — which volumes the driver received a call for — was available the whole
-  time.
-- **Next step:** restart kubelet (k3s) on `k3s-server` to clear any leaked
-  pending volume operation, then retry. Not done yet: this is the single
-  control-plane node and it restarted at 15:33 today already.
-- **Confidence:** PROVISIONAL. The reproduction is reliable and the "kubelet
-  never issues the call" observation is direct; the leaked-operation explanation
-  for *why* is not yet proven.
+- **Symptom:** the import pod never started. Nine hours in `ContainerCreating`,
+  and because the CronJob is `concurrencyPolicy: Forbid`, every later run was
+  blocked behind it — music imports were dead the whole time, reported only as
+  one `KubeJobFailed` among eleven other alerts nobody could act on.
+- **Root cause:** `fsGroup: 1000` with the policy left at its default of
+  `Always`. That makes the kubelet **recursively chown every mounted volume
+  before the container starts**, and this pod mounts `/extra/nfs-csi/data` — the
+  entire music library plus the torrent trees, over NFS. The walk is O(files)
+  and does not finish.
+- **Fix:** `fsGroupChangePolicy: OnRootMismatch`. The volume root is already
+  `gid 1000, mode 2775`, exactly what fsGroup wants, so the walk is skipped
+  entirely. **Verified: 9 hours of ContainerCreating became Running in 20
+  seconds.**
+- **Why it was so hard to see, which is the transferable part.** Every signal
+  pointed at storage and every one of them was a red herring:
+  - The pod has **no events at all**. Not one.
+  - kubelet says only `unmounted volumes=[data] ... context deadline exceeded`.
+  - `/proc/mounts` shows the volume **mounted and responsive** — `stat -f`
+    returns instantly.
+  - The CSI driver logs the mount as **succeeded**, in milliseconds.
+  All true simultaneously, because the mount *does* succeed immediately; it is
+  the ownership pass afterwards that never returns, and kubelet reports a volume
+  whose SetUp has not returned as "unmounted".
+- **The evidence that settled it was not in Kubernetes.** On the NAS,
+  `find /extra/nfs-csi/data/media/music -cmin -30 | wc -l` returned **12,448** —
+  files marching alphabetically through the library having their ownership
+  rewritten. Nothing in `kubectl` shows this. **When a pod is stuck on a volume
+  and the cluster says nothing, go look at the filesystem.**
+- **This repo already knew the rule and this file broke it.** navidrome, octo,
+  lidarr and qbittorrent each carry `fsGroupChangePolicy: OnRootMismatch` with a
+  comment describing this exact failure. beets-import was the only place that
+  set `fsGroup` and left the policy default. Every other `fsGroup` in `apps/` was
+  checked afterwards; all have a policy.
+- **The clue I had from the first minute and misread for hours:** the beets
+  *Deployment* sets no `fsGroup` at all. Same image, same two PVCs, same node —
+  the web UI runs fine while the importer never starts. That difference was
+  visible immediately and pointed straight at the pod spec. I read it as
+  evidence about storage instead.
+- **Wrong turns, and what they cost.** Two published conclusions before the right
+  one: that the failure needed a *combination* of two PVCs, and that Navidrome's
+  restart loop was starving the shared NFS export. Both were inferred from
+  correlation between tests run minutes apart in a system I was changing
+  underneath myself — my own force-deletes were creating and clearing orphaned
+  mounts between measurements, so results flipped and each flip looked like a
+  new signal. A `nas`-vs-`k3s-server` comparison seemed decisive and was not: the
+  busybox probe I ran there had no `fsGroup`, so it was never running the same
+  experiment. **A comparison only isolates a variable if the two sides differ in
+  exactly that variable — mine differed in the one that mattered.**
+- **A real, separate defect found on the way:** force-deleting a pod stuck on a
+  CSI volume leaves an **orphaned kubelet pod directory still holding the NFS
+  mount**. kubelet cleans up only orphans with no mounts; a mounted one blocks
+  later pods wanting that volume. Remedy: `umount -l` the paths, then remove
+  `/var/lib/kubelet/pods/<uid>`. So do not force-delete a pod stuck on a CSI
+  volume without clearing up after it — and note that this defect is what made
+  the headline symptom *look* intermittent.
+- **Prevention:** the invariant is checkable and worth adding to
+  `scripts/ci/check-invariants.py` — **any pod spec setting `fsGroup` must also
+  set `fsGroupChangePolicy`**. Every manifest in this repo already satisfies it,
+  so it would land green and stay that way. Not yet written.
+- **Confidence:** CONFIRMED. The chown walk was observed directly on the NAS, the
+  repo's own prior art describes the same mechanism, and the fix took the pod
+  from nine hours to twenty seconds.
 
 ## 2026-09-09 — Navidrome restarted every 2m15s for 61 revisions: the image tag disagreed in two files
 
