@@ -54,3 +54,79 @@ spec:
   resources:
     requests:
       storage: 500Gi
+---
+# Keep the /Games external mount indexed.
+#
+# files_external does NOT populate Nextcloud's file cache on its own. A new
+# game appears on disk instantly, but the web UI shows only what has already
+# been scanned - which is why /Games listed 2 of 11 games right after it was
+# created, and every game added later would have had the same problem.
+#
+# `files:scan` on just that path is cheap (19 folders / 46 files in ~1s) and
+# has no upload to do, because the files are read in place.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: games-mount-scan
+  namespace: nextcloud
+spec:
+  schedule: "*/20 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: scan
+              image: bitnami/kubectl:1.31.5
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  POD=$(kubectl get pods -n nextcloud -l app.kubernetes.io/name=nextcloud \
+                        --field-selector=status.phase=Running \
+                        -o jsonpath='{.items[0].metadata.name}')
+                  echo "scanning /Games on $POD"
+                  kubectl exec -n nextcloud "$POD" -c nextcloud -- \
+                    php occ files:scan --path="93bf5393-663d-4d7d-956b-7339595dc4af/files/Games"
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {cpu: 200m, memory: 128Mi}
+          serviceAccountName: games-mount-scan
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: games-mount-scan
+  namespace: nextcloud
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: games-mount-scan
+  namespace: nextcloud
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: games-mount-scan
+  namespace: nextcloud
+subjects:
+  - kind: ServiceAccount
+    name: games-mount-scan
+    namespace: nextcloud
+roleRef:
+  kind: Role
+  name: games-mount-scan
+  apiGroup: rbac.authorization.k8s.io
