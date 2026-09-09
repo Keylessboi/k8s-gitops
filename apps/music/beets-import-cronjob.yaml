@@ -57,6 +57,36 @@ spec:
             runAsUser: 1000
             runAsGroup: 1000
             fsGroup: 1000
+            # THE REASON THIS CRONJOB COULD NOT START.
+            #
+            # fsGroup makes the kubelet recursively chown every mounted volume
+            # before the container starts, and `data` here is the whole
+            # /extra/nfs-csi/data tree - the entire music library plus the
+            # torrent trees, on NFS. That walk is O(files) and does not finish:
+            # this pod sat in ContainerCreating for NINE HOURS, and because the
+            # schedule is concurrencyPolicy: Forbid, every later run was blocked
+            # behind it. Imports were dead the whole time.
+            #
+            # It is invisible from the pod. There are no events at all, and the
+            # only signal is the kubelet repeating
+            #   unmounted volumes=[data] ... context deadline exceeded
+            # while /proc/mounts shows the volume mounted and healthy - because
+            # the mount DID succeed in milliseconds; it is the ownership pass
+            # afterwards that never returns. Proof was on the NAS, not in
+            # Kubernetes: 12,448 files under media/music had their ctime changed
+            # in 30 minutes, marching alphabetically through the library.
+            #
+            # This repo already knew: navidrome, octo, lidarr and qbittorrent
+            # each carry this same rule and say why. This CronJob was the one
+            # place that set fsGroup and left the policy at its default of
+            # Always. The Deployment in beets.yaml sets no fsGroup at all, which
+            # is exactly why the web UI started fine while the importer never
+            # could - the difference that made this look like broken storage.
+            #
+            # OnRootMismatch checks only the volume root and skips the walk when
+            # it already matches. If a root ever genuinely mismatches, the full
+            # chown still runs.
+            fsGroupChangePolicy: OnRootMismatch
           containers:
             - name: import
               image: lscr.io/linuxserver/beets:2.2.0
