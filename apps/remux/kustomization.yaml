@@ -27,6 +27,7 @@ resources:
   - namespace.yaml
   - media-data-pv.yaml
   - pvc-config.yaml
+  - pvc-config-local.yaml
   - aiostreams-pvc.yaml
   - networkpolicy.yaml
   - deployment.yaml

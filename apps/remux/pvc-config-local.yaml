@@ -1,0 +1,59 @@
+---
+# Remux's state on LOCAL BLOCK STORAGE, because it is a SQLite database.
+#
+# WHY THIS EXISTS. Remux was unusably slow - the web UI took tens of seconds to
+# do anything. It was not CPU: measured while loading the UI, the remux pod
+# never exceeded 2m CPU and aiostreams never moved off 1m. It was the database.
+# Its own logs, with the whole volume on nfs-csi:
+#
+#   slow statement: "SELECT value FROM settings WHERE key = ?1"      21.2s
+#   slow statement: "SELECT * FROM devices WHERE access_token = ?1"  21.2s
+#   slow statement: "SELECT * FROM users WHERE id = ?1"              17.1s
+#   slow statement: PRAGMA wal_checkpoint(PASSIVE)                   12.9s
+#   sqlx::pool::acquire: acquired connection, but time to acquire
+#                        exceeded slow threshold  aquired_after_secs=6.81
+#
+# Those are single-row primary-key lookups. Nothing about them is 21 seconds of
+# work; it is 21 seconds of waiting on storage. Once the pool is exhausted every
+# other request queues behind them, which is the lag as experienced.
+#
+# SQLite ON NFS IS THE WORST CASE, not merely suboptimal. It coordinates through
+# POSIX byte-range locks, which over NFS are network round trips; every commit
+# fsyncs; and in WAL mode the -shm file is a shared mmap that NFS cannot provide
+# properly, so SQLite degrades or risks corruption. The 12.9s wal_checkpoint is
+# that showing through. This repo already states the rule in
+# apps/monitoring/kustomization.yaml for Prometheus's TSDB: "heavy random IO and
+# mmap; block storage, not a network/object-backed filesystem." Same rule, same
+# reason - it just had not been applied here.
+#
+# POSTGRES IS NOT AN OPTION, which is the obvious question. Remux compiles only
+# the SQLite driver: crates/remux-server/Cargo.toml has
+#   sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", ...] }
+# with no `postgres` feature, so a postgres:// DATABASE_URL has no driver to
+# bind to. (sqlx-postgres appears in Cargo.lock only as an unbuilt transitive
+# crate.) The `?1` placeholders and the PRAGMA in the logs above are both
+# SQLite-only dialect, which corroborates it. So the fix is to give SQLite the
+# storage it needs rather than to move off SQLite.
+#
+# ReadWriteOnce, not ReadWriteMany: the Deployment is one replica with strategy
+# Recreate, and two remux processes on one SQLite file would be a corruption
+# risk rather than a feature. RWO makes that explicit.
+#
+# COST: local-path pins this pod to the node holding the directory. Remux
+# already only ever ran on k3s-server, and the whole volume is ~103 MB, so this
+# is cheap. The old nfs-csi PVC (pvc-config.yaml) is deliberately left declared
+# so it is not pruned - it is the rollback, and it holds the pre-migration copy.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: remux-config-local
+  namespace: remux
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      # 10Gi to match the volume it replaces. Actual use is ~103 MB, of which
+      # 102 MB is db.sqlite; local-path does not enforce this anyway.
+      storage: 10Gi
