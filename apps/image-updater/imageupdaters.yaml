@@ -103,7 +103,24 @@ spec:
           writeBackTarget: kustomization:/apps/navidrome
       images:
         - alias: navidrome
-          imageName: deluan/navidrome:0.58.0
+          # MUST match the tag deployment.yaml actually deploys.
+          #
+          # The tag here is a semver CONSTRAINT, not documentation. It said
+          # 0.58.0 while apps/navidrome/deployment.yaml said 0.63.2 (bumped by
+          # 99e4fb0 "0.58.0 -> 0.63.2 for secondary artists", which changed the
+          # Deployment and not this file). The two then fought: every 2m15s the
+          # updater set the live Application back to 0.58.0 and ArgoCD selfHeal
+          # returned it to 0.63.2. The Deployment reached revision 61, and
+          # Navidrome was being killed and restarted around the clock - visible
+          # in the CSI driver log as its NFS media mount being published and
+          # force-unmounted in a loop.
+          #
+          # This is the gluetun bug again (doctor-log 2026-09-05, task #37):
+          # ArgoCD and image-updater disagreeing about one image, with selfHeal
+          # guaranteeing neither ever wins. Checked the other seven entries at
+          # the same time - all agree with what git deploys; navidrome was the
+          # only drift.
+          imageName: deluan/navidrome:0.63.2
           commonUpdateSettings:
             allowTags: 'regexp:^0\.\d+\.\d+$'
           manifestTargets:
