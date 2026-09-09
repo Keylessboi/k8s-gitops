@@ -1,0 +1,84 @@
+---
+# Scheduled re-run of the Nextcloud upload hook over every finished torrent in
+# the category.
+#
+# WHY THIS EXISTS. qBittorrent's AutoRun hook fires exactly once, when a
+# torrent completes. If that run fails - MinIO refusing connections under load,
+# a stale file lock, a pod restart mid-upload - the file is simply missing, and
+# nothing ever tries again. Every recovery so far has been a human noticing and
+# running a sweep by hand, which is not a mechanism, it is a person. Bodycam
+# part01 sat missing for a day exactly that way, while the folder's byte total
+# looked correct.
+#
+# The sweep is cheap when there is nothing to do: files already present at the
+# right size cost one HEAD each, and a torrent already marked [FINISHED] is
+# resolved to that folder so nothing re-uploads. It notifies only when it
+# actually moved something or something failed.
+#
+# It deliberately does NOT run inside the qBittorrent pod: that pod's job is
+# torrenting, and an upload sweep that can wedge it is how a download client
+# ends up down for an unrelated reason.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nextcloud-upload-sweep
+  namespace: downloads
+spec:
+  schedule: "25 */4 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: sweep
+              # curl + sh + coreutils; the hook needs curl, dd, stat and find.
+              image: alpine:3.20
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -u
+                  apk add --no-cache curl findutils coreutils >/dev/null 2>&1
+                  for d in /data/torrents/nextcloud/*/; do
+                    [ -d "$d" ] || continue
+                    if find "$d" -name '*.!qB' | grep -q .; then
+                      echo "skipping incomplete: $d"
+                      continue
+                    fi
+                    echo "sweeping: $d"
+                    /bin/sh /scripts/qbit-upload.sh "nextcloud" "${d%/}"
+                  done
+                  echo "sweep complete"
+              env:
+                - name: QBIT_UPLOAD_LOG
+                  value: /config/qbit-upload.log
+                - name: NEXTCLOUD_WEBDAV_URL
+                  valueFrom: {secretKeyRef: {name: nextcloud-webdav, key: url}}
+                - name: NEXTCLOUD_WEBDAV_USER
+                  valueFrom: {secretKeyRef: {name: nextcloud-webdav, key: user}}
+                - name: NEXTCLOUD_WEBDAV_PASSWORD
+                  valueFrom: {secretKeyRef: {name: nextcloud-webdav, key: password}}
+              resources:
+                requests: {cpu: 25m, memory: 64Mi}
+                limits: {cpu: "1", memory: 512Mi}
+              volumeMounts:
+                - {name: data, mountPath: /data}
+                - {name: config, mountPath: /config}
+                - {name: script, mountPath: /scripts}
+          volumes:
+            - name: data
+              persistentVolumeClaim: {claimName: media-data}
+            # RWX, so this shares one log with the in-pod AutoRun hook rather
+            # than keeping a second history nobody thinks to read.
+            - name: config
+              persistentVolumeClaim: {claimName: qbittorrent-config}
+            - name: script
+              configMap: {name: qbit-upload-config, defaultMode: 0755}

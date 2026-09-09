@@ -157,7 +157,13 @@ helmCharts:
           usernameKey: admin-user
           passwordKey: admin-password
         phpConfigs:
-          # 10G, and here is why it is not larger.
+          # 200G. This number is a claim about how much SCRATCH DISK a single
+          # request may consume, because PHP buffers the whole PUT body before
+          # streaming it to S3 - so it is only safe while sys_temp_dir points
+          # at /scratch (300Gi PVC on the NAS, ~2.8 TB behind it). It was 10G
+          # when that buffer still lived on the cluster's root disk.
+          #
+          # History, so nobody "tidies" this back down:
           #
           # PHP buffers the ENTIRE PUT body to a temp file in the container's
           # /tmp before Nextcloud writes it to S3. That /tmp is the LXC's root
@@ -200,8 +206,8 @@ helmCharts:
           # roughly the 50 GB mark, and the failure would look like a network
           # problem rather than a limit.
           uploadlimit.ini: |
-            upload_max_filesize = 64G
-            post_max_size = 64G
+            upload_max_filesize = 200G
+            post_max_size = 200G
             max_input_time = -1
             max_execution_time = 0
             ; Both of these, not just one. upload_tmp_dir covers multipart form

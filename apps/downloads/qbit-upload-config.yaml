@@ -74,7 +74,7 @@ data:
     # can see - which is half of why the hook's failure was invisible for as
     # long as it was. Log to the config PVC instead:
     #   kubectl exec -n downloads <pod> -c qbittorrent -- tail -f /config/qbit-upload.log
-    LOG=/config/qbit-upload.log
+    LOG="${QBIT_UPLOAD_LOG:-/config/qbit-upload.log}"
     # The find|while loop below runs in a SUBSHELL, so counters incremented
     # inside it do not survive. Results go to a file instead, and the summary
     # is computed after the loop from that file.
@@ -131,7 +131,7 @@ data:
     # A single PUT streams straight into the object store and never does that
     # read - and it halves the traffic across the NAS, which serves both the
     # NFS source and the MinIO destination.
-    SIMPLE_MAX=${NEXTCLOUD_SIMPLE_MAX:-64424509440}
+    SIMPLE_MAX=${NEXTCLOUD_SIMPLE_MAX:-204010946560}
     TMPD="/tmp/qbit-upload.$$"
 
     # Percent-encode what torrent names reliably contain and URLs reliably
@@ -299,8 +299,22 @@ data:
         log "ok ($((_sz / 1048576)) MiB) $_url"
         echo "ok $_sz" >> "$RESULTS"
       else
-        log "VERIFY FAILED (sent $_sz B, server reports '${_got:-absent}') $_url"
-        echo "fail $_sz" >> "$RESULTS"
+        # Retry once before calling it failed. Most failures seen here were
+        # transient - MinIO refusing connections while the NAS was overloaded -
+        # and a second attempt minutes later usually works. Without this, one
+        # blip left a file permanently missing until somebody ran a sweep by
+        # hand, which is exactly how Bodycam part01 stayed absent for a day.
+        log "verify failed, retrying once: $_url"
+        sleep 30
+        if [ "$_sz" -le "$SIMPLE_MAX" ]; then put_simple "$_f" "$_url" || true; fi
+        _got=$(remote_size "$_url")
+        if [ "$_got" = "$_sz" ]; then
+          log "ok on retry ($((_sz / 1048576)) MiB) $_url"
+          echo "ok $_sz" >> "$RESULTS"
+        else
+          log "VERIFY FAILED after retry (sent $_sz B, server reports '${_got:-absent}') $_url"
+          echo "fail $_sz" >> "$RESULTS"
+        fi
       fi
     }
 

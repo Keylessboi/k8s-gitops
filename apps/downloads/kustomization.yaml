@@ -27,6 +27,7 @@ resources:
   - media-data-pv.yaml
   - pvc.yaml
   - qbit-upload-config.yaml
+  - upload-sweep-cronjob.yaml
   - networkpolicy.yaml
   - qbittorrent.yaml
   - qui.yaml
