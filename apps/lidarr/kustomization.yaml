@@ -37,6 +37,7 @@ resources:
   - networkpolicy.yaml
   - deployment.yaml
   - bgutil-provider.yaml
+  - lucida-solver.yaml
   - maintenance-cronjob.yaml
   - mass-search-job.yaml
   - ingress.yaml
