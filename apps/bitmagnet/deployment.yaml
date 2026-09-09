@@ -56,7 +56,23 @@ spec:
             - run
             - --keys=http_server
             - --keys=queue_server
-            - --keys=dht_crawler
+            # dht_crawler REMOVED 2026-09-09.
+            #
+            # It was the single largest source of disk I/O in the cluster:
+            # 39,631,114 postgres disk reads, ~97% of every disk read across
+            # ALL databases, against a 23 GB bitmagnet database - 84x larger
+            # than every other database here combined (prowlarr 275 MB, immich
+            # 273 MB, authentik 64 MB, nextcloud 19 MB). It also drove the
+            # node's 21% I/O wait and kept postgres' buffer hit ratio at 89%.
+            #
+            # A DHT crawler is not a scheduled scan that can be turned down to
+            # "once a month" - it holds persistent DHT connections and ingests
+            # continuously, or it does nothing. So the only dial is on/off.
+            #
+            # http_server and queue_server stay, so the existing 23 GB index is
+            # still searchable and the Prowlarr indexer (id 38) keeps working.
+            # What stops is the discovery of NEW torrents from the DHT. Restore
+            # by re-adding this line.
           env:
             # --- Postgres: the shared CNPG cluster, pelican pattern ---
             # bitmagnet reads POSTGRES_HOST/NAME/USER/PASSWORD (or a full

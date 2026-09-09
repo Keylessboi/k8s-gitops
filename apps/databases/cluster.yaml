@@ -35,6 +35,25 @@ spec:
     # whole Cluster with "Can't set fixed configuration parameter".
     shared_preload_libraries:
       - vchord.so
+    parameters:
+      # 512MB, not the stock 128MB, in a container limited to 2Gi.
+      #
+      # Measured 2026-09-09: buffer hit ratio 89.29%, well under the ~99% a
+      # healthy instance holds, and 40.9M cumulative disk reads across the
+      # cluster's databases. 128MB is PostgreSQL's out-of-the-box default,
+      # sized for a machine far smaller than this container - so every app
+      # sharing this instance (authentik, immich, nextcloud, prowlarr,
+      # bitmagnet) was re-reading from disk what should have stayed cached.
+      #
+      # 25% of the memory limit is the conventional starting point and is what
+      # this is: 512MB of 2Gi. effective_cache_size is already 4GB, which only
+      # tells the planner what the OS is likely caching - it allocates nothing,
+      # so it was never doing anything for the hit ratio.
+      shared_buffers: 512MB
+      # Raised with it: the default 4MB forces sorts and joins to spill to
+      # disk. This is per-operation, not global, so it stays modest.
+      work_mem: 16MB
+      effective_cache_size: 1536MB
   resources:
     requests:
       cpu: 100m
