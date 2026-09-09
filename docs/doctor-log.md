@@ -36,6 +36,10 @@ the literal string you are seeing, then read the entry.
 | Every downstream *arr broken after a key change | Prowlarr API key rotation — 2026-08-29 |
 | A CronJob that vanishes seconds after you create it | manual CronJob run — 2026-08-29 |
 | Stale NFS handles, pods stuck ContainerCreating | closet move — 2026-08-28 |
+| `unmounted volumes=[…]: context deadline exceeded`, pod stuck ContainerCreating on a CSI volume | kubelet never issues the call — 2026-09-09 (OPEN) |
+| A pod mounting two nfs-csi PVCs hangs; either one alone is fine | same entry — 2026-09-09 (OPEN) |
+| A pod recreated every couple of minutes, Deployment revision in the dozens | ArgoCD vs image-updater — 2026-09-05 (gluetun), 2026-09-09 (navidrome) |
+| An alert that has been firing for days and never clears | scraping something k3s does not expose / probes for deleted apps — 2026-09-09 |
 
 ### The traps that have bitten more than once
 
@@ -48,6 +52,114 @@ prose version of the prevention failed:
   source *and* ingress in the destination.
 - **Duplicate YAML keys** (1×, but silent) — PyYAML accepts them, Go's yaml does
   not. Validate with the same parser as the consumer.
+
+## 2026-09-09 — beets-import cannot mount: kubelet never issues the call. OPEN.
+
+- **Symptom:** `beets-import` sat in `ContainerCreating` for **9 hours** and,
+  because its CronJob is `concurrencyPolicy: Forbid`, blocked every later run —
+  music imports have been dead since. kubelet repeats, every ~2 minutes:
+  `unmounted volumes=[data], unattached volumes=[], failed to process
+  volumes=[]: context deadline exceeded`.
+- **What is NOT wrong,** each ruled out by direct test rather than argument:
+  - The NFS server. The export mounts by hand on the node in under a second and
+    no NFS mount on the node is hung.
+  - The CSI driver. It is responsive, and it mounts other volumes from the *same*
+    source (`192.168.1.67:/extra/nfs-csi/data`) for Navidrome, successfully.
+  - The attach path. `attachRequired=false` and there are zero VolumeAttachments.
+  - Navidrome's restart loop (see the next entry), which was hammering that same
+    NFS export. Fixing it changed nothing here.
+- **The finding that matters:** for a failing pod the driver receives
+  `NodePublishVolume` for the *other* volume in the pod and **no call at all for
+  `media-data-music`**. kubelet never asks. This is kubelet-side — consistent
+  with a leaked pending operation in the volume manager, which dedups by volume
+  name and will silently refuse every later operation on that volume until
+  kubelet restarts. It has not been proven to that level, so it is a hypothesis,
+  not the cause.
+- **Reproduction, which is sharp:** a pod mounting `media-data` *alone* starts in
+  ~20 seconds. A pod mounting `media-data` **and** `beets-config` hangs forever
+  — plain busybox, no beets image, no Job wrapper. Either PVC alone is fine.
+  Both are nfs-csi on the same server and share, differing only by subDir — and
+  Navidrome mounts two volumes from that same share without trouble, so "two
+  PVCs from one share" is not sufficient on its own to explain it.
+- **A real but separate defect found on the way:** force-deleting a pod stuck on
+  a CSI volume leaves an **orphaned kubelet pod directory still holding the NFS
+  mount**, which kubelet cannot clean up (it logs "Cleaned up orphaned pod
+  volumes dir" only for orphans with no mounts). Clearing one — `umount -l` then
+  remove `/var/lib/kubelet/pods/<uid>` — did restore single-volume mounts. This
+  is worth knowing and worth avoiding, but it is **not** the cause of the
+  headline symptom: with zero mounted orphans present, the two-volume pod still
+  hangs.
+- **This cost two wrong conclusions before the right question.** I reported the
+  two-PVC combination as the cause, then retracted it when a single-PVC pod also
+  failed — not realising a new orphan had appeared between the tests. Then I
+  blamed the Navidrome loop. Both were **inferred from correlation across tests
+  run minutes apart in a changing system**, and neither was checked against what
+  the CSI driver was actually being asked to do. The one log line that settled
+  it — which volumes the driver received a call for — was available the whole
+  time.
+- **Next step:** restart kubelet (k3s) on `k3s-server` to clear any leaked
+  pending volume operation, then retry. Not done yet: this is the single
+  control-plane node and it restarted at 15:33 today already.
+- **Confidence:** PROVISIONAL. The reproduction is reliable and the "kubelet
+  never issues the call" observation is direct; the leaked-operation explanation
+  for *why* is not yet proven.
+
+## 2026-09-09 — Navidrome restarted every 2m15s for 61 revisions: the image tag disagreed in two files
+
+- **Symptom:** Navidrome pods were seconds old whenever looked at, Deployment
+  revision **61**, replicasets alternating `0.58.0` / `0.63.2`. Nothing alerted;
+  the app answered normally between restarts.
+- **Root cause:** the tag in `imageName` in `apps/image-updater/imageupdaters.yaml`
+  is a semver **constraint**, not a note about the current version. It pinned
+  `deluan/navidrome:0.58.0` while `apps/navidrome/deployment.yaml` deployed
+  `0.63.2` — commit `99e4fb0` bumped the Deployment and not the updater policy.
+  Every 2m15s image-updater set the live Application back to 0.58.0 and ArgoCD
+  selfHeal returned it to 0.63.2. Neither could win.
+- **This is the gluetun bug again** (task #37): two controllers with opposite
+  opinions about one image and selfHeal on. There it was a digest, here a tag
+  changed in one file of two — which is why the prevention from last time did
+  not catch it.
+- **Fix:** one line, `0.58.0` → `0.63.2`. Verified over 6 minutes: revision
+  stable at 61, zero `Setting new image` log lines, pod age growing past 11
+  minutes. The other seven managed images were checked at the same time and all
+  agree with what git deploys.
+- **Collateral worth noting:** the loop had the CSI node driver publishing and
+  force-unmounting Navidrome's NFS media mount continuously. That is *not* what
+  broke `beets-import` above — fixing this changed nothing there — but it is the
+  noise the other diagnosis had to be separated from.
+- **Confidence:** CONFIRMED, from image-updater's own log lines and a stable
+  revision after the change.
+
+## 2026-09-09 — Prometheus had no size ceiling at all, and 36% of the TSDB was control-plane histograms
+
+- **Symptom:** none yet. Found by checking a change I had made earlier the same
+  day rather than by anything failing.
+- **Root cause:** `retention: 180d` was set on the assumption the 20Gi PVC bounded
+  it. It does not — nfs-csi is a plain directory on an NFS export with no quota,
+  and `df` inside the pod reports the whole 5.4T pool. Prometheus was free to
+  grow for six months on the pool that also holds the music library. This is the
+  disk-full outage of 2026-09-08 waiting to happen again, one pool over.
+- **Fix:** `retentionSize: 45GB` — the only ceiling that exists here — sized from
+  measurement (4.5G held ~14 days at 152k series). Plus `metricRelabelings`
+  dropping eight control-plane histogram families, **55,228 series, 36% of the
+  TSDB**, every one checked against `/api/v1/rules` first for zero dependants.
+  `apiserver_request_sli_duration_seconds` was deliberately kept despite being
+  the third largest: 23 rules depend on it.
+- **Also, alerts that could never clear.** `KubeSchedulerDown`,
+  `KubeControllerManagerDown` and `KubeProxyDown` had been firing continuously
+  for 30+ hours because the chart assumes kubeadm and k3s exposes none of those
+  ports — all four ServiceMonitors had `endpoints: NONE`. Four edge blackbox
+  probes were the same story: grafana (deliberately disabled), forgejo,
+  invidious and obsidian (apps deleted from this repo, probes left behind).
+  Firing alerts went **28 → 15**.
+- **The generalisable lesson, and it is the one this log keeps relearning:**
+  a permanently-red alert is worse than no alert, because it teaches you to stop
+  reading the list. The Vaultwarden backup that failed three consecutive runs the
+  same day did fire `KubeJobFailed` — into a list that already had eleven rows
+  nobody could act on.
+- **Confidence:** CONFIRMED for the cardinality and the empty endpoints, both
+  read from Prometheus and the API server. The retention projection is arithmetic
+  from a 14-day sample, so treat the 45GB as sized, not measured to exhaustion.
 
 ## 2026-09-03 — csi-nfs-controller's 135 restarts are a symptom, plus a sidecar that never worked
 
