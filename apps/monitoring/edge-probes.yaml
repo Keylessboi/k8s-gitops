@@ -57,7 +57,6 @@ spec:
         - https://immich.sandstorm.chat/
         - https://kiwix.sandstorm.chat/
         - https://blog.sandstorm.chat/
-        - https://forgejo.sandstorm.chat/
         # argocd answers 200 from inside the cluster and 403 from the internet
         # - the IP allowlist runs ahead of everything else. This probe rides
         # the LAN address, so 200 is correct here and is NOT evidence that the
@@ -67,6 +66,26 @@ spec:
         probe_group: edge
 ---
 # Everything behind Authentik forward-auth. 302 is the healthy answer.
+#
+# FOUR TARGETS WERE REMOVED HERE on 2026-09-09 because they probed things that
+# do not run, and a probe that can never pass is an alert that never clears:
+#
+#   forgejo, invidious  apps deleted from this repo - no manifests, no ArgoCD
+#                       Application, no pods, no Ingress. Only the probes were
+#                       left behind.
+#   grafana             deliberately disabled in monitoring/kustomization.yaml
+#                       to reclaim memory. RE-ADD https://grafana.sandstorm.chat/
+#                       to this list when grafana.enabled goes back to true.
+#   obsidian            took the whole edge-couchdb Probe with it - that Probe
+#                       existed for the Obsidian LiveSync CouchDB and nothing
+#                       else.
+#
+# They were firing EndpointDown continuously. Same failure as the k3s
+# control-plane ServiceMonitors removed the same day: alerts on the absence of
+# something that was never going to be there, which is how an alert list stops
+# being read. The orphaned forgejo and invidious roles in the CNPG cluster are
+# the remaining trace of those two apps; they are unused rather than broken, so
+# they are left alone here.
 apiVersion: monitoring.coreos.com/v1
 kind: Probe
 metadata:
@@ -86,7 +105,6 @@ spec:
         - https://nextcloud.sandstorm.chat/
         - https://navidrome.sandstorm.chat/
         - https://remux.sandstorm.chat/
-        - https://grafana.sandstorm.chat/
         - https://books.sandstorm.chat/
         - https://bookdl.sandstorm.chat/
         - https://lidarr.sandstorm.chat/
@@ -95,31 +113,7 @@ spec:
         - https://qui.sandstorm.chat/
         - https://convertx.sandstorm.chat/
         - https://alertmanager.sandstorm.chat/
-        - https://invidious.sandstorm.chat/
         - https://pelican.sandstorm.chat/
-      labels:
-        probe_group: edge
----
-# Obsidian LiveSync. CouchDB answers unauthenticated requests with 401 by
-# design - the plugin speaks the replication protocol with credentials, so
-# there is no forward-auth in front of it. A 200 here would mean the vault
-# database went open to the internet.
-apiVersion: monitoring.coreos.com/v1
-kind: Probe
-metadata:
-  name: edge-couchdb
-  namespace: monitoring
-  labels:
-    release: kps
-spec:
-  interval: 60s
-  module: http_401
-  prober:
-    url: blackbox-exporter.monitoring.svc.cluster.local:9115
-  targets:
-    staticConfig:
-      static:
-        - https://obsidian.sandstorm.chat/
       labels:
         probe_group: edge
 ---
