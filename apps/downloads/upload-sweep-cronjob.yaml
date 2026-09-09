@@ -24,6 +24,12 @@ metadata:
   name: nextcloud-upload-sweep
   namespace: downloads
 spec:
+  # Suspended: Nextcloud reads these games in place via External Storage now
+  # (apps/nextcloud/media-data-pv.yaml), so sweeping would only re-create the
+  # duplicate copies that were just reclaimed. Kept, not deleted - this is the
+  # self-healing retry mechanism, and it matters the moment uploads are wanted
+  # again.
+  suspend: true
   schedule: "25 */4 * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 2
