@@ -98,6 +98,7 @@ data:
     PASS="${NEXTCLOUD_WEBDAV_PASSWORD:-}"
     [ -n "$URL" ] && [ -n "$USER" ] && [ -n "$PASS" ] || { log "webdav env not set"; exit 1; }
     BASEURL="$URL/remote.php/dav/files/$USER/qbittorrent"
+
     UPLOADS="$URL/remote.php/dav/uploads/$USER"
     log "start category=$WANT path=$PATH_ARG"
 
@@ -303,12 +304,33 @@ data:
       fi
     }
 
+    # A completed, fully verified torrent gets its remote folder renamed to
+    # "<name> [FINISHED]" so it is obvious at a glance which games are safe to
+    # pull down. The marker means "every file uploaded AND verified against
+    # the server", not "the upload script ran".
+    #
+    # THE TRAP THIS AVOIDS: once renamed, a later sweep looking for "<name>"
+    # finds nothing and cheerfully re-uploads 50 GB. So the destination folder
+    # is resolved BEFORE anything is uploaded - if the [FINISHED] folder
+    # already exists, that is where we look and the skip-if-present checks hit
+    # it correctly.
+    FIN_SUFFIX="${NEXTCLOUD_FINISHED_SUFFIX:- [FINISHED]}"
+    TNAME=$(basename "$PATH_ARG")
+    FINNAME="${TNAME}${FIN_SUFFIX}"
+    REMOTE_DIR="$TNAME"
+    if [ "$(curl -g -s -o /dev/null -w "%{http_code}" --max-time 60 -u "$USER:$PASS" \
+            -X PROPFIND -H "Depth: 0" "$BASEURL/$(urlenc "$FINNAME")/")" = "207" ]; then
+      REMOTE_DIR="$FINNAME"
+      ALREADY_FINISHED=1
+    else
+      ALREADY_FINISHED=0
+    fi
+
     if [ -d "$PATH_ARG" ]; then
       # rel is relative to the PARENT, so the torrent's own folder name is part of
       # the destination path. Made relative to $PATH_ARG itself - as this was -
       # every torrent's files land side by side in /qbittorrent, and two repacks
       # that both ship a `setup.exe` overwrite each other.
-      PARENT=$(dirname "$PATH_ARG")
       LASTDIR=""
       # -name '*.!qB' excluded: that suffix marks a file qBittorrent has not
       # finished writing. AutoRun only fires on completion so it should never
@@ -316,7 +338,9 @@ data:
       # torrents by hand, and there it matters - it is how an unfinished torrent
       # gets noticed instead of half-uploaded.
       find "$PATH_ARG" -type f ! -name '*.!qB' | while read -r f; do
-        rel="${f#"$PARENT"/}"
+        # Relative to the torrent folder, then re-rooted at REMOTE_DIR, so the
+        # same tree lands under either "<name>" or "<name> [FINISHED]".
+        rel="$REMOTE_DIR/${f#"$PATH_ARG"/}"
         dir="${rel%/*}"
         [ "$dir" = "$rel" ] && dir=""
         # One MKCOL walk per directory, not per file.
@@ -342,10 +366,16 @@ data:
     # succeeded, hence the || true and the short timeout.
     NTFY="${NTFY_URL:-http://192.168.1.153:9098/homelab-media}"
     NAME=$(basename "$PATH_ARG")
-    n_ok=$(grep -c "^ok " "$RESULTS" 2>/dev/null || echo 0)
-    n_fail=$(grep -c "^fail " "$RESULTS" 2>/dev/null || echo 0)
-    n_skip=$(grep -c "^skip " "$RESULTS" 2>/dev/null || echo 0)
-    n_big=$(grep -c "^toobig " "$RESULTS" 2>/dev/null || echo 0)
+    # `|| true`, NOT `|| echo 0`. grep -c PRINTS "0" and EXITS 1 when it
+    # matches nothing, so `|| echo 0` appends a second zero and the variable
+    # becomes the two-line string "0\n0". Every `[ "$n_fail" = "0" ]` test then
+    # silently fails, which is what stopped the [FINISHED] rename from ever
+    # firing and would have put "0\n0" in the notification counts.
+    count() { c=$(grep -c "^$1 " "$RESULTS" 2>/dev/null || true); echo "${c:-0}"; }
+    n_ok=$(count ok)
+    n_fail=$(count fail)
+    n_skip=$(count skip)
+    n_big=$(count toobig)
     gb=$(awk '$1=="ok"{s+=$2} END {printf "%.1f", s/1073741824}' "$RESULTS" 2>/dev/null)
     rm -f "$RESULTS"
 
@@ -354,6 +384,21 @@ data:
     # notifies about every finished game and the alerts stop being read.
     if [ "$n_ok" = "0" ] && [ "$n_fail" = "0" ] && [ "$n_big" = "0" ]; then
       exit 0
+    fi
+
+    # Mark it finished ONLY if nothing failed and nothing was skipped for being
+    # too large - i.e. every file is on the server at the right size, which the
+    # per-file verify already established.
+    if [ "$n_fail" = "0" ] && [ "$n_big" = "0" ] && [ "$ALREADY_FINISHED" = "0" ]; then
+      if curl -g -fsS --max-time 120 -u "$USER:$PASS" -X MOVE \
+           -H "Destination: $BASEURL/$(urlenc "$FINNAME")" \
+           -H "Overwrite: F" \
+           "$BASEURL/$(urlenc "$TNAME")" >/dev/null 2>&1; then
+        log "marked finished: $FINNAME"
+        REMOTE_DIR="$FINNAME"
+      else
+        log "could not rename to '$FINNAME' (upload itself is fine)"
+      fi
     fi
 
     if [ "$n_fail" != "0" ] || [ "$n_big" != "0" ]; then
