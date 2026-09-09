@@ -16,6 +16,49 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  # Long-running Jobs must not gate a sync.
+  #
+  # ArgoCD's default Job health is "Progressing until it completes". The lidarr
+  # mass-search Jobs run for WEEKS, so the lidarr Application sat at
+  #   op=Running | waiting for healthy state of batch/Job/lidarr-mass-search-a
+  # for ~13 hours - and ArgoCD refuses to start a new sync while one is
+  # running, so every subsequent commit touching lidarr queued silently behind
+  # a job with hundreds of hours left. Moving them to sync-wave 30 made other
+  # resources land FIRST but did not fix this: the operation still never ends.
+  #
+  # Opt-in by label, not blanket. Marking every batch/Job healthy would hide
+  # genuinely failed jobs cluster-wide - backups, restore drills, pgdump. Only
+  # a Job that explicitly carries homelab/long-running=true is exempt; every
+  # other Job keeps the normal Failed/Succeeded/Progressing assessment below.
+  resource.customizations.health.batch_Job: |
+    hs = {}
+    if obj.metadata ~= nil and obj.metadata.labels ~= nil
+       and obj.metadata.labels["homelab/long-running"] == "true" then
+      hs.status = "Healthy"
+      hs.message = "long-running job; health deliberately not gated"
+      return hs
+    end
+    local failed = false
+    local failMsg = ""
+    if obj.status ~= nil and obj.status.conditions ~= nil then
+      for i, condition in ipairs(obj.status.conditions) do
+        if condition.type == "Failed" and condition.status == "True" then
+          failed = true
+          failMsg = condition.message
+        end
+      end
+    end
+    if failed then
+      hs.status = "Degraded"
+      hs.message = failMsg
+    elseif obj.status ~= nil and obj.status.succeeded ~= nil and obj.status.succeeded > 0 then
+      hs.status = "Healthy"
+      hs.message = "Job completed"
+    else
+      hs.status = "Progressing"
+      hs.message = "Job in progress"
+    end
+    return hs
   name: argocd-cm
   namespace: argocd
   labels:

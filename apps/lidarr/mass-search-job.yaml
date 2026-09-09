@@ -69,6 +69,11 @@ metadata:
   # In wave 30 they are applied last, so everything else lands and settles
   # first. The sync still ends up waiting on them, but by then it has already
   # done all the work that matters.
+  labels:
+    # Read by resource.customizations.health.batch_Job in apps/argocd/argocd-cm.yaml.
+    # Without it these multi-week Jobs keep the lidarr sync Running forever and
+    # every later commit queues behind them.
+    homelab/long-running: "true"
   annotations:
     argocd.argoproj.io/sync-wave: "30"
   name: lidarr-mass-search-a
@@ -304,6 +309,11 @@ metadata:
   # In wave 30 they are applied last, so everything else lands and settles
   # first. The sync still ends up waiting on them, but by then it has already
   # done all the work that matters.
+  labels:
+    # Read by resource.customizations.health.batch_Job in apps/argocd/argocd-cm.yaml.
+    # Without it these multi-week Jobs keep the lidarr sync Running forever and
+    # every later commit queues behind them.
+    homelab/long-running: "true"
   annotations:
     argocd.argoproj.io/sync-wave: "30"
   name: lidarr-mass-search-b
