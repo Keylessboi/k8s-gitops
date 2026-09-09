@@ -1,0 +1,56 @@
+---
+# Read-only view of the shared media volume, so Nextcloud can SHOW the games
+# instead of holding a second copy of them.
+#
+# WHY THIS EXISTS. Every game uploaded through the qBittorrent hook is stored
+# twice on the same ZFS pool: once as the torrent being seeded under
+# /extra/nfs-csi/data/torrents, and again as objects inside MinIO, because
+# MinIO is Nextcloud's S3 primary storage. That is ~84 GB of pure duplication
+# and growing, plus hours of upload time per game.
+#
+# Reflinks cannot fix that, which is worth writing down because it is the
+# obvious idea: block cloning IS enabled on this pool (zfs 2.4.99), but MinIO
+# does not store objects as plain files - it writes its own xl.meta/part layout
+# and the bytes arrive over HTTP through the S3 API, so there is no file for
+# the filesystem to clone. ZFS block cloning also does not work across
+# datasets, and these are tank/extra vs tank.
+#
+# The only way to not store it twice is to not copy it: mount the real
+# directory and let Nextcloud index it in place.
+#
+# ReadOnlyMany, and readOnly on the mount: Nextcloud must never be able to
+# delete or alter a file that qBittorrent is actively seeding.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: media-data-nextcloud
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: [ReadOnlyMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.1
+    - hard
+    - ro
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: media-data-nextcloud
+    volumeAttributes:
+      server: 192.168.1.67
+      share: /extra/nfs-csi
+      subDir: data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media-data
+  namespace: nextcloud
+spec:
+  accessModes: [ReadOnlyMany]
+  storageClassName: ""
+  volumeName: media-data-nextcloud
+  resources:
+    requests:
+      storage: 500Gi

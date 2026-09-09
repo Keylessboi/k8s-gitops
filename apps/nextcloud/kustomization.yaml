@@ -35,6 +35,7 @@ resources:
   - namespace.yaml
   - pvc-config.yaml
   - pvc-scratch.yaml
+  - media-data-pv.yaml
   - networkpolicy.yaml
   - ingress.yaml
 
@@ -318,7 +319,17 @@ patches:
                 volumeMounts:
                   - name: nextcloud-scratch
                     mountPath: /scratch
+                  # readOnly at BOTH the PV and the mount. qBittorrent is
+                  # actively seeding these files; Nextcloud showing them must
+                  # never risk altering them.
+                  - name: media-data
+                    mountPath: /media
+                    readOnly: true
             volumes:
               - name: nextcloud-scratch
                 persistentVolumeClaim:
                   claimName: nextcloud-scratch
+              - name: media-data
+                persistentVolumeClaim:
+                  claimName: media-data
+                  readOnly: true
