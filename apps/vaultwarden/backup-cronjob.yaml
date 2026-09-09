@@ -49,7 +49,24 @@ spec:
                   echo "backing up /data -> app-data-backups/vaultwarden"
                   # --overwrite keeps the mirror current; --remove would let a
                   # local wipe erase the backup too, so it is deliberately off.
-                  mc mirror --overwrite /data "backup/app-data-backups/vaultwarden"
+                  # Retry, because MinIO on the NAS intermittently REFUSES connections
+                  # under load - not because it is down. Verified 2026-09-09:
+                  # `mc ls backup/` succeeded and `mc mirror` failed seconds later with
+                  #   dial tcp 192.168.1.67:9000: connect: connection refused
+                  # while minio itself had 0 restarts, no errors and 355 MB RSS, on a NAS
+                  # at load average 14 with 11 nfsd threads blocked on I/O. A healthy
+                  # listener with a full accept queue refuses connections exactly like a
+                  # dead one.
+                  #
+                  # Three runs failed back-to-back on this, so the password manager went
+                  # 38 hours with no backup and nothing said so.
+                  n=0
+                  until mc mirror --overwrite /data "backup/app-data-backups/vaultwarden"; do
+                    n=$((n+1))
+                    [ "$n" -ge 5 ] && { echo "mc mirror failed $n times, giving up"; exit 1; }
+                    echo "mc mirror failed (attempt $n); retrying in 60s"
+                    sleep 60
+                  done
                   echo "backup complete:"
                   mc du "backup/app-data-backups/vaultwarden"
               volumeMounts:

@@ -75,6 +75,11 @@ data:
     # long as it was. Log to the config PVC instead:
     #   kubectl exec -n downloads <pod> -c qbittorrent -- tail -f /config/qbit-upload.log
     LOG=/config/qbit-upload.log
+    # The find|while loop below runs in a SUBSHELL, so counters incremented
+    # inside it do not survive. Results go to a file instead, and the summary
+    # is computed after the loop from that file.
+    RESULTS="/tmp/qbit-upload-results.$$"
+    : > "$RESULTS"
     log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*" >> "$LOG" 2>/dev/null; }
 
     # Logged BEFORE the category gate, unconditionally, one line per completed
@@ -267,6 +272,7 @@ data:
       # torrent costs one HEAD per file.
       if [ "$(remote_size "$_url")" = "$_sz" ]; then
         log "skip (already there, $_sz B) $_url"
+        echo "skip $_sz" >> "$RESULTS"
         return
       fi
       if [ "$_sz" -le "$SIMPLE_MAX" ]; then
@@ -277,6 +283,7 @@ data:
         # ends in the same place, except louder. Skip loudly instead, so the
         # file is visibly outstanding rather than quietly retried forever.
         log "TOO LARGE ($_sz B > $SIMPLE_MAX) - needs more scratch disk on the Nextcloud host: $_f"
+        echo "toobig $_sz" >> "$RESULTS"
         return
       fi
       # ASK THE SERVER, DO NOT BELIEVE THE EXIT CODE. A 7.2 GB chunked upload
@@ -289,8 +296,10 @@ data:
       _got=$(remote_size "$_url")
       if [ "$_got" = "$_sz" ]; then
         log "ok ($((_sz / 1048576)) MiB) $_url"
+        echo "ok $_sz" >> "$RESULTS"
       else
         log "VERIFY FAILED (sent $_sz B, server reports '${_got:-absent}') $_url"
+        echo "fail $_sz" >> "$RESULTS"
       fi
     }
 
@@ -322,3 +331,42 @@ data:
       upload "$PATH_ARG" "$BASEURL/$(urlenc "$(basename "$PATH_ARG")")"
     fi
     log "done $PATH_ARG"
+
+    # Tell somebody. Until now the only way to know a game had finished
+    # uploading - or silently failed - was to read a log file inside a pod,
+    # which is exactly how a broken hook stayed broken for days.
+    #
+    # Goes to the ntfy relay on the Proxmox host (docs/ntfy.md); the downloads
+    # NetworkPolicy already allows 192.168.1.153:9098. Best-effort by design:
+    # a notification that cannot be delivered must never fail an upload that
+    # succeeded, hence the || true and the short timeout.
+    NTFY="${NTFY_URL:-http://192.168.1.153:9098/homelab-media}"
+    NAME=$(basename "$PATH_ARG")
+    n_ok=$(grep -c "^ok " "$RESULTS" 2>/dev/null || echo 0)
+    n_fail=$(grep -c "^fail " "$RESULTS" 2>/dev/null || echo 0)
+    n_skip=$(grep -c "^skip " "$RESULTS" 2>/dev/null || echo 0)
+    n_big=$(grep -c "^toobig " "$RESULTS" 2>/dev/null || echo 0)
+    gb=$(awk '$1=="ok"{s+=$2} END {printf "%.1f", s/1073741824}' "$RESULTS" 2>/dev/null)
+    rm -f "$RESULTS"
+
+    # Nothing actually moved and nothing broke: a re-run over a torrent that
+    # was already complete. Staying quiet is the point - otherwise every sweep
+    # notifies about every finished game and the alerts stop being read.
+    if [ "$n_ok" = "0" ] && [ "$n_fail" = "0" ] && [ "$n_big" = "0" ]; then
+      exit 0
+    fi
+
+    if [ "$n_fail" != "0" ] || [ "$n_big" != "0" ]; then
+      title="Upload INCOMPLETE: $NAME"
+      prio="high"
+      tags="warning"
+      body="$n_ok uploaded (${gb} GB), $n_fail failed, $n_big too large, $n_skip already present"
+    else
+      title="Upload complete: $NAME"
+      prio="default"
+      tags="white_check_mark"
+      body="$n_ok files, ${gb} GB uploaded to Nextcloud ($n_skip already present)"
+    fi
+    curl -g -fsS --max-time 20 \
+      -H "Title: $title" -H "Priority: $prio" -H "Tags: $tags" \
+      -d "$body" "$NTFY" >/dev/null 2>&1 || log "ntfy notify failed (upload result unaffected)"
