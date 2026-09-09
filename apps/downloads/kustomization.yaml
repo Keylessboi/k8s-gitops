@@ -28,6 +28,7 @@ resources:
   - pvc.yaml
   - qbit-upload-config.yaml
   - upload-sweep-cronjob.yaml
+  - seed-reaper-cronjob.yaml
   - networkpolicy.yaml
   - qbittorrent.yaml
   - qui.yaml

@@ -1,0 +1,146 @@
+---
+# Remove music torrents once they have seeded to ratio 1.0 AND the data is
+# provably safe to lose from the torrent tree.
+#
+# THE SAFETY RULE IS THE WHOLE DESIGN. A torrent is only removed when EVERY
+# one of its files has st_nlink > 1 - meaning Lidarr hardlinked it into
+# /data/media/music, so the exact same inode is still referenced by the
+# library and deleting the torrent's directory entry cannot destroy data.
+#
+# That rule is not theoretical caution. Measured 2026-09-09: of 31,146 files
+# under torrents/music, 14,468 are hardlinked into the library and 16,678 are
+# standalone - and ALL 48,528 files under torrents/soulseek are standalone,
+# because Lidarr's hardlink has never succeeded on that path. A naive
+# "ratio >= 1.0, delete" would have destroyed every standalone file, which for
+# soulseek is the only copy that exists.
+#
+# Consequence worth stating: this reaper frees very little disk immediately,
+# because deleting one link of a hardlinked file frees nothing. What it
+# actually does is stop qBittorrent tracking thousands of finished torrents
+# and let the seeding tree shrink as links are dropped. The disk win comes
+# from fixing imports, not from deleting.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: seed-reaper
+  namespace: downloads
+spec:
+  schedule: "40 5 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: reaper
+              image: python:3.12-alpine3.20
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  python3 /scripts/seed-reaper.py
+              env:
+                - name: QBIT_URL
+                  value: http://qbittorrent.downloads.svc.cluster.local:8080
+                - name: QBIT_USER
+                  value: travis
+                - name: QBIT_PASS
+                  valueFrom: {secretKeyRef: {name: qbittorrent-webui, key: password}}
+                - name: QBIT_CATEGORY
+                  value: music
+                - name: MIN_RATIO
+                  value: "1.0"
+                # Set to "1" to actually delete. Defaults to a dry run so the
+                # first scheduled runs report what they WOULD remove.
+                - name: APPLY
+                  value: "0"
+              resources:
+                requests: {cpu: 25m, memory: 64Mi}
+                limits: {cpu: 500m, memory: 256Mi}
+              volumeMounts:
+                - {name: data, mountPath: /data, readOnly: true}
+                - {name: script, mountPath: /scripts}
+          volumes:
+            - name: data
+              persistentVolumeClaim: {claimName: media-data}
+            - name: script
+              configMap: {name: seed-reaper-script, defaultMode: 0755}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: seed-reaper-script
+  namespace: downloads
+data:
+  seed-reaper.py: |
+    #!/usr/bin/env python3
+    """Remove seeded music torrents whose files are hardlinked into the library.
+
+    Deletes nothing unless APPLY=1. The check is st_nlink > 1 on every file:
+    if the library holds the same inode, removing the torrent cannot lose data.
+    """
+    import os, sys, json, urllib.request, urllib.parse, http.cookiejar
+
+    URL   = os.environ["QBIT_URL"].rstrip("/")
+    CAT   = os.environ.get("QBIT_CATEGORY", "music")
+    MINR  = float(os.environ.get("MIN_RATIO", "1.0"))
+    APPLY = os.environ.get("APPLY", "0") == "1"
+
+    jar = http.cookiejar.CookieJar()
+    op  = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+
+    def call(path, data=None):
+        d = urllib.parse.urlencode(data).encode() if data else None
+        with op.open(URL + path, d, timeout=60) as r:
+            return r.read().decode()
+
+    if "Ok" not in call("/api/v2/auth/login",
+                        {"username": os.environ["QBIT_USER"],
+                         "password": os.environ["QBIT_PASS"]}):
+        sys.exit("qbittorrent login failed")
+
+    torrents = json.loads(call("/api/v2/torrents/info?category=" + urllib.parse.quote(CAT)))
+    print(f"{len(torrents)} torrents in category '{CAT}'")
+
+    reaped = kept = unsafe = 0
+    freed = 0
+    for t in torrents:
+        if t.get("ratio", 0) < MINR:
+            kept += 1
+            continue
+        path = t.get("content_path") or t.get("save_path")
+        if not path or not os.path.exists(path):
+            print(f"  SKIP (no path on disk): {t['name'][:60]}")
+            unsafe += 1
+            continue
+        # every file must already be linked into the library
+        files, linked, size = 0, 0, 0
+        if os.path.isfile(path):
+            st = os.lstat(path); files, linked, size = 1, (1 if st.st_nlink > 1 else 0), st.st_size
+        else:
+            for dp, _, fns in os.walk(path):
+                for fn in fns:
+                    try: st = os.lstat(os.path.join(dp, fn))
+                    except OSError: continue
+                    files += 1; size += st.st_size
+                    if st.st_nlink > 1: linked += 1
+        if files == 0 or linked != files:
+            print(f"  KEEP  (not fully imported: {linked}/{files} linked) ratio={t['ratio']:.2f} {t['name'][:50]}")
+            unsafe += 1
+            continue
+        print(f"  REAP  ratio={t['ratio']:.2f} files={files} {t['name'][:55]}")
+        reaped += 1; freed += size
+        if APPLY:
+            call("/api/v2/torrents/delete",
+                 {"hashes": t["hash"], "deleteFiles": "true"})
+
+    print(f"\nreaped={reaped} kept_below_ratio={kept} kept_unsafe={unsafe} "
+          f"bytes_in_reaped={freed/1073741824:.1f} GB")
+    print("DRY RUN - set APPLY=1 to actually remove" if not APPLY else "APPLIED")
