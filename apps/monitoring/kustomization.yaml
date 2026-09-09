@@ -146,6 +146,42 @@ helmCharts:
                 resources:
                   requests:
                     storage: 20Gi
+      # k3s RUNS THESE INSIDE ITS OWN PROCESS, so there is nothing to scrape.
+      #
+      # The chart assumes kubeadm, where the scheduler, controller-manager,
+      # kube-proxy and etcd are separate pods each exposing their own metrics
+      # port. k3s embeds all four in the single k3s server binary and binds
+      # none of those ports, so the four ServiceMonitors the chart creates
+      # resolve to Services with no endpoints at all - verified: every one of
+      # them has `endpoints: NONE`.
+      #
+      # The cost was not a gap in monitoring, it was noise that drowns the
+      # real thing. KubeSchedulerDown, KubeControllerManagerDown and
+      # KubeProxyDown have been firing CONTINUOUSLY for 30+ hours, and they
+      # will never stop, because the metric they alert on the absence of can
+      # never appear. Three permanently-red alerts train you to ignore the
+      # alert list - which is the same failure mode as the backups that went
+      # 38 hours unnoticed.
+      #
+      # Turning the component off (rather than silencing the alert) removes
+      # the dead ServiceMonitor AND its rule group in one move: each rules
+      # file is gated on `.Values.<component>.enabled`, checked in the 75.18.1
+      # templates rather than assumed.
+      #
+      # NOTHING IS LOST. These rules were evaluating against metrics that do
+      # not exist, so they could not have caught a real failure either. etcd
+      # health genuinely does matter here - etcd refusing to start caused an
+      # outage on 2026-09-08 - and re-enabling kubeEtcd is worth doing, but it
+      # needs the k3s server started with --etcd-expose-metrics=true first;
+      # until that flag is set, this rule group is decoration.
+      kubeProxy:
+        enabled: false
+      kubeScheduler:
+        enabled: false
+      kubeControllerManager:
+        enabled: false
+      kubeEtcd:
+        enabled: false
       # DROPPED AT SCRAPE TIME: 55,228 series, 36% of the whole TSDB.
       #
       # Measured, not assumed. `/api/v1/status/tsdb` ranked every metric by

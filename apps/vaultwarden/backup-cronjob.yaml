@@ -31,7 +31,28 @@ spec:
       backoffLimit: 2
       template:
         spec:
-          restartPolicy: OnFailure
+          # Never, not OnFailure - so a failed attempt LEAVES A POD BEHIND.
+          #
+          # This backup failed three consecutive scheduled runs (2026-09-09,
+          # 14h/8h/3h before this change) and the cause is now unknowable:
+          # with OnFailure the container restarts in place, and when the
+          # backoff limit is hit the job controller DELETES the pod. By the
+          # time anyone looks there are no logs, and Kubernetes events have
+          # already expired at one hour. Every diagnosis attempt returned
+          # "You must provide one or more resources by argument".
+          #
+          # With Never, each attempt is a separate pod and failed pods are
+          # retained rather than deleted, so the next failure can actually be
+          # read. failedJobsHistoryLimit: 3 above bounds how many are kept.
+          #
+          # This matters more than it looks: the runs died in ~20 SECONDS,
+          # which is shorter than the 60s sleep in the retry loop below - so
+          # whatever killed them, it was not `mc mirror` returning non-zero,
+          # and the retry loop this file already carries never even engaged.
+          # That rules out the failure mode the comment below describes and
+          # leaves no candidate, which is precisely why the evidence has to
+          # survive the next one.
+          restartPolicy: Never
           containers:
             - name: backup
               image: minio/mc:RELEASE.2025-04-16T18-13-26Z
