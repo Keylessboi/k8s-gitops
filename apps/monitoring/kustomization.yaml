@@ -65,7 +65,13 @@ helmCharts:
     valuesInline:
       prometheus:
         prometheusSpec:
-          retention: 15d
+          # 180d, not 15d. Retention costs DISK, not RAM - Prometheus memory
+          # scales with active series, not with how long they are kept - and
+          # this volume is nfs-csi on the NAS with ~2.7 TB free, while the
+          # thing that is actually scarce here is memory on the compute node.
+          # 15 days cannot answer "how far have we come"; six months can, for
+          # storage that is effectively free on this hardware.
+          retention: 180d
           # SMART metrics from the two bare-metal hosts. These cannot be a
           # DaemonSet: LXC 200 has no block devices in /dev at all, so a pod has
           # nothing to read, and the disks that matter (the NAS pool disks)

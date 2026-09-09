@@ -2,7 +2,13 @@
 # Book stack with TWO acquisition paths that converge on one library:
 #
 #   non-P2P: book-downloader -> Anna's Archive over HTTP -> ingest volume
-#   P2P:     readarr -> prowlarr indexers -> qBittorrent (behind gluetun)
+#   P2P:     REMOVED 2026-09-09. Readarr tracked 0 authors and 0 books after
+#            weeks of running, is discontinued upstream by the Servarr team so
+#            it will not get fixes, and cost 119 MB on a node that has been
+#            down to ~107 MB free. book-downloader + Calibre-Web Automated is
+#            the path that actually works, so having both was paying RAM for
+#            nothing. Restore with `git revert` if the P2P route is ever
+#            wanted back.
 #            -> ingest volume
 #
 # Calibre-Web-Automated watches that shared ingest volume, converts formats as
@@ -34,8 +40,6 @@ resources:
   - networkpolicy.yaml
   - calibre-web-automated.yaml
   - book-downloader.yaml
-  - readarr.yaml
-  - readarr-ingress.yaml
   - ingress.yaml
   - authentik-outpost.yaml
   - book-downloader-ingress.yaml
