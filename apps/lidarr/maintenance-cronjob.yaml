@@ -93,7 +93,19 @@ spec:
                       root = os.path.join("/tmp", tf.getnames()[0].split("/")[0])
                   os.chdir(root)
                   sys.argv = ["lidarr_queue_maintenance.py"]
-                  exec(open("lidarr_queue_maintenance.py").read(), {"__name__": "__main__", "__file__": "lidarr_queue_maintenance.py"})
+                  src = open("lidarr_queue_maintenance.py").read()
+              # The script has NEVER completed a single run. It ships
+              # urlopen(timeout=30) and asks for queue_page_size=2500, but
+              # Lidarr's /api/v1/queue on this library takes ~46 SECONDS just
+              # for pageSize=1000 (4 MB of JSON) - so every nightly run died on
+              # "ERROR fetching queue: timed out" before pruning anything.
+              #
+              # Patched here rather than upstream because the cronjob fetches
+              # the script from GitHub at runtime; edit it there and this
+              # override becomes a no-op replace, which is harmless.
+              src = src.replace("timeout=30", "timeout=300").replace("timeout=15", "timeout=120")
+              src = src.replace('"queue_page_size": 2500', '"queue_page_size": 500')
+              exec(src, {"__name__": "__main__", "__file__": "lidarr_queue_maintenance.py"})
               env:
                 - name: LIDARR_URL
                   value: http://lidarr.lidarr.svc.cluster.local:8686
