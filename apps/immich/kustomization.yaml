@@ -156,33 +156,69 @@ helmCharts:
         # and downloads crawl. A fallback that degrades everything else is not
         # a fallback. Re-enable by flipping this to true.
         enabled: false
+        # Same correction as `server:` below - these were bare keys the chart
+        # never reads. Inert today because this subchart is disabled, but it
+        # would have shipped an unlimited pod the moment anyone flipped
+        # `enabled` to true, which is the worse version of the bug: it would
+        # look deliberate.
         controllers:
           main:
+            pod:
+              nodeSelector:
+                homelab/node-class: compute
             containers:
               main:
                 image:
                   # Kept in lockstep with the server tag above: Immich requires
                   # server and ML to run the exact same version.
-                tag: v3.1.0
-        nodeSelector:
-          homelab/node-class: compute
-        resources:
-          requests:
-            cpu: 250m
-            memory: 1Gi
-          limits:
-            cpu: "2"
-            memory: 3Gi
+                  tag: v3.1.0
+                resources:
+                  requests:
+                    cpu: 250m
+                    memory: 1Gi
+                  limits:
+                    cpu: "2"
+                    memory: 3Gi
       server:
-        nodeSelector:
-          homelab/node-class: compute
-        resources:
-          requests:
-            cpu: 100m
-            memory: 512Mi
-          limits:
-            cpu: "1"
-            memory: 2Gi
+        # NEITHER OF THESE WAS BEING APPLIED. Written as bare `nodeSelector:`
+        # and `resources:` keys under `server:`, they were silently discarded,
+        # and immich-server ran as **BestEffort with no CPU limit, no memory
+        # limit and no node constraint** - verified on the live pod, which
+        # reported `resources: {}`, an empty nodeSelector and
+        # `qosClass: BestEffort`.
+        #
+        # This chart is a bjw-s common wrapper (immich 0.12.0 depends on
+        # common 5.0.1), and its values.yaml contains no bare `resources` key
+        # at any level. Container resources belong under
+        # controllers.<name>.containers.<name>, and pod-level options like
+        # nodeSelector under controllers.<name>.pod - confirmed by reading
+        # templates/lib/pod/_spec.tpl, which resolves nodeSelector via
+        # getOption from defaultPodOptions or controllerObject.pod, never from
+        # a top-level key.
+        #
+        # Helm does not error on unrecognised values, so this looked exactly
+        # like success for as long as nobody checked the running pod. It is
+        # the same failure mode as the monitoring metricRelabelings on
+        # 2026-09-09, which is why that commit verified the key paths against
+        # the chart rather than assuming them.
+        #
+        # It mattered: on 2026-09-10 this node sat at load 42 with ~12 of its
+        # ~42 blocked threads belonging to immich's libuv pool, and nothing
+        # capped it because the cap had never existed.
+        controllers:
+          main:
+            pod:
+              nodeSelector:
+                homelab/node-class: compute
+            containers:
+              main:
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 512Mi
+                  limits:
+                    cpu: "1"
+                    memory: 2Gi
       immich:
         persistence:
           library:
