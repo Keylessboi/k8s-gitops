@@ -36,6 +36,8 @@ the literal string you are seeing, then read the entry.
 | Every downstream *arr broken after a key change | Prowlarr API key rotation — 2026-08-29 |
 | A CronJob that vanishes seconds after you create it | manual CronJob run — 2026-08-29 |
 | Stale NFS handles, pods stuck ContainerCreating | closet move — 2026-08-28 |
+| High load average but `ps` shows few blocked tasks, disk barely busy | you are counting processes, not threads — 2026-09-10 (`ps -eLo`) |
+| A pod running with no limits although the chart declares them | Helm values at a path the chart does not read — 2026-09-10 (immich), 2026-09-09 (monitoring) |
 | Pod stuck ContainerCreating, no events, `unmounted volumes=[…]: context deadline exceeded`, but the volume IS mounted | fsGroup chowning a huge NFS volume — 2026-09-09 (**check `fsGroupChangePolicy`**) |
 | A pod recreated every couple of minutes, Deployment revision in the dozens | ArgoCD vs image-updater — 2026-09-05 (gluetun), 2026-09-09 (navidrome) |
 | An alert that has been firing for days and never clears | scraping something k3s does not expose / probes for deleted apps — 2026-09-09 |
@@ -51,6 +53,54 @@ prose version of the prevention failed:
   source *and* ingress in the destination.
 - **Duplicate YAML keys** (1×, but silent) — PyYAML accepts them, Go's yaml does
   not. Validate with the same parser as the consumer.
+
+## 2026-09-10 — Load 47 overnight with the disk 4.6% busy: counting processes instead of threads
+
+- **Symptom:** everything degraded overnight and the phone filled with alerts.
+  Load average **47** against a baseline of ~7, 50% iowait, sustained for twelve
+  hours and still climbing when looked at.
+- **The measurement that was wrong for an hour.** `ps -eo stat` showed only
+  **6** tasks in R+D. Load 47 with 6 blocked tasks is a contradiction, and I
+  spent real time chasing NFS server health, dmesg, mountstats and disk
+  utilisation because of it. The NVMe was **4.6% utilised** at ~3 MB/s and the
+  NAS was 97% idle at load 1.3, so nothing looked saturated anywhere.
+  **`ps -eo stat` prints one line per PROCESS. Load average counts THREADS.**
+  `ps -eLo stat` gave 44 blocked threads against a load of 44.13 - an exact
+  match, and the whole picture resolved at once.
+- **A second measurement that lied in the same hour:** `/proc/<pid>/io`
+  `read_bytes` counts block-device I/O only and **excludes NFS entirely**, so
+  the per-process totals came back at fractions of a MB/s while the machine was
+  50% in iowait. On a node whose working set is NFS, that counter is close to
+  meaningless.
+- **Root cause: three library walkers over NFS at once**, none of them
+  individually alarming, cumulatively fatal to latency -
+  Lidarr ~12 blocked threads, Immich ~12, qBittorrent ~10.
+  - **Lidarr had 216 commands stuck in "started"**, `ProcessMonitoredDownloads`
+    wedged for 13.5 hours, fed by two `lidarr-mass-search` Jobs that have been
+    running for six days. Restarting it took load **47 -> 26** on its own.
+  - **Immich was running its nightly integrity check permanently.** 31
+    consecutive batches of 10,000 files over 31 hours, every one reporting **0
+    missing**. `missingFiles` and `untrackedFiles` default to `0 03 * * *` with
+    no time limit; a pass over this library on NFS cannot finish inside a day,
+    so each night's run starts while the last is still going and it never stops.
+    Now weekly. (`checksumFiles` was left daily - it self-limits to one hour and
+    1% per run, which is exactly the property the other two lack.)
+  - qBittorrent is the largest remaining contributor and is untouched.
+- **Immich also had no resource limits at all** - `BestEffort`, `resources: {}`,
+  no nodeSelector - because the chart values were written as bare `resources:`
+  and `nodeSelector:` keys under `server:`. immich 0.12.0 wraps bjw-s common,
+  which reads `controllers.<n>.containers.<n>.resources` and
+  `controllers.<n>.pod.nodeSelector`; a bare key at the top level is silently
+  discarded. **This is the third instance of the same class in three days**
+  (monitoring metricRelabelings, then this, plus the ML `tag:` indented as a
+  sibling of `image:`), and the lesson has to stop being restated and start
+  being checked: **after any Helm values change, read the running object, not
+  the manifest.** Helm never errors on a key it does not recognise.
+- **Confidence:** CONFIRMED. Thread counts match load exactly, and each
+  intervention moved the number in the predicted direction.
+- **The generalisable lesson:** when load average and your task count disagree
+  by an order of magnitude, the counter is wrong before the kernel is. Check
+  whether you are counting the same things the kernel counts.
 
 ## 2026-09-09 — beets-import sat in ContainerCreating for 9 hours: fsGroup was chowning a 2 TB NFS tree
 
