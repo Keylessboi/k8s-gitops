@@ -560,9 +560,20 @@ helmCharts:
               webhook_configs:
                 - url: "http://192.168.1.153:9099/beat"
                   send_resolved: false
-              email_configs:
-                - to: "travis@sandstorm.chat"
-                  send_resolved: true
+              # NO email_configs HERE, deliberately. There was one, and it sent
+              # travis@sandstorm.chat a message every five minutes, for as long
+              # as the cluster was healthy.
+              #
+              # Watchdog is the dead-man's switch: it fires permanently and by
+              # design, and this route sets repeat_interval: 5m precisely so its
+              # absence becomes meaningful quickly. Those two facts are fine for
+              # a webhook that touches a file, and hostile to an inbox. The
+              # comment above already said only the arrival time matters and
+              # nothing reads the body - a human recipient contradicted that.
+              #
+              # A heartbeat is consumed by a machine. If it is worth telling a
+              # person about, it is the WATCHER on pve that should say so, when
+              # beats stop arriving - which is exactly what it is for.
           templates:
             - /etc/alertmanager/config/*.tmpl
         alertmanagerSpec:
