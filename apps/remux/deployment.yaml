@@ -162,8 +162,15 @@ spec:
               readOnly: true
       volumes:
         - name: config
+          # remux-config-local, NOT remux-config: this volume holds a SQLite
+          # database and SQLite on NFS made the UI unusable - single-row
+          # primary-key lookups taking 17-21s while the pod used 1m of CPU.
+          # See apps/remux/pvc-config-local.yaml for the measurements and why
+          # Postgres is not the alternative. The nfs-csi PVC is still declared
+          # in pvc-config.yaml and still holds the pre-migration copy, so this
+          # is a one-line rollback.
           persistentVolumeClaim:
-            claimName: remux-config
+            claimName: remux-config-local
         - name: media
           persistentVolumeClaim:
             claimName: media-data
