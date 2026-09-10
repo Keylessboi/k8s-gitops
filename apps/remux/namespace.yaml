@@ -1,11 +1,32 @@
 ---
 # Remux - Jellyfin-compatible media server.
 #
-# No longer privileged: the gluetun sidecar has been removed and replaced
-# with the shared VPN gateway (apps/vpn). The pod no longer needs NET_ADMIN
-# or /dev/net/tun. Baseline PodSecurity is sufficient for the remux
-# container, which pins a hardened securityContext (runAsUser 1000,
-# seccomp RuntimeDefault).
+# PRIVILEGED AGAIN, and this file has now said both things.
+#
+# It previously read "No longer privileged: the gluetun sidecar has been
+# removed and replaced with the shared VPN gateway (apps/vpn)". That was true,
+# and it cost more than it looked. The shared gateway is a SOCKS5 proxy, which
+# is TCP-only: remux's DHT (UDP) could never work, nothing could connect in,
+# and starting a stream took about a minute.
+#
+# gluetun is back in the pod, so the namespace needs what it needs:
+#   NET_ADMIN            to bring up WireGuard
+#   hostPath /dev/net/tun  the device node itself - NET_ADMIN alone is not
+#                          enough, gluetun fails with "operation not permitted"
+# baseline forbids both, and the failure is silent in the worst way: the
+# ReplicaSet cannot create a pod at all, so the Deployment sits at 0/1 with
+# nothing to `kubectl logs`. That is exactly how it presented on 2026-09-10 -
+#   violates PodSecurity "baseline:latest": non-default capabilities
+#
+# WHAT MAKES THIS DIFFERENT FROM LAST TIME. The earlier sidecar shared one
+# AirVPN key pair with the downloads pod. AirVPN WireGuard is one session per
+# key, so two gluetuns on the same key fight and both tunnels flap. remux now
+# authenticates as a separate device (AIRVPN_REMUX_* in Doppler) with its own
+# forwarded port, 50071.
+#
+# audit and warn stay at restricted deliberately. Enforcement has to give way
+# for gluetun; everything else in this namespace should still be reported when
+# it drifts, so the relaxation stays visible instead of becoming the new floor.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -13,6 +34,6 @@ metadata:
   labels:
     app.kubernetes.io/name: remux
     app.kubernetes.io/part-of: homelab
-    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted

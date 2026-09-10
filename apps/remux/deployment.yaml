@@ -228,7 +228,30 @@ spec:
             limits:
               cpu: 500m
               memory: 192Mi
+          livenessProbe:
+            # A timeout here RESTARTS gluetun, which drops the tunnel and takes
+            # streaming down with it. Tolerate a slow check rather than tear it
+            # down - the downloads pod learned the same thing.
+            exec:
+              command: ["/gluetun-entrypoint", "healthcheck"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            # WireGuard needs a TUN device and Kubernetes exposes none by
+            # default. NET_ADMIN alone is NOT enough - the device node itself
+            # must be passed in, or gluetun dies with "operation not
+            # permitted". This is why the namespace has to be privileged: a
+            # hostPath device mount is forbidden under baseline just as
+            # NET_ADMIN is.
+            - name: tun
+              mountPath: /dev/net/tun
       volumes:
+        - name: tun
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice
         - name: config
           # remux-config-local, NOT remux-config: this volume holds a SQLite
           # database and SQLite on NFS made the UI unusable - single-row

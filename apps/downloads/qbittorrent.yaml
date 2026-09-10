@@ -433,10 +433,29 @@ spec:
         # WHY HERE AND NOT A SECOND VPN CONTAINER. Containers in a pod share
         # one network namespace, so this egresses through gluetun's WireGuard
         # tunnel automatically - exactly how the old qBittorrent+gluetun
-        # sidecar worked. One tunnel, one AirVPN session, ~2 MB. Giving remux
-        # its own gluetun would have meant a second tunnel and a second
-        # session to do a job this pod already does, which is the per-app
-        # duplication CONTRIBUTING rule 4 exists to stop.
+        # sidecar worked. One tunnel, one AirVPN session, ~2 MB.
+        #
+        # THIS PARAGRAPH USED TO END: "Giving remux its own gluetun would have
+        # meant a second tunnel and a second session to do a job this pod
+        # already does, which is the per-app duplication CONTRIBUTING rule 4
+        # exists to stop." That reasoning was overturned on 2026-09-10, and it
+        # is worth saying why rather than quietly deleting it.
+        #
+        # The premise - "a job this pod already does" - is only true for TCP.
+        # What this sidecar exports is a SOCKS5 proxy, and SOCKS5 carries
+        # neither UDP nor inbound connections. So remux got no DHT (every
+        # lookup failed, permanently) and no incoming peers, and starting a
+        # stream took about a minute. Rule 4 forbids duplicating a job that is
+        # already done; this was not the same job.
+        #
+        # remux now runs its own gluetun, as a SEPARATE AirVPN DEVICE with its
+        # own forwarded port 50071 - see apps/remux/deployment.yaml. The
+        # separate device is the load-bearing detail: one key pair is one
+        # WireGuard session, so sharing this pod's credentials would have made
+        # the two tunnels fight and taken qBittorrent down with it.
+        #
+        # This sidecar stays. navidrome and octo still use it, and they only
+        # ever needed TCP.
         #
         # WHY IT IS NEEDED AT ALL. Neither existing port can carry BitTorrent:
         #   8888 is an HTTP proxy - CONNECT cannot carry peer or DHT traffic.
