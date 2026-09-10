@@ -25,7 +25,14 @@ metadata:
   name: remux
   namespace: remux
 spec:
-  replicas: 1
+  # TEMPORARILY 0 while the SQLite database is re-copied from the old nfs-csi
+  # PVC to the local-path one. It must be 0 IN GIT, not just scaled down with
+  # kubectl: the first attempt at this migration used `kubectl scale`, ArgoCD
+  # selfHeal put the replica back mid-copy, and remux wrote to db.sqlite on NFS
+  # while cp was still reading it. The result was a torn file and SQLite
+  # refusing it with "database disk image is malformed" (code 11).
+  # Restored to 1 in the commit that follows the copy.
+  replicas: 0
   strategy:
     # Recreate, not RollingUpdate: gluetun holds a single WireGuard session and
     # /data is a single-writer SQLite database. Two pods briefly overlapping
