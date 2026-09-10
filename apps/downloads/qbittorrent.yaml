@@ -1,25 +1,29 @@
 ---
 # qBittorrent + slskd + seedboxapi, routed through the shared VPN gateway.
 #
-# The gluetun sidecar has been removed. All three network-speaking containers
-# route through the VPN gateway's plain SOCKS5 sidecar (port 1080) for
-# outbound traffic: qBittorrent's tracker/peer TCP connections, slskd's
-# Soulseek connections, and seedboxapi's MAM API calls. Port 8388 on the same
-# gateway is Shadowsocks - an encrypted protocol none of these three clients
-# speak - and every one of them was pointed at it until 2026-09-05.
+# THIS POD HAS A GLUETUN SIDECAR. The paragraphs that used to be here said it
+# "has been removed" and described the SOCKS5-only world that followed. That
+# stopped being true at commit 95397f6, "run gluetun in the pod so BitTorrent
+# actually works", and the stale text outlived it - long enough that on
+# 2026-09-10 it was read as current while diagnosing why remux streamed
+# slowly. `kubectl get pod -o jsonpath` settled it: the containers are
+# gluetun, socks5, slskd, qbittorrent, seedboxapi.
 #
-# The killswitch is enforced by the downloads NetworkPolicy: egress is locked
-# to DB, redis, DNS, the VPN gateway proxy, and the kube-system OIDC
-# endpoints. Direct internet egress is DENIED.
+# What that buys, and why remux now has its own copy: inside the tunnel UDP
+# works, so DHT and UDP tracker announces work; and AirVPN's forwarded port
+# terminates on tun0, so peers can connect IN. A SOCKS5 proxy gives neither -
+# it is TCP-only and has no inbound path - which is exactly why remux, which
+# had only the proxy, took about a minute to start a stream.
 #
-# CAVEAT: qBittorrent's SOCKS5 proxy only carries TCP traffic. UDP-based
-# DHT and UDP tracker announces egress from the node's WAN. This is
-# acceptable for the MAM use case (MAM trackers are TCP-only).
+# Forwarded ports are ONE PER CLIENT, not a pool:
+#   6877  qBittorrent   (Session\Port in qBittorrent.conf)
+#   6874  slskd         (SLSKD_SLSK_LISTEN_PORT)
+#   50071 remux         (a SEPARATE AirVPN device - see
+#                        apps/doppler/dopplersecrets.yaml)
 #
-# CAVEAT: AirVPN's forwarded ports (6877 for qBittorrent, 6874 for slskd)
-# are forwarded through the VPN tunnel and terminate at gluetun's pod IP.
-# With gluetun removed, incoming peer connections on these ports will not
-# reach the pod. Outbound-only operation is unaffected.
+# The killswitch lives in gluetun's own firewall, not the NetworkPolicy. The
+# policy has to allow internet egress so the WireGuard handshake can happen;
+# gluetun then drops everything not on tun0 except FIREWALL_OUTBOUND_SUBNETS.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

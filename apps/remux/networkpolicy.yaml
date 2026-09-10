@@ -162,13 +162,37 @@ spec:
         # 1080: the plain SOCKS5 sidecar. This is the port the torrent engine
         # actually needs.
         - {port: 1080, protocol: TCP}
-    # Prowlarr's Torznab feed, for remux's torznab addon. This is what replaces
-    # DHT for discovery: remux's DHT lookups cannot work at all through a
-    # TCP-only SOCKS5 proxy, but Torznab is plain HTTP and does.
+    # Prowlarr's Torznab feed, for remux's torznab addon. Torznab is plain
+    # HTTP, so it works regardless of how peer traffic is routed. It was
+    # introduced as a REPLACEMENT for DHT back when DHT could not work at all
+    # through a TCP-only SOCKS5 proxy; with the gluetun sidecar DHT works
+    # again, so this is now a second discovery source rather than a substitute.
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: prowlarr
       ports:
         - {port: 9696, protocol: TCP}
+    # THE WIREGUARD HANDSHAKE, and nothing else of consequence.
+    #
+    # gluetun cannot build a tunnel it is not allowed to reach, so the pod
+    # needs egress to the public internet - and this rule looks alarmingly wide
+    # for a namespace whose whole point was that it had none. It is the same
+    # trade the downloads namespace already makes, for the same reason: THE
+    # KILLSWITCH MOVES FROM HERE INTO GLUETUN, which is stricter than this
+    # policy ever was. gluetun's own firewall drops everything not going
+    # through tun0 except FIREWALL_OUTBOUND_SUBNETS (the pod and service
+    # CIDRs), so a dead tunnel means no traffic at all - which a NetworkPolicy
+    # alone cannot express, because it cannot tell tun0 from eth0.
+    #
+    # RFC1918 is excepted so this cannot become a back door onto the LAN: the
+    # NAS, the Proxmox host and every other cluster service stay reachable only
+    # through the explicit rules above.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
 

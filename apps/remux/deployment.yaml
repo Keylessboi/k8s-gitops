@@ -80,48 +80,35 @@ spec:
             # TORRENT_DATA_DIR=/data/torrents, FFMPEG_PATH (jellyfin-ffmpeg7).
             - name: TZ
               value: UTC
-            # Route outbound HTTP(S) through the shared VPN gateway's HTTP
-            # proxy. Rust/reqwest honours these env vars natively - stream
-            # source fetches, TMDB metadata and the AIOStreams addon calls
-            # exit through the AirVPN tunnel. NO_PROXY keeps cluster-internal
-            # traffic (the AIOStreams addon in this namespace) direct.
+            # NO PROXY ENV. This pod now carries its own gluetun sidecar
+            # (below), and containers in a pod share one network namespace, so
+            # remux's traffic leaves through gluetun's tun0 directly. The
+            # HTTP_PROXY/HTTPS_PROXY/ALL_PROXY vars that used to be here are
+            # gone deliberately - routing through a proxy that is itself inside
+            # the tunnel would just add a hop.
             #
-            # CAVEAT: Remux's built-in torrent client (librqbit) makes raw
-            # TCP connections to trackers and peers - these bypass the HTTP
-            # proxy entirely. Torrent traffic therefore egresses from the
-            # node's WAN, not the VPN tunnel. This is acceptable because
-            # Remux's own docs state the peer port "does not need to be
-            # forwarded/open for outbound-only operation".
-            - name: HTTP_PROXY
-              value: http://vpn-proxy.downloads.svc.cluster.local:8888
-            - name: HTTPS_PROXY
-              value: http://vpn-proxy.downloads.svc.cluster.local:8888
-            # SOCKS5 to the VPN gateway's Shadowsocks port, for anything that
-            # is not plain HTTP - specifically the built-in torrent engine's
-            # peer and tracker connections. HTTP_PROXY below only covers HTTP,
-            # and the namespace has no direct internet egress at all (verified:
-            # a direct connection returns rc=7), so without this the torrent
-            # engine can list streams and reach no peers.
+            # WHAT THIS FIXED. A SOCKS5 proxy is TCP-only, so with it:
+            #   - DHT never worked. It is UDP, so every lookup failed; the log
+            #     said "no successful lookups" every ~30s, permanently.
+            #   - No peer could ever connect IN, so the swarm was only ever
+            #     peers we dialled out to, through an extra hop.
+            # Cold-starting a stream took about a minute. This is the same
+            # diagnosis, and the same fix, as commit 95397f6 for qBittorrent -
+            # "run gluetun in the pod so BitTorrent actually works" - which
+            # remux never received.
             #
-            # 1080 is the plain SOCKS5 sidecar, which now lives in the
-            # qBittorrent pod alongside gluetun, NOT
-            # 8388. 8388 is Shadowsocks - an encrypted protocol a SOCKS5
-            # client cannot speak - which is why the first attempt at this
-            # timed out from remux and from qBittorrent alike.
-            - name: ALL_PROXY
-              value: socks5://vpn-proxy.downloads.svc.cluster.local:1080
-            - name: all_proxy
-              value: socks5://vpn-proxy.downloads.svc.cluster.local:1080
-            - name: NO_PROXY
-              # `.svc.cluster.local` as a suffix, not just the one hostname.
-              # Naming a single host meant any OTHER in-cluster address went
-              # OUT through the VPN HTTP proxy - and gluetun, which has no
-              # cluster DNS, then failed it with "no such host". That is
-              # exactly what happened to remux's AIOStreams addon, which still
-              # pointed at the decommissioned `jellyfin` namespace: every call
-              # was proxied to the internet and lost. Cluster traffic must
-              # never leave the cluster to reach the pod next door.
-              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,.svc,.svc.cluster.local,.cluster.local"
+            # The old comment here claimed librqbit's raw TCP "bypasses the
+            # HTTP proxy entirely" and so "egresses from the node's WAN, not
+            # the VPN tunnel". That was wrong in a way worth recording: the
+            # NetworkPolicy denied direct egress outright, so that traffic was
+            # not leaking to the WAN, it was being dropped.
+            #
+            # Pins librqbit's listen port to the one AirVPN forwards for this
+            # device. librqbit opens a RANGE of ten from here
+            # (crates/remux-server/src/torrent.rs: `p..p + 10`), so the
+            # forwarded port must be the FIRST in that range - 50071..50080.
+            - name: TORRENT_PEER_PORT
+              value: "50071"
           ports:
             - name: http
               containerPort: 3000
@@ -160,6 +147,87 @@ spec:
               mountPath: /data/media
               subPath: media
               readOnly: true
+        # The tunnel. Mirrors the qBittorrent pod's sidecar, with one critical
+        # difference: it authenticates as a SEPARATE AirVPN DEVICE.
+        #
+        # AirVPN WireGuard is one session per key pair. The airvpn Secret in
+        # this namespace used to carry the same key as the downloads pod, and
+        # apps/doppler/dopplersecrets.yaml said so out loud - "credentials are
+        # reused". Two gluetuns presenting one key fight over one session and
+        # both tunnels flap, which would take qBittorrent, slskd and the
+        # seedbox API down with remux. It now reads AIRVPN_REMUX_*, a second
+        # device with its own key pair and its own forwarded port, 50071.
+        - name: gluetun
+          # Pinned to match the downloads pod exactly. v3.40.0 aborts at
+          # startup on this LXC's IPv6 link-local address; v3.41.3 does not.
+          image: qmcgaw/gluetun:v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+          env:
+            - name: VPN_SERVICE_PROVIDER
+              value: airvpn
+            - name: VPN_TYPE
+              value: wireguard
+            # SERVER_NAMES deliberately unset, unlike the downloads pod. That
+            # one pins Aquila so its IP and ASN stay stable for the MAM
+            # seedbox session; remux has no such constraint, and leaving the
+            # exit free means a dead server does not take streaming down.
+            - name: WIREGUARD_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: airvpn
+                  key: private-key
+            - name: WIREGUARD_PRESHARED_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: airvpn
+                  key: preshared-key
+            - name: WIREGUARD_ADDRESSES
+              valueFrom:
+                secretKeyRef:
+                  name: airvpn
+                  key: addresses
+            # THE KILLSWITCH BOUNDARY. Only these bypass the tunnel:
+            #   10.42.0.0/16 pod CIDR     - so Traefik reaches the UI and the
+            #                               kubelet's probe gets a reply.
+            #   10.43.0.0/16 service CIDR - so CoreDNS, Postgres and the
+            #                               AIOStreams addon resolve and work.
+            # Everything else - trackers, peers, DHT, TMDB - is forced through
+            # WireGuard and dropped if it is down. The killswitch moves out of
+            # the NetworkPolicy and into gluetun, which is stricter.
+            - name: FIREWALL_OUTBOUND_SUBNETS
+              value: "10.42.0.0/16,10.43.0.0/16"
+            # Inbound on eth0, from inside the cluster. Without this gluetun's
+            # INPUT policy drops the Service traffic and the readiness probe,
+            # and the pod never goes Ready.
+            - name: FIREWALL_INPUT_PORTS
+              value: "3000"
+            # Inbound through the TUNNEL: the AirVPN forwarded port for this
+            # device. This is what lets peers connect to us rather than only
+            # the other way round, and it is most of the cold-start win.
+            - name: FIREWALL_VPN_INPUT_PORTS
+              value: "50071"
+            # Keep kube-dns so *.svc.cluster.local still resolves; otherwise
+            # gluetun rewrites resolv.conf to a public resolver and every
+            # in-cluster name (aiostreams, postgres, prowlarr) fails.
+            - name: DNS_KEEP_NAMESERVER
+              value: "on"
+            - name: DOT
+              value: "off"
+            - name: HTTPPROXY
+              value: "off"
+            - name: SHADOWSOCKS
+              value: "off"
+            - name: TZ
+              value: UTC
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 192Mi
       volumes:
         - name: config
           # remux-config-local, NOT remux-config: this volume holds a SQLite
