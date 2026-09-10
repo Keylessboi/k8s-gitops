@@ -36,6 +36,10 @@ the literal string you are seeing, then read the entry.
 | Every downstream *arr broken after a key change | Prowlarr API key rotation — 2026-08-29 |
 | A CronJob that vanishes seconds after you create it | manual CronJob run — 2026-08-29 |
 | Stale NFS handles, pods stuck ContainerCreating | closet move — 2026-08-28 |
+| SQLite slow to the point of unusable; `PRAGMA wal_checkpoint` taking seconds | SQLite on NFS — 2026-09-10 (remux) |
+| `database disk image is malformed` after a migration | copied while the writer was running; `kubectl scale` loses to selfHeal — 2026-09-10 |
+| Deployment 0/1 with NO pod and nothing to `kubectl logs` | PodSecurity rejection — read the ReplicaFailure condition — 2026-09-10 |
+| `no successful lookups` from a torrent client, forever | DHT is UDP and the egress path is a TCP-only SOCKS5 proxy — 2026-09-10 |
 | High load average but `ps` shows few blocked tasks, disk barely busy | you are counting processes, not threads — 2026-09-10 (`ps -eLo`) |
 | A pod running with no limits although the chart declares them | Helm values at a path the chart does not read — 2026-09-10 (immich), 2026-09-09 (monitoring) |
 | Pod stuck ContainerCreating, no events, `unmounted volumes=[…]: context deadline exceeded`, but the volume IS mounted | fsGroup chowning a huge NFS volume — 2026-09-09 (**check `fsGroupChangePolicy`**) |
@@ -53,6 +57,115 @@ prose version of the prevention failed:
   source *and* ingress in the destination.
 - **Duplicate YAML keys** (1×, but silent) — PyYAML accepts them, Go's yaml does
   not. Validate with the same parser as the consumer.
+
+## 2026-09-10 — Remux: one slow disk, and everything that fell out of fixing it
+
+This is one causal chain, recorded together because each step was caused by the
+previous one and two of the steps were self-inflicted.
+
+**1. The UI took tens of seconds per action.** Not CPU: measured during a page
+load, remux never exceeded 2m CPU and aiostreams never moved off 1m. Its own
+log named it — single-row primary-key lookups against SQLite taking **17-21
+seconds**, `PRAGMA wal_checkpoint` taking 12.9s, and a connection pool
+exhausted behind them. The database was a 324 MB SQLite file on **nfs-csi**.
+SQLite on NFS is the worst case, not merely suboptimal: it coordinates through
+POSIX byte-range locks that become network round trips, every commit fsyncs,
+and in WAL mode the `-shm` file is a shared mmap NFS cannot properly provide.
+Moved to local-path. Postgres was never an option — remux compiles only the
+SQLite driver (`sqlx` features `sqlite`, no `postgres`).
+
+**2. I corrupted the copy.** The migration used `kubectl scale` to stop remux.
+ArgoCD selfHeal put the replica back part-way through, so remux wrote to
+`db.sqlite` while `cp` was still reading it, and SQLite rejected the result:
+`database disk image is malformed`. **`kubectl scale` is not a lock on a
+selfHeal cluster; it is a suggestion.** Stopping a workload for a data
+migration has to be done in git, or not at all.
+
+**3. Wiping and rebuilding lost more than expected.** With the owner's
+agreement the database was rebuilt from empty, on the basis that this repo is
+built to reconstruct it — `admin-job.yaml` seeds the admin account
+idempotently and says so, and `user-sync-cronjob.yaml` recreates an account per
+authentik user. Both worked. What nobody had written down is that **addon
+registrations live only in that database**: the rebuilt instance came up with
+the 5 built-in defaults and without AIOStreams (`stremio`) or Prowlarr
+(`torznab`), which are the two that supply streams. TMDB survived, so titles
+and artwork looked correct and the loss was invisible until playback produced
+`streams synced streams=0 sources=[]` and a black screen. Recovered by reading
+the addon rows out of the pre-wipe database — which passes
+`PRAGMA integrity_check` — and POSTing them back through `/Addons`.
+**Before wiping any app's state, enumerate what is ONLY there.**
+
+**4. Then it still took a minute to start a stream, and that was a third,
+separate cause.** remux ran as a single container reaching the internet through
+the shared gateway's SOCKS5 proxy. SOCKS5 is TCP-only, so DHT (UDP) could never
+work — the log said `no successful lookups` every ~30 seconds, permanently —
+and nothing could connect in. Fixed by giving remux its own gluetun sidecar:
+containers in a pod share a network namespace, so its traffic now leaves on
+tun0 with UDP and an AirVPN forwarded port. Afterwards: **0 DHT errors**.
+
+- **The trap that nearly took the download stack down with it.** The remux
+  DopplerSecret synced the *same* AIRVPN_* values the downloads pod uses, and
+  said so: "credentials are reused". AirVPN WireGuard is one session per key
+  pair, so a second gluetun on that key would have made both tunnels flap,
+  taking qBittorrent, slskd and the seedbox API with them. **Hash the keys and
+  compare before wiring a second consumer.** The first `.conf` supplied was a
+  config for the *existing* device on a different server — same private key,
+  different filename and endpoint. A new .conf is not a new device.
+- **Two comments were actively wrong and cost real time.** `qbittorrent.yaml`
+  said "the gluetun sidecar has been removed" — untrue since commit 95397f6,
+  and read as current during this diagnosis. `remux/deployment.yaml` said
+  librqbit's raw TCP "egresses from the node's WAN, not the VPN tunnel" — it
+  did not; the NetworkPolicy dropped it. Wrong in the reassuring direction.
+- **PodSecurity failure has no pod to debug.** gluetun needs NET_ADMIN *and* a
+  hostPath `/dev/net/tun`; `baseline` forbids both, and the ReplicaSet then
+  cannot create a pod at all. `get pods` is empty and there is nothing to
+  `logs`. The reason is on the Deployment's **ReplicaFailure** condition and in
+  namespace events, nowhere else.
+- **A stuck sync deadlocked the fix.** The operation sat at
+  `waiting for healthy state of apps/Deployment/remux` while the Deployment
+  waited on the namespace label in that same blocked sync. Broken by applying
+  the label directly with `kubectl label` — identical to git, so no drift.
+- **Confidence:** CONFIRMED throughout. Each step was verified by the number it
+  was supposed to move: 21s queries → 394µs; `streams=0` → `streams=16`;
+  constant DHT failures → zero; and qBittorrent's tunnel unchanged on its own
+  exit IP the whole time.
+
+## 2026-09-10 — The heartbeat receiver was emailing every five minutes
+
+- **Symptom:** owner reported email "every 10 minutes", indefinitely.
+- **Root cause:** the `heartbeat-ntfy` Alertmanager receiver carried an
+  `email_configs` block alongside its webhook, and the route that feeds it
+  matches `Watchdog` with `repeat_interval: 5m`. Both are correct alone.
+  Watchdog is the dead-man's switch — it fires permanently by design, and the
+  short repeat is the point, because it is the ABSENCE of beats that carries
+  information. Aimed at an inbox that is a message every five minutes saying
+  nothing is wrong.
+- **Fix:** webhook only. The comment above the receiver already said "nothing
+  reads the body - only the arrival time matters", so a human recipient was
+  never intended. Verified after: 0 of 18 firing alerts route to email, and the
+  beat still lands on pve.
+- **The generalisable lesson:** a heartbeat is consumed by a machine. If a
+  person should hear about it, the watcher says so when beats STOP.
+
+## 2026-09-10 — A log line was failing the Vaultwarden backup
+
+- **Symptom:** `vaultwarden-data-backup` failed three consecutive runs, firing
+  KubeJobFailed each time, while the backup itself was fine.
+- **Root cause:** `mc mirror` succeeded every run (0 B — already in sync), then
+  the `mc du` on the next line exited 1 with "is not a folder", and `set -eu`
+  failed the whole Job.
+- **Why the shape was confusing, and what settled it:** the pods died in ~20
+  seconds, far short of the 60s sleep in the retry loop above, so `mc mirror`
+  had never returned non-zero and that loop had never engaged — which ruled out
+  the connection-refused theory the file documented. **The fault was after the
+  loop, in the reporting.** The size report is now best-effort.
+- **How it was found at all:** the previous day's change to
+  `restartPolicy: Never` was made specifically so a failed attempt would leave
+  a pod behind to read, because every earlier attempt returned "You must
+  provide one or more resources by argument". The next failure was legible in
+  about a minute. **Diagnosability is worth committing before the diagnosis.**
+- **Confidence:** CONFIRMED. Verified the bucket independently: 78 objects
+  including `rsa_key.pem`.
 
 ## 2026-09-10 — Load 47 overnight with the disk 4.6% busy: counting processes instead of threads
 
