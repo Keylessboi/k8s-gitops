@@ -88,8 +88,32 @@ spec:
                     echo "mc mirror failed (attempt $n); retrying in 60s"
                     sleep 60
                   done
+                  # THE MIRROR IS THE BACKUP. What follows is a log line, and
+                  # a log line must never fail the job.
+                  #
+                  # This is what was actually breaking these runs, found on
+                  # 2026-09-10 once restartPolicy: Never kept a failed pod
+                  # around to read. `mc mirror` succeeded every time - it
+                  # reported 0 B because the mirror was already in sync - and
+                  # then `mc du` exited 1 with
+                  #   Source `backup/app-data-backups/vaultwarden` is not a
+                  #   folder. Only folders are supported by 'du' command.
+                  # Under `set -eu` that failed the whole Job, so a backup that
+                  # had genuinely completed was reported as a failure, three
+                  # runs in a row, firing KubeJobFailed each time.
+                  #
+                  # It also explains the shape of the failure that made no sense
+                  # yesterday: the pods died in ~20 seconds, far short of the
+                  # 60s sleep in the retry loop above, because `mc mirror` never
+                  # returned non-zero and that loop never engaged. The fault was
+                  # always after it.
+                  #
+                  # `|| true` so the size report is best-effort. If mc du works
+                  # the line is useful; if it does not, the backup is still
+                  # done and the job should say so.
                   echo "backup complete:"
-                  mc du "backup/app-data-backups/vaultwarden"
+                  mc du "backup/app-data-backups/vaultwarden" || \
+                    echo "  (size report unavailable - the mirror above is what matters)"
               volumeMounts:
                 - name: data
                   mountPath: /data
