@@ -150,6 +150,26 @@ spec:
                       req = urllib.request.Request(url, headers=headers or {})
                       with urllib.request.urlopen(req, timeout=timeout) as r:
                           return json.loads(r.read().decode())
+                  # A SLOW LIDARR IS NOT A FAILURE OF THIS JOB.
+                  #
+                  # This runs every 15 minutes and adds at most MAX_ADDS_PER_RUN artists, so
+                  # it is inherently a reconciler: whatever a run misses, the next run picks
+                  # up. But every network call here used to be fatal, and Lidarr goes
+                  # unresponsive for minutes at a time whenever it has real work queued - a
+                  # mass search pushes GET /api/v1/artist past 180s. The result was a failed
+                  # Job every 15 minutes, and a notification for each one, for a condition
+                  # that needs no action and clears itself.
+                  #
+                  # So transient transport errors end the run at exit 0 with a line saying
+                  # why, while real errors - a 401, a malformed response, a bad profile id -
+                  # still fail loudly. The distinction is the point: the first class means
+                  # "ask again later", the second means "a human has to look".
+                  def transient(e):
+                      if isinstance(e, urllib.error.HTTPError):
+                          # 5xx and 429 are the server saying "later"; other 4xx are not.
+                          return e.code == 429 or 500 <= e.code < 600
+                      return isinstance(e, (TimeoutError, urllib.error.URLError,
+                                            ConnectionError, OSError))
 
                   def subsonic(view, **params):
                       # Subsonic salted-token auth. The password never crosses
@@ -197,7 +217,16 @@ spec:
 
                   # --- what Lidarr already has ---
                   H = {"X-Api-Key": LKEY}
-                  existing = get(f"{LR}/api/v1/artist", headers=H, timeout=180)
+                  try:
+                      existing = get(f"{LR}/api/v1/artist", headers=H, timeout=180)
+                  except Exception as e:
+                      if not transient(e):
+                          raise
+                      # THE EXACT FAILURE THIS JOB KEPT HITTING: Lidarr saturated by a mass
+                      # search does not answer this call within 180s.
+                      print(f"lidarr did not answer in time ({type(e).__name__}); "
+                            f"nothing added this run, retrying on the next schedule")
+                      raise SystemExit(0)
                   have_names = {(a.get("artistName") or "").strip().lower() for a in existing}
                   have_mbids = {a.get("foreignArtistId") for a in existing if a.get("foreignArtistId")}
                   print(f"lidarr artists: {len(existing)}")
@@ -219,7 +248,13 @@ spec:
                       term = urllib.parse.quote(name)
                       try:
                           hits = get(f"{LR}/api/v1/artist/lookup?term={term}", headers=H)
-                      except urllib.error.HTTPError as e:
+                      except Exception as e:
+                          if transient(e):
+                              print(f"lidarr stopped answering during lookup "
+                                    f"({type(e).__name__}); stopping here, the next run resumes")
+                              raise SystemExit(0)
+                          if not isinstance(e, urllib.error.HTTPError):
+                              raise
                           print(f"lookup failed for {name!r}: {e}", file=sys.stderr)
                           continue
                       if not hits:
