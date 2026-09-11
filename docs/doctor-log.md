@@ -33,6 +33,11 @@ the literal string you are seeing, then read the entry.
 | `CrashLoopBackOff` immediately after adding `command:` | `command:` replaces ENTRYPOINT — 2026-08-31 |
 | An *arr app that cannot reach another service by name | bare short hostnames — recurring class |
 | ArgoCD says Synced but the object is stale | ServerSideDiff bug — 2026-08-31 |
+| Blocked from every published host, including Authentik itself | CrowdSec LAPI dead, frozen blocklist — 2026-09-11 |
+| ArgoCD `Synced` at the new revision but the change is not live | silent no-op sync — 2026-09-11 |
+| A PostSync hook that never runs, with the manifest obviously correct | hooks create no diff — 2026-09-11 |
+| `HTTP 401` on a call made AFTER authentication succeeded | remux auth headers are exclusive — 2026-09-11 |
+| A CronJob failing every tick while the app it calls is merely busy | fatal transient — 2026-09-11 |
 | Every downstream *arr broken after a key change | Prowlarr API key rotation — 2026-08-29 |
 | A CronJob that vanishes seconds after you create it | manual CronJob run — 2026-08-29 |
 | Stale NFS handles, pods stuck ContainerCreating | closet move — 2026-08-28 |
@@ -57,6 +62,152 @@ prose version of the prevention failed:
   source *and* ingress in the destination.
 - **Duplicate YAML keys** (1×, but silent) — PyYAML accepts them, Go's yaml does
   not. Validate with the same parser as the consumer.
+
+## 2026-09-11 — locked out of everything, and CrowdSec had been dead since the 10th
+
+- **Confidence:** PROBABLE for the hang's mechanism, CONFIRMED for everything
+  else. Recorded before the fix so the evidence is not lost.
+- **Symptom:** reported as "I think I'm blocked from octo.sandstorm.chat",
+  then "I'm also blocked from navidrome", then "and authentik, so that's its
+  own thing". Being blocked from Authentik ITSELF is the tell: that is not an
+  app problem, it is the middleware chain in front of every published host.
+- **What it was NOT:** the same hosts answered normally from another IP
+  (navidrome and authentik both 302). So the edge, Traefik, the certificates
+  and Authentik were all fine, for some clients.
+- **Root cause chain:**
+  1. `crowdsec-lapi` has been crashlooping on a 5-minute cycle since
+     **2026-09-10 00:14**, the last write to its database. The startup probe
+     (failureThreshold 30 x 10s) kills it at 300s, forever. It hangs
+     immediately after `Local agent credentials found`, before the API ever
+     listens - so `cscli` cannot talk to it either
+     (`dial tcp [::1]:8080: connect: connection refused`).
+  2. Its database is SQLite **on nfs-csi**, with a stale
+     `crowdsec.db-journal` left by the crash. Copied to local disk the file
+     is perfectly healthy - `integrity_check: ok`, 5135 decisions, opens in
+     milliseconds WITH the journal present. It is only unopenable where it
+     lives. This is the third app this week with the same shape; see the
+     SQLite-on-NFS entry for remux (2026-09-10).
+  3. The Traefik bouncer caches the decision list. With LAPI down it can
+     never refresh it, so the list is FROZEN - nothing expires, nothing can be
+     removed, and no `cscli decisions delete` is even possible.
+- **Who is actually blocked:** every one of the 5135 decisions has
+  `origin = CAPI`, the community blocklist. There are ZERO locally-issued
+  bans, so CrowdSec never decided anything about this user. An away-from-home
+  address - mobile, or a VPN exit - landing in the community list explains a
+  block that follows the person and not the service, while a home address
+  sails through.
+- **Immediate workaround for the person locked out:** change networks (drop
+  the VPN, switch off mobile data). It costs nothing to try and confirms the
+  diagnosis in one request.
+- **Fix (not yet applied):** move the LAPI database off NFS, the same
+  treatment remux and prowlarr got. The data qualifies as replicable: the CAPI
+  list re-downloads, and machines and bouncers re-register from their env keys
+  on startup - which is also why `machines` had grown to 24 rows and
+  `bouncers` to 19 for one agent and one bouncer.
+- **Prevention:** a security component that fails by freezing its own
+  allow/deny list needs an alert on the COMPONENT, not on its decisions. This
+  ran dead for a day and a half and the only signal was a Degraded dot in
+  ArgoCD that nothing was watching.
+
+## 2026-09-11 — ArgoCD said Synced, twice, and had applied nothing
+
+- **Confidence:** CONFIRMED (two different causes, each reproduced).
+- **Symptom:** a commit was pushed, ArgoCD reported `Synced / Healthy`
+  against the NEW revision, and the change was simply not live. No
+  ComparisonError, no Degraded, nothing red anywhere. For prowlarr the
+  Deployment ran without the initContainer the commit added; for remux a
+  PostSync hook never ran.
+- **How it was caught:** `.status.sync.revision` and
+  `.status.operationState.finishedAt` disagree. The first is the revision
+  ArgoCD last COMPARED; the second is when it last APPLIED. prowlarr
+  reported revision `0159339` while its last sync operation had finished
+  at 11:57 that morning, hours and several commits earlier. The audit is:
+
+      kubectl get app -n argocd -o json | ... .status.operationState.finishedAt
+
+  A long `finishedAt` age is normal for an app nobody has changed — that is
+  GitOps working. It is only a signal when the app's files DID change.
+- **Root cause — two of them, which is why it looked so confusing:**
+  1. **prowlarr: the ServerSideDiff bug class** (see 2026-08-31, "the
+     ServerSideDiff bug is a class, not an app"). The earlier entries all
+     describe it surfacing as a loud `omits key field name`
+     ComparisonError. This time it was SILENT: the diff simply failed to
+     see an added initContainer and concluded the app was in sync. The
+     appset carries a documented opt-out list for exactly this, and
+     prowlarr was not in it.
+  2. **remux: not a bug at all.** The only thing that commit added was a
+     PostSync hook Job. Hooks are not tracked resources and are not part
+     of desired state, so adding one creates NO DIFF. No diff means no
+     sync operation, and a PostSync hook only runs as part of a sync
+     operation. A hook added on its own therefore never runs until
+     something else changes — the manifest is correct and inert.
+- **Fix:** added `prowlarr` to the `ServerSideDiff=false` list in
+  apps/argocd/root-applicationset.yaml. For both apps, an explicit sync
+  operation applied everything correctly:
+
+      kubectl patch app -n argocd <app> --type merge \
+        -p '{"operation":{"initiatedBy":{"username":"you"},
+             "sync":{"revision":"HEAD","prune":true}}}'
+
+  Note `argocd.argoproj.io/refresh=hard` is NOT enough. It re-compares and
+  advances `.status.sync.revision`, which makes the app look freshly
+  handled while still applying nothing. It was tried first and wasted
+  several minutes for exactly that reason.
+- **Prevention:** after pushing a change, verify the OBJECT, not the
+  Application status. `Synced/Healthy` is not evidence that a specific
+  commit was applied. When a commit only adds a hook, trigger a sync
+  explicitly or expect it to fire on the next unrelated change.
+
+## 2026-09-11 — remux 401s on a request that had already authenticated
+
+- **Confidence:** CONFIRMED (measured all three header combinations).
+- **Symptom:** the addon-bootstrap hook failed every attempt with
+  `HTTPError: 401 Unauthorized`, which reads as a wrong admin password.
+  It was not: the traceback pointed at `GET /Addons`, one call AFTER
+  `POST /Users/AuthenticateByName` had returned a valid AccessToken.
+- **Root cause:** remux treats the two Jellyfin auth headers as mutually
+  exclusive, and sending both is worse than sending either. Measured:
+
+      X-Emby-Token + X-Emby-Authorization -> HTTP 401
+      X-Emby-Token alone                  -> 200, 7 addons
+      X-Emby-Authorization with Token=""  -> 200, 7 addons
+
+  It reads `X-Emby-Authorization` first; present but carrying no `Token=`
+  field means unauthenticated, whatever `X-Emby-Token` says. The job built
+  ONE header dict for every request and always included the login header,
+  so every authenticated call sabotaged itself.
+- **Fix:** send `X-Emby-Authorization` only on the login call.
+  apps/remux/user-sync-cronjob.yaml had always been correct here by
+  accident — it happens to build a fresh header dict for its authenticated
+  calls instead of reusing the login one.
+- **Prevention:** when a 401 appears, check WHICH call raised it before
+  suspecting the credential. A 401 after a successful authentication is
+  almost never the password.
+
+## 2026-09-11 — a reconciler that failed four times an hour over a slow upstream
+
+- **Confidence:** CONFIRMED (reproduced, and the fix verified by a manual run).
+- **Symptom:** "still getting octo errors" — octo-artist-on-heart failing
+  every 15 minutes, with a notification each time.
+- **Root cause:** `GET /api/v1/artist` against Lidarr exceeded its 180s
+  timeout. Lidarr was saturated by the two mass-search jobs (node load
+  28.7, memory 88%) and does not answer a full artist listing under that
+  load. Nothing was wrong with Octo, the shim, or the credentials — the
+  job got as far as `starred artists: 96` every time.
+- **The actual defect** was not the timeout value. Every network call in a
+  RECONCILER was treated as fatal. This job re-derives its work from
+  scratch each run and adds at most one artist, so a timeout means "ask
+  again later", not "something is broken".
+- **Fix:** transient transport errors (timeouts, refused, resets, 429,
+  5xx) now end the run at exit 0 with a line saying why; real errors — a
+  401, a bad profile id, a malformed response — still fail loudly.
+  `HTTPError` must be tested BEFORE `URLError` since it is a subclass;
+  without that ordering a 401 is silently swallowed as transient.
+  Verified by a manual run: `lidarr did not answer in time (TimeoutError);
+  nothing added this run, retrying on the next schedule`, Job Complete.
+- **Prevention:** any job on a short schedule that reconciles from scratch
+  should treat upstream slowness as a skip, not a failure. Alert on a
+  condition persisting, not on one tick of it.
 
 ## 2026-09-10 — Remux: one slow disk, and everything that fell out of fixing it
 
