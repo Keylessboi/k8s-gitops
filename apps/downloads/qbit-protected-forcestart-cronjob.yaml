@@ -1,0 +1,161 @@
+---
+# Keep PRIVATE-TRACKER torrents force-started, so enabling the queue cannot
+# get the account banned.
+#
+# WHY THIS EXISTS. Torrent queueing was enabled in apps/downloads/qbittorrent.yaml
+# because 2,199 torrents with ~959 seeding were consuming the NAS pool's entire
+# IOPS budget - 211 read ops/s producing 3.71 MB/s, about 18 KB per read, which
+# is a thousand torrents' worth of seeks on a two-disk HDD mirror.
+#
+# But a QUEUED torrent in qBittorrent is a STOPPED torrent, and a stopped
+# torrent DOES NOT ANNOUNCE. Private trackers read silence as abandonment.
+# This is not theoretical: qbittorrent/qBittorrent#3473 is users being flagged
+# hit-and-run while seeding fine, because queueing suppressed their announces.
+# On MyAnonamouse that costs the ACCOUNT, and the account is not replaceable
+# the way a disk is.
+#
+# FORCE START is the mechanism, not "do not count slow torrents". Force-started
+# torrents bypass the queue outright and keep announcing. The slow-torrent
+# option looks like the natural fix and was rejected on evidence: it does not
+# override MaxActiveTorrents (#10168), does not take effect on startup until
+# manually toggled (#12880), and has been reported to release the entire queue
+# (#21284). None of that is a foundation for account safety.
+#
+# Matching is on the TRACKER URL, never the category - the same rule
+# seed-reaper-cronjob.yaml uses, and for the same reason: a category records
+# where a file went, not who it came from. The default list is deliberately
+# identical to the reaper's, so the two cannot disagree about what is
+# protected.
+#
+# Force-starting is non-destructive - it only ever makes a torrent MORE active
+# - so unlike the reaper this applies immediately rather than defaulting to a
+# dry run.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: qbit-protected-forcestart
+  namespace: downloads
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          containers:
+            - name: forcestart
+              image: python:3.12-alpine3.20
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              command: ["python3", "-u", "/scripts/forcestart.py"]
+              env:
+                - name: QBIT_URL
+                  value: http://qbittorrent.downloads.svc.cluster.local:8080
+                - name: QBIT_USER
+                  value: travis
+                - name: QBIT_PASS
+                  valueFrom: {secretKeyRef: {name: qbittorrent-webui, key: password}}
+                - name: PROTECTED_TRACKERS
+                  value: "myanonamouse.net,iptorrents.com"
+              resources:
+                requests: {cpu: 25m, memory: 64Mi}
+                limits: {cpu: 500m, memory: 192Mi}
+              volumeMounts:
+                - {name: script, mountPath: /scripts}
+          volumes:
+            - name: script
+              configMap: {name: qbit-forcestart-script, defaultMode: 0755}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qbit-forcestart-script
+  namespace: downloads
+data:
+  forcestart.py: |
+    #!/usr/bin/env python3
+    """Force-start every torrent on a protected tracker.
+
+    Queued torrents do not announce; private trackers read that as a
+    hit-and-run. Force start bypasses the queue and keeps them announcing.
+    """
+    import http.cookiejar, json, os, sys, urllib.parse, urllib.request
+
+    URL = os.environ["QBIT_URL"].rstrip("/")
+    PROTECTED = [d.strip().lower() for d in
+                 os.environ.get("PROTECTED_TRACKERS",
+                                "myanonamouse.net,iptorrents.com").split(",")
+                 if d.strip()]
+
+    jar = http.cookiejar.CookieJar()
+    op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+
+    def call(path, data=None, timeout=120):
+        d = urllib.parse.urlencode(data).encode() if data else None
+        with op.open(URL + path, d, timeout=timeout) as r:
+            return r.read().decode()
+
+    if "Ok" not in call("/api/v2/auth/login",
+                        {"username": os.environ["QBIT_USER"],
+                         "password": os.environ["QBIT_PASS"]}):
+        sys.exit("qbittorrent login failed")
+
+    torrents = json.loads(call("/api/v2/torrents/info"))
+    print(f"{len(torrents)} torrents total")
+
+    protected, checked = [], 0
+    for t in torrents:
+        # The info payload carries the CURRENTLY-WORKING tracker, which is
+        # empty for a stopped or queued torrent - exactly the ones that matter
+        # here. So fall back to the per-torrent tracker list when it is blank,
+        # rather than assuming an unmatched torrent is unprotected.
+        tr = (t.get("tracker") or "").lower()
+        if tr:
+            hit = any(d in tr for d in PROTECTED)
+        else:
+            checked += 1
+            try:
+                raw = call("/api/v2/torrents/trackers?hash=" + t["hash"], timeout=60).lower()
+            except Exception as e:
+                # Unreachable tracker list means "do not know". Treat as
+                # protected: the cost of force-starting a public torrent is a
+                # little disk I/O, the cost of the reverse is the account.
+                print(f"  HOLD-SAFE (tracker list unavailable: {e}) {t['name'][:40]}")
+                protected.append(t)
+                continue
+            hit = any(d in raw for d in PROTECTED)
+        if hit:
+            protected.append(t)
+
+    print(f"looked up {checked} torrents with no active tracker")
+    print(f"{len(protected)} on protected trackers {PROTECTED}")
+
+    already = [t for t in protected if t.get("force_start")]
+    todo = [t for t in protected if not t.get("force_start")]
+    print(f"  already force-started: {len(already)}")
+    print(f"  to force-start:        {len(todo)}")
+
+    if todo:
+        # One batched call rather than N - qBittorrent takes pipe-separated
+        # hashes, and 2,000 individual POSTs would be its own IOPS problem.
+        for i in range(0, len(todo), 100):
+            batch = todo[i:i + 100]
+            call("/api/v2/torrents/setForceStart",
+                 {"hashes": "|".join(t["hash"] for t in batch), "value": "true"})
+            for t in batch:
+                print(f"  FORCE {t['name'][:60]}")
+        print(f"force-started {len(todo)}")
+    else:
+        print("nothing to do - every protected torrent already bypasses the queue")
