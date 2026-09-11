@@ -1,0 +1,101 @@
+---
+# Build the yt-dlp shim Octo needs, and publish it to GHCR.
+#
+# WHY. Upstream (winters27/octo) ships this shim as `build: ./yt-dlp-shim` and
+# publishes no image anywhere - every plausible path was probed and is absent
+# or 403. So it was built by hand and imported straight into the node's
+# containerd, which apps/downloads/octo-yt-dlp-shim.yaml called out as "THIS IS
+# THE ONE PIECE OF STATE OUTSIDE GIT": a node rebuild loses the image and the
+# Deployment never starts again. This workflow is what pays that off.
+#
+# NO PERSONAL ACCESS TOKEN IS INVOLVED, deliberately. The built-in GITHUB_TOKEN
+# can publish to GHCR under this repo's owner as long as the job asks for
+# `packages: write` below. That was the whole reason this debt sat unpaid.
+#
+# NOTHING IS VENDORED. The shim's source stays upstream and is checked out at a
+# PINNED COMMIT at build time. Copying app.py and gate.py into this repo would
+# mean redistributing someone else's GPL-3.0 code and quietly forking it; a
+# pinned ref gives the same reproducibility with none of that. Bumping the shim
+# is a one-line change to UPSTREAM_REF, which is also the audit trail.
+#
+# gate.py matters more than it looks: app.py imports it at module scope, so an
+# image missing it is a ModuleNotFoundError at startup and total loss of
+# YouTube playback. Building the upstream context wholesale is what guarantees
+# it is there.
+name: octo-yt-dlp-shim
+
+"on":
+  # Building on every push to main would republish an identical image for
+  # unrelated manifest edits. This image only changes when the pin does.
+  push:
+    branches: [main]
+    paths: ['.github/workflows/octo-yt-dlp-shim.yaml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # The one that makes a PAT unnecessary.
+  packages: write
+
+env:
+  # winters27/octo @ main as of 2026-09-11. A tag would be nicer, but upstream
+  # publishes none - so this is pinned by SHA rather than by a moving branch,
+  # which would silently change what this cluster runs.
+  UPSTREAM_REPO: winters27/octo
+  UPSTREAM_REF: f9cf6f4c5eef795909335dbe52fe8e43fd739666
+  IMAGE: ghcr.io/keylessboi/octo-yt-dlp-shim
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the upstream shim at the pinned commit
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ env.UPSTREAM_REF }}
+          path: upstream
+
+      - name: Fail early if the build context moved
+        # A renamed or restructured directory upstream would otherwise surface
+        # as an opaque docker build error; this says which file is missing.
+        run: |
+          set -eu
+          cd upstream/yt-dlp-shim
+          for f in Dockerfile app.py gate.py; do
+            test -f "$f" || { echo "::error::upstream/yt-dlp-shim/$f is missing at ${UPSTREAM_REF}"; exit 1; }
+            echo "found $f"
+          done
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: tags
+        run: |
+          set -eu
+          short="${UPSTREAM_REF:0:12}"
+          date="$(date -u +%Y.%m.%d)"
+          # Three tags on one image: the date tag the Deployment pins, the
+          # upstream commit it was built from (the one that is actually
+          # meaningful), and latest for convenience. The Deployment must pin a
+          # fixed tag - never latest - or the running version depends on when a
+          # node last pulled.
+          echo "tags=${IMAGE}:${date},${IMAGE}:upstream-${short},${IMAGE}:latest" >> "$GITHUB_OUTPUT"
+          echo "built ${IMAGE}:${date} from ${UPSTREAM_REPO}@${short}"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: upstream/yt-dlp-shim
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          provenance: false
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ env.UPSTREAM_REPO }}
+            org.opencontainers.image.revision=${{ env.UPSTREAM_REF }}
+            org.opencontainers.image.licenses=GPL-3.0
