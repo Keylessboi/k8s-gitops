@@ -13,7 +13,12 @@ metadata:
   name: book-downloader
   namespace: books
 spec:
-  replicas: 1
+  # TEMPORARILY 0 while /config is copied from the nfs-csi PVC to the
+  # local-path one. It must be 0 IN GIT: `kubectl scale` loses to ArgoCD
+  # selfHeal, which is how the remux migration produced a torn SQLite file on
+  # 2026-09-10, and it lost again here 20 minutes ago. Restored to 1 in the
+  # commit that follows the copy.
+  replicas: 0
   strategy:
     type: Recreate
   selector:
