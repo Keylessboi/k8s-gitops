@@ -4,6 +4,112 @@ State captured across outages and their recoveries. Newest first.
 
 ---
 
+# 🌅 START HERE 2026-09-11 (evening)
+
+## ✅ The lockout is fixed — CrowdSec's database is off NFS
+
+If you were locked out of **everything** today, including Authentik itself,
+this was why, and it is resolved. Read this before touching crowdsec.
+
+**What was happening.** The Traefik CrowdSec bouncer plugin was failing
+CLOSED — answering `403` in 0ms with no backend for every address not in its
+`clientTrustedIPs` allowlist. Its decision stream is a SQLite query, and with
+the database on nfs-csi LAPI answered it in 7.6s, 10.2s, 19.6s, **28.5s**. The
+plugin's timeout is shorter, so it errored and blocked everyone.
+
+**The fix (commit `97825d4`):** `lapi.persistentVolume.data.storageClassName`
+is now `local-path`. Measured immediately after:
+
+```
+GET /v1/decisions/stream?startup=true   200   22.033102ms     <- was 28.5s
+403s since the Traefik restart:         0
+```
+
+That is ~1300x. Third app this week off NFS, after remux and prowlarr.
+
+### Two things you MUST know if this recurs
+1. **Restarting Traefik is a reset, not a fix.** It clears the plugin's failed
+   state and access comes back for minutes, then goes again. It fooled me
+   twice. Fix the query time, not the plugin.
+2. **After ANY crowdsec outage, restart Traefik once.** The plugin does not
+   recover its stream on its own — a healthy LAPI underneath changes nothing
+   until the pod restarts. That is the last step of the repair, not optional.
+
+### The trap that cost the most time
+`kube-system/crowdsec` middleware carries:
+
+```
+clientTrustedIPs: [10.42.0.0/16, 10.43.0.0/16, 192.168.1.0/24,
+                   74.101.53.75/32, 144.62.224.77/32]
+```
+
+`74.101.53.75` is the workstation these sessions test from. Every "I checked
+the edge, it returns 302" was run from an address **exempt from the middleware
+doing the blocking**, and was then used as evidence the edge was healthy. It
+could never reproduce the bug. **When someone reports "broken for me, fine for
+you", check that allowlist first and read Traefik's access log for THEIR
+address** — `403 ... 0ms ... "-"` (no backend) is a middleware verdict.
+
+### Also worth knowing
+- **Nobody was ever banned.** All 5135 decisions were `origin = CAPI`
+  community blocklist; zero local bans. `cscli decisions list --ip <addr>`
+  returned `[]` for every blocked address.
+- LAPI had been dead since **2026-09-10 00:14**, wedged on a stale NFSv4 write
+  delegation. Cleared with `sync; echo 2 > /proc/sys/vm/drop_caches` on BOTH
+  the k3s CT and the Proxmox host. Old DB preserved on the NAS as
+  `crowdsec.db.stale-20260911` — deletable whenever.
+- The rebuilt DB re-registers the traefik bouncer from `BOUNCER_KEY_traefik`,
+  the same secret Traefik mounts, so the key survives a rebuild.
+
+## ✅ Other things that landed today
+
+- **`octo.sandstorm.chat` was 404** — it had NO Authentik provider at all (12
+  existed, none for octo). Created provider 90 + application `octo`, bound to
+  the embedded outpost. Now 302s into the login flow. Subsonic playback always
+  worked because that ingress uses a different middleware — that asymmetry is
+  the tell.
+- **The yt-dlp shim is no longer state outside git.** Built by
+  `.github/workflows/octo-yt-dlp-shim.yaml` from `winters27/octo` at a pinned
+  commit and published to GHCR. **No PAT is needed** — Actions' built-in
+  `GITHUB_TOKEN` publishes to GHCR given `packages: write`. That was the
+  blocker for weeks and it was imaginary. Deployment pins by digest.
+- **octo-artist-on-heart** failed every 15 min with a notification each time.
+  Not Octo — Lidarr, saturated by mass-search, exceeding a 180s timeout.
+  Transient errors are now a skip, not a failure. 401s still fail loudly.
+- **prowlarr + bookdl are rebuildable.** Prowlarr's API key is seeded from
+  Doppler (losing it silently 401s remux and bookdl); bookdl's `settings.json`
+  seeds only when absent.
+
+## ⚠️ ArgoCD can say `Synced` and have applied NOTHING
+
+Bit me twice today. `.status.sync.revision` is what was last **compared**;
+`.status.operationState.finishedAt` is when something was last **applied**.
+prowlarr reported a revision from minutes ago with a sync from hours earlier.
+
+- `refresh=hard` does NOT fix it — it advances the reported revision while
+  still applying nothing.
+- Force a real sync:
+  `kubectl patch app -n argocd <app> --type merge -p '{"operation":{"initiatedBy":{"username":"you"},"sync":{"revision":"HEAD","prune":true}}}'`
+- A commit that adds ONLY a PostSync hook creates no diff, so no sync runs and
+  the hook never fires. That is by design, not a bug.
+- **Suspending an Application's `syncPolicy` does not stick** — the
+  ApplicationSet restores it within seconds. To stop a workload you must win
+  the race, not disable auto-sync.
+
+## 🔭 Open
+
+- #35 compute node is out of RAM (node sat at 88% today, load 28)
+- #42 alert on a stale CrowdSec bouncer `last_pull` — the symptom that
+  actually locks people out; a Degraded dot in ArgoCD was the only signal and
+  nothing watched it
+- #43 crowdsec registers by POD NAME, orphaning a row per restart (24 machines
+  / 19 bouncers for one agent and one bouncer)
+- #41 backfill the 188 GB in the nextcloud category
+- Octo's `octo/navidrome-admin-*` credentials are still wrong
+- 4 pre-existing `check-invariants.py` findings
+
+---
+
 # 🌅 START HERE 2026-09-05 (evening)
 
 ## ✅ The Immich migration is DONE and verified
