@@ -1,0 +1,31 @@
+---
+# Navidrome's state on NODE-LOCAL disk. See docs/adr/0009.
+#
+# navidrome.db reached 142 MB on nfs-csi, and it is the reason SEARCH FAILED
+# WHILE PLAYBACK WORKED — the symptom reported on 2026-09-11 as "search always
+# fails, playing songs always works". That asymmetry is the whole diagnosis:
+# playback streams files sequentially off the media mount, which is the one
+# thing a two-disk HDD mirror does well, while search is small random reads
+# against a SQLite index, which is the one thing it cannot do. Same server,
+# same network, opposite outcomes.
+#
+# Navidrome is SQLite-ONLY — there is no Postgres backend to migrate to, so
+# step 2 of ADR-0009's ladder is the end of the line here, not a staging post.
+#
+# NOT replicable, unlike remux/prowlarr/crowdsec: this database holds play
+# counts, stars, playlists and the scrobble history. A rescan rebuilds the
+# library but NOT any of that. The nfs-csi claim in pvc-data.yaml stays
+# declared with the pre-migration copy, so rollback is one line in
+# deployment.yaml — and the backup matters more now than it did.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: navidrome-data-local
+  namespace: navidrome
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi

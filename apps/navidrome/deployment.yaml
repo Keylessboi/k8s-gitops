@@ -10,7 +10,11 @@ metadata:
   name: navidrome
   namespace: navidrome
 spec:
-  replicas: 1
+  # TEMPORARILY 0 for the navidrome.db migration to local-path (2026-09-11).
+  # SQLite must not be copied out from under a running writer - that is exactly
+  # how the remux migration produced `database disk image is malformed`.
+  # Restored to 1 in the follow-up commit that repoints the volume.
+  replicas: 0
   strategy:
     type: Recreate
   selector:
