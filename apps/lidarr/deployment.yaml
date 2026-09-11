@@ -10,12 +10,7 @@ spec:
   # Stays 1, permanently. /config/lidarr.db is SQLite and single-writer, so a
   # second replica would not share the load, it would contend on the write
   # lock. The one-off trackFile purge that briefly took this to 0 has finished.
-  # TEMPORARILY 0 for the config migration to local-path (2026-09-11).
-  # Lidarr must not be writing to lidarr.db while it is copied - the remux
-  # migration earlier today produced a `database disk image is malformed`
-  # exactly this way, by copying SQLite out from under a running writer.
-  # Restored to 1 in the follow-up commit that repoints the volume.
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -120,7 +115,24 @@ spec:
       volumes:
         - name: config
           persistentVolumeClaim:
-            claimName: lidarr-config
+            # lidarr-config-local, NOT lidarr-config. lidarr.db is a 3.9 GB
+            # SQLite database and on nfs-csi it made GET /api/v1/artist exceed
+            # 180s, which is what failed octo-artist-on-heart every 15 minutes
+            # and what made the mass search take 29 HOURS per batch of 50.
+            #
+            # Migrated 2026-09-11, verified before cutover:
+            #   integrity: ok
+            #   Artists 914 | Albums 41,459 | Tracks 1,032,753
+            #   TrackFiles 35,798 | History 934,521 | Blocklist 16,271
+            #
+            # VACUUM reclaimed only 1.1% (3.94 -> 3.90 GB), so the size is real
+            # data and not dead pages - 934k History rows from the mass search.
+            # Trimming History is the only thing that will shrink this.
+            #
+            # MediaCover/ and Backups/ were deliberately NOT copied: artwork
+            # re-downloads, and the nfs-csi claim still holds both. See
+            # apps/lidarr/pvc-config-local.yaml and docs/adr/0009.
+            claimName: lidarr-config-local
         - name: data
           persistentVolumeClaim:
             claimName: media-data
