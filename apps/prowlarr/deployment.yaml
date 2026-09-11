@@ -10,7 +10,10 @@ metadata:
   name: prowlarr
   namespace: prowlarr
 spec:
-  replicas: 1
+  # TEMPORARILY 0 while /config is copied to the local-path PVC. In git, not
+  # `kubectl scale`: scale loses to selfHeal, which is how the remux migration
+  # produced a torn SQLite file. Restored to 1 after the copy.
+  replicas: 0
   strategy:
     type: Recreate
   selector:

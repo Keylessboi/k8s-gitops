@@ -33,6 +33,7 @@ labels:
 resources:
   - namespace.yaml
   - pvc-config.yaml
+  - pvc-config-local.yaml
   - networkpolicy.yaml
   - deployment.yaml
   - custom-definitions.yaml

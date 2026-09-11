@@ -1,0 +1,43 @@
+---
+# Prowlarr's config on LOCAL BLOCK STORAGE.
+#
+# WHY. prowlarr.db is SQLite, and a search writes every result plus history
+# into it - 525 rows for one test query. On nfs-csi that is hundreds of small
+# synchronous writes onto a volume where each one costs seconds, which is a
+# large part of why a full search took 125 seconds.
+#
+# Measured 2026-09-11 from inside the pod, 512-byte write + fsync to /config:
+#
+#   nfs-csi, sync=standard   2.7s  2.8s  3.0s  3.7s  4.7s
+#   nfs-csi, sync=disabled   1.2s  1.3s  1.3s  1.4s  2.5s
+#   local disk               0.006s 0.006s 0.010s
+#
+# NOTE THE MIDDLE ROW. `zfs set sync=disabled tank/extra` was applied first, on
+# the theory that the ZIL was the bottleneck. It roughly halved the latency and
+# left it ~200x worse than local - so the ZIL was real but secondary. The
+# dominant cost is that `tank` is a two-disk mirror of spinning disks serving
+# qBittorrent's seeding, beets' library walk and Lidarr's searches at the same
+# time. Small synchronous writes lose to that contention no matter what the
+# sync property says. Turning sync off is not a substitute for keeping this
+# kind of state off the array.
+#
+# Third app to need this, after apps/remux/pvc-config-local.yaml and
+# apps/books/pvc-bookdl-local.yaml. The pattern is now: SQLite belongs on
+# local-path, NFS is for bulk media.
+#
+# COST: local-path pins the pod to one node. Prowlarr only ever ran on
+# k3s-server, and the volume is 13 MB across 664 files. The nfs-csi PVC
+# (pvc-config.yaml) stays declared so it is not pruned - it is the rollback and
+# holds the pre-migration copy.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prowlarr-config-local
+  namespace: prowlarr
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
