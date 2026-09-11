@@ -59,15 +59,38 @@ media, on one dataset - make it worse:
 
 ## Decision
 
-**Anything that does small random I/O - every embedded database - gets a
-`local-path` PVC on the node's disk. NFS carries bulk media and nothing else.**
+Databases are placed by a three-step rule, in order. **NFS is never the answer
+for small random I/O.**
+
+1. **Postgres, in the shared CNPG cluster (`app-databases`), if the app
+   supports it at all.** This is the preferred destination, not the fallback.
+   It gets the workload off both the NAS and the node's local disk, and it is
+   the only option here that comes with real backups, WAL archiving and
+   point-in-time recovery. Prowlarr already runs this way.
+2. **`local-path` on the node's disk, only if the app cannot speak Postgres.**
+   Navidrome and remux are SQLite-only; there is nothing to migrate to.
+3. **`nfs-csi` for bulk media and nothing else** - large sequential reads and
+   writes, which is the one thing this pool is good at.
 
 Each migrated app keeps its `nfs-csi` claim declared in git, holding the
 pre-migration copy, so a rollback is a one-line change to the Deployment.
 
 This is not a workaround for a misconfigured NAS. Two spinning disks and 7 GB
-of RAM cannot serve 4 KiB random I/O, and no tuning knob changes that. The
-split is the correct architecture for this hardware.
+of RAM cannot serve 4 KiB random I/O, and no tuning knob changes that.
+
+### Why local-path is second choice and not first
+
+It is tempting to treat local-path as the default because it is a one-line
+change and the speed-up is enormous. It is still second best: node-local
+storage does not survive losing the node, it competes for a 112 GB disk that
+was already 71% full, and it inherits no backup story of its own. Postgres
+costs a real migration - the *arr apps need pgloader, and the schema is created
+empty on first start, so cutting over without loading the old data silently
+presents an empty install - but it is the destination that does not have to be
+revisited.
+
+Where an app supports Postgres and is currently on local-path, that is
+**deferred work, not a finished state.**
 
 ## Consequences
 
@@ -87,7 +110,8 @@ It also concentrates load on the node's 112 GB disk, which was 71% full at
 migration time. Lidarr alone wanted 20 GB.
 
 **Tripwire:** a new app appears with `storageClassName: nfs-csi` on a volume
-that will hold a `.db`, `.sqlite`, or any embedded store. Or an existing app
+that will hold a `.db`, `.sqlite`, or any embedded store - or an app that
+speaks Postgres is given a local-path PVC without anyone checking step 1. Or an existing app
 starts showing multi-second latency on operations that touch a database while
 sequential file access stays fine - that asymmetry is the signature. Check
 `ls -la` on the config volume for a database file and check the PVC's storage
