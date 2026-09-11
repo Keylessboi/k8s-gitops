@@ -13,12 +13,7 @@ metadata:
   name: book-downloader
   namespace: books
 spec:
-  # TEMPORARILY 0 while /config is copied from the nfs-csi PVC to the
-  # local-path one. It must be 0 IN GIT: `kubectl scale` loses to ArgoCD
-  # selfHeal, which is how the remux migration produced a torn SQLite file on
-  # 2026-09-10, and it lost again here 20 minutes ago. Restored to 1 in the
-  # commit that follows the copy.
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -539,7 +534,16 @@ spec:
             claimName: media-data
         - name: config
           persistentVolumeClaim:
-            claimName: bookdl-config
+            # bookdl-config-local, NOT bookdl-config. This holds settings
+            # JSONs and a users.db SQLite file, and on the nfs-csi export a
+            # 512-byte write+fsync measured 2.7-4.7s against 0.004-0.012s on
+            # local disk. Shelfmark writes ten settings files at startup, so it
+            # spent a minute before serving and the 10s readiness probe never
+            # passed - the pod sat 0/1 for 29 hours and Traefik answered 404.
+            # See apps/books/pvc-bookdl-local.yaml for the measurements and
+            # why the export behaves that way. The nfs-csi PVC stays declared
+            # in pvc.yaml as the rollback and holds the pre-migration copy.
+            claimName: bookdl-config-local
 ---
 apiVersion: v1
 kind: Service
