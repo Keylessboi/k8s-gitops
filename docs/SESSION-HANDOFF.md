@@ -98,15 +98,40 @@ prowlarr reported a revision from minutes ago with a sync from hours earlier.
 
 ## 🔭 Open
 
-- #35 compute node is out of RAM (node sat at 88% today, load 28)
-- #42 alert on a stale CrowdSec bouncer `last_pull` — the symptom that
-  actually locks people out; a Degraded dot in ArgoCD was the only signal and
-  nothing watched it
-- #43 crowdsec registers by POD NAME, orphaning a row per restart (24 machines
-  / 19 bouncers for one agent and one bouncer)
-- #41 backfill the 188 GB in the nextcloud category
-- Octo's `octo/navidrome-admin-*` credentials are still wrong
-- 4 pre-existing `check-invariants.py` findings
+These are Claude Code harness tasks (`TaskList`), NOT GitHub issues and NOT
+sections of this file. The numbers mean nothing outside that tool, so each one
+is written out in full here — this list is the source of record if the task
+list is ever lost.
+
+- **Compute node is out of RAM** (task #35). It sat at 88% memory and load 28
+  today, which is what made Lidarr unable to answer inside 180s.
+- **Alert on a stale CrowdSec bouncer `last_pull`** (task #42). That is the
+  symptom that actually locks everyone out. Today the only signal was a
+  Degraded dot in ArgoCD that nothing was watching, for a day and a half.
+- **CrowdSec registers by POD NAME** (task #43), orphaning a registration row
+  on every restart — 24 machines and 19 bouncers for one agent and one
+  bouncer. Give it a stable machine name, then prune with `cscli machines
+  delete`.
+- **Backfill the 188 GB already in the nextcloud category** (task #41).
+- **Octo's `octo/navidrome-admin-*` credentials are wrong** ("Wrong username
+  or password").
+- **4 pre-existing `check-invariants.py` findings.**
+
+## 🔴 Lidarr's database is 3.94 GB, on NFS
+
+Found 2026-09-11 while looking at mass-search progress. `/config/lidarr.db` is
+**3,940,098,048 bytes** on `nfs-csi`. A normal Lidarr database is tens of MB.
+`logs.db` is another 490 MB.
+
+This is the same pathology already fixed for remux, prowlarr and crowdsec
+today, at ~560x crowdsec's size, and it is the most likely reason
+`GET /api/v1/artist` exceeds 180s and the node sits at load 28. Suspected
+cause is the two `lidarr-mass-search-a/b` jobs, running continuously for
+7d22h and writing history/release rows the whole time — which would make it
+degenerative: the search bloats the database, the bloat slows the search.
+
+NOT yet diagnosed or fixed. Do not assume the mass search alone is the
+bottleneck until the table sizes are known.
 
 ---
 
