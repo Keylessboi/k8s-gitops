@@ -36,9 +36,34 @@ helmCharts:
       # The Local API: holds decisions and answers the bouncer.
       lapi:
         persistentVolume:
+          # LOCAL-PATH, NOT nfs-csi, AND THIS ONE IS LOAD-BEARING.
+          #
+          # This volume holds crowdsec.db, SQLite, in rollback-journal mode
+          # (use_wal: false - WAL over NFS is unsafe, so the cheap fix is not
+          # available). The bouncer's decision stream is a database query, and
+          # over NFS it was measured taking 7.6s, 10.2s, 19.6s and 28.5s:
+          #
+          #   GET /v1/decisions/stream?startup=true  200  28.578740205s
+          #
+          # The Traefik bouncer plugin's own timeout is shorter than that, so
+          # the fetch errors, and the plugin FAILS CLOSED - it answers 403 in
+          # 0ms with no backend for every address not in clientTrustedIPs.
+          # That is a total lockout of every published host, Authentik
+          # included, and it recurred within minutes of each restart because
+          # restarting only reset the clock on the same slow query.
+          #
+          # The data is replicable, which is what makes this safe: the CAPI
+          # community blocklist re-downloads on startup, and the agent and the
+          # traefik bouncer re-register from BOUNCER_KEY_traefik below - the
+          # same key Traefik itself mounts, so the bouncer keeps working across
+          # a rebuild. Nothing here is authored by hand.
+          #
+          # NOTE for anyone migrating this again: storageClassName is immutable
+          # on a bound PVC, so changing this line alone makes ArgoCD fail to
+          # apply. The old PVC has to be deleted so the new one can be created.
           data:
             enabled: true
-            storageClassName: nfs-csi
+            storageClassName: local-path
             size: 2Gi
           config:
             enabled: true
