@@ -10,11 +10,7 @@ metadata:
   name: navidrome
   namespace: navidrome
 spec:
-  # TEMPORARILY 0 for the navidrome.db migration to local-path (2026-09-11).
-  # SQLite must not be copied out from under a running writer - that is exactly
-  # how the remux migration produced `database disk image is malformed`.
-  # Restored to 1 in the follow-up commit that repoints the volume.
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -190,7 +186,16 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: navidrome-data
+            # navidrome-data-local, NOT navidrome-data. navidrome.db is SQLite
+            # and on nfs-csi it made SEARCH FAIL WHILE PLAYBACK WORKED - small
+            # random index reads are the one thing a two-disk HDD mirror cannot
+            # do, while sequential streaming is the one thing it can. Migrated
+            # 2026-09-11 with integrity_check ok: 35,837 media_file, 3,266
+            # album, 1,329 artist, 790 annotation (play counts and stars).
+            # See apps/navidrome/pvc-data-local.yaml and docs/adr/0009.
+            # The nfs-csi claim in pvc-data.yaml still holds the pre-migration
+            # copy, so this is a one-line rollback.
+            claimName: navidrome-data-local
         - name: music
           persistentVolumeClaim:
             claimName: media-data
