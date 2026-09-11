@@ -33,6 +33,9 @@ resources:
   - deployment.yaml
   # PostSync: seeds the admin account from the Doppler secret, idempotently.
   - admin-job.yaml
+  # PostSync wave 1: recreates the stream addons if the database
+  # was rebuilt. Without it a wipe loses playback silently.
+  - addon-bootstrap-job.yaml
   # An authentik account becomes a remux account. remux has no SSO of any kind
   # - see the header of the file for why that means a CronJob.
   - user-sync-cronjob.yaml

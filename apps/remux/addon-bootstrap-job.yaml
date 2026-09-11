@@ -1,0 +1,174 @@
+---
+# Recreate Remux's STREAM ADDONS if they are missing, idempotently.
+#
+# THE GAP THIS CLOSES. Addon registrations live only in Remux's SQLite
+# database. On 2026-09-10 that database was rebuilt from empty and both stream
+# sources - AIOStreams (stremio) and Prowlarr (torznab) - were silently lost.
+# The five built-in addons came back by themselves, so the library still showed
+# titles and artwork and nothing looked wrong; the failure only surfaced on
+# playback, as `streams synced streams=0 sources=[]` and a black screen that
+# never ended. Recovery meant reading rows out of the pre-wipe database by hand.
+#
+# admin-job.yaml already treats the admin account this way and says why:
+# state that exists only on a volume cannot be reviewed and does not survive a
+# rebuild. This does the same for the thing that actually makes playback work.
+#
+# IDEMPOTENT BY COMPARISON, NOT BY GUESSWORK. It reads /Addons, and creates only
+# those kinds that are absent. An addon the owner has since edited in the UI is
+# left alone - this restores what is MISSING, it does not enforce a desired
+# state, because overwriting a hand-tuned catalog selection on every sync would
+# be worse than the problem it solves.
+#
+# Runs at sync-wave 1, after admin-job (wave 0): authenticating needs the admin
+# account to exist first.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: remux-addon-bootstrap
+  namespace: remux
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded,BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # The kube-router race again: this Job's first act is an HTTP call, and
+        # per-pod policy is programmed ~1-2s after start. Also genuinely waits
+        # for Remux, since a PostSync hook can fire before the port is open.
+        - name: wait-for-remux
+          image: busybox:1.37
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          command:
+            - sh
+            - -c
+            - |
+              for attempt in $(seq 1 60); do
+                if nc -z remux.remux.svc.cluster.local 3000; then
+                  echo "remux reachable after ${attempt} attempt(s)"
+                  exit 0
+                fi
+                echo "attempt ${attempt}/60: remux not reachable yet"
+                sleep 2
+              done
+              echo "remux not reachable after 120s, proceeding anyway"
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 200m, memory: 64Mi}
+      containers:
+        - name: bootstrap
+          image: python:3.12-alpine3.20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          env:
+            - name: REMUX
+              value: http://remux.remux.svc.cluster.local:3000
+            # Matches user-sync-cronjob.yaml, which authenticates the same way.
+            - name: RXU
+              value: admin
+            - name: RXP
+              valueFrom:
+                secretKeyRef: {name: remux, key: admin-password}
+          volumeMounts:
+            - name: addons
+              mountPath: /addons
+              readOnly: true
+          command: ["python3", "-c"]
+          args:
+            - |
+              import json, os, sys, time, urllib.error, urllib.request
+
+              RX = os.environ["REMUX"].rstrip("/")
+              AUTH = ('MediaBrowser Client="addon-bootstrap", Device="job",'
+                      ' DeviceId="remux-addon-bootstrap", Version="1.0"')
+
+              def call(path, data=None, method=None, token=None, timeout=60):
+                  h = {"Content-Type": "application/json",
+                       "X-Emby-Authorization": AUTH}
+                  if token:
+                      h["X-Emby-Token"] = token
+                  req = urllib.request.Request(
+                      RX + path,
+                      data=json.dumps(data).encode() if data is not None else None,
+                      headers=h, method=method)
+                  with urllib.request.urlopen(req, timeout=timeout) as r:
+                      raw = r.read()
+                  return json.loads(raw) if raw else None
+
+              desired = json.load(open("/addons/addons.json"))
+              print(f"declared stream addons: {len(desired)}")
+
+              # Remux can answer before it will authenticate; the wait-for init
+              # only proves the port is open.
+              for attempt in range(30):
+                  try:
+                      auth = call("/Users/AuthenticateByName",
+                                  data={"Username": os.environ["RXU"],
+                                        "Pw": os.environ["RXP"]},
+                                  method="POST", timeout=30)
+                      break
+                  except urllib.error.HTTPError as e:
+                      # 401 is terminal - the password is wrong, and retrying
+                      # will not fix it. Say so rather than burning the backoff.
+                      print(f"authentication rejected: HTTP {e.code}", file=sys.stderr)
+                      raise SystemExit(1)
+                  except Exception as e:
+                      print(f"  attempt {attempt+1}/30: {type(e).__name__}")
+                      time.sleep(4)
+              else:
+                  raise SystemExit("remux never became reachable")
+
+              token = auth["AccessToken"]
+              have = call("/Addons", token=token)
+              have_kinds = {a.get("kind") for a in have}
+              print(f"registered: {len(have)} addons, kinds={sorted(k for k in have_kinds if k)}")
+
+              created = 0
+              for a in desired:
+                  kind = a["preset"]["kind"]
+                  if kind in have_kinds:
+                      print(f"  KEEP   {a['name']} ({kind}) - already registered")
+                      continue
+                  body = {"name": a["name"], "preset": a["preset"],
+                          "resources": a.get("resources", []),
+                          "types": a.get("types", []),
+                          "enabled": bool(a.get("enabled", True)),
+                          "priority": a.get("priority", 0)}
+                  try:
+                      call("/Addons", data=body, method="POST", token=token, timeout=90)
+                      print(f"  CREATE {a['name']} ({kind})")
+                      created += 1
+                  except urllib.error.HTTPError as e:
+                      detail = e.read()[:200].decode(errors="replace")
+                      print(f"  FAIL   {a['name']} ({kind}): HTTP {e.code} {detail}",
+                            file=sys.stderr)
+                      raise SystemExit(1)
+
+              after = call("/Addons", token=token)
+              print(f"created={created} total_addons={len(after)}")
+              # A stream source is the thing whose absence is invisible until
+              # playback fails, so assert on it rather than trusting the count.
+              stream_kinds = {a.get("kind") for a in after
+                              if "stream" in (a.get("resources") or [])}
+              print(f"stream-capable kinds now: {sorted(k for k in stream_kinds if k)}")
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 192Mi}
+      volumes:
+        - name: addons
+          secret:
+            secretName: remux-addons
