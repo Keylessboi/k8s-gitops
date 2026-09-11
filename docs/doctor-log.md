@@ -34,6 +34,9 @@ the literal string you are seeing, then read the entry.
 | An *arr app that cannot reach another service by name | bare short hostnames — recurring class |
 | ArgoCD says Synced but the object is stale | ServerSideDiff bug — 2026-08-31 |
 | Blocked from every published host, including Authentik itself | CrowdSec LAPI dead, frozen blocklist — 2026-09-11 |
+| A pod hung forever on a tiny read from an NFS volume, no error | stale NFSv4 delegation — 2026-09-11 |
+| `(deleted)` in /proc/PID/fd for a file that plainly exists | stale NFS dentry cache — 2026-09-11 |
+| A local `cp` on the NAS taking minutes for a few MB | delegation recall stalling local I/O — 2026-09-11 |
 | ArgoCD `Synced` at the new revision but the change is not live | silent no-op sync — 2026-09-11 |
 | A PostSync hook that never runs, with the manifest obviously correct | hooks create no diff — 2026-09-11 |
 | `HTTP 401` on a call made AFTER authentication succeeded | remux auth headers are exclusive — 2026-09-11 |
@@ -65,49 +68,76 @@ prose version of the prevention failed:
 
 ## 2026-09-11 — locked out of everything, and CrowdSec had been dead since the 10th
 
-- **Confidence:** PROBABLE for the hang's mechanism, CONFIRMED for everything
-  else. Recorded before the fix so the evidence is not lost.
+- **Confidence:** CONFIRMED for the failure and the recovery. PROBABLE for
+  which of the two repair steps was the one that mattered — see the caveat.
 - **Symptom:** reported as "I think I'm blocked from octo.sandstorm.chat",
-  then "I'm also blocked from navidrome", then "and authentik, so that's its
-  own thing". Being blocked from Authentik ITSELF is the tell: that is not an
-  app problem, it is the middleware chain in front of every published host.
-- **What it was NOT:** the same hosts answered normally from another IP
-  (navidrome and authentik both 302). So the edge, Traefik, the certificates
-  and Authentik were all fine, for some clients.
-- **Root cause chain:**
-  1. `crowdsec-lapi` has been crashlooping on a 5-minute cycle since
-     **2026-09-10 00:14**, the last write to its database. The startup probe
-     (failureThreshold 30 x 10s) kills it at 300s, forever. It hangs
-     immediately after `Local agent credentials found`, before the API ever
-     listens - so `cscli` cannot talk to it either
-     (`dial tcp [::1]:8080: connect: connection refused`).
-  2. Its database is SQLite **on nfs-csi**, with a stale
-     `crowdsec.db-journal` left by the crash. Copied to local disk the file
-     is perfectly healthy - `integrity_check: ok`, 5135 decisions, opens in
-     milliseconds WITH the journal present. It is only unopenable where it
-     lives. This is the third app this week with the same shape; see the
-     SQLite-on-NFS entry for remux (2026-09-10).
-  3. The Traefik bouncer caches the decision list. With LAPI down it can
-     never refresh it, so the list is FROZEN - nothing expires, nothing can be
-     removed, and no `cscli decisions delete` is even possible.
-- **Who is actually blocked:** every one of the 5135 decisions has
-  `origin = CAPI`, the community blocklist. There are ZERO locally-issued
-  bans, so CrowdSec never decided anything about this user. An away-from-home
-  address - mobile, or a VPN exit - landing in the community list explains a
-  block that follows the person and not the service, while a home address
-  sails through.
-- **Immediate workaround for the person locked out:** change networks (drop
-  the VPN, switch off mobile data). It costs nothing to try and confirms the
-  diagnosis in one request.
-- **Fix (not yet applied):** move the LAPI database off NFS, the same
-  treatment remux and prowlarr got. The data qualifies as replicable: the CAPI
-  list re-downloads, and machines and bouncers re-register from their env keys
-  on startup - which is also why `machines` had grown to 24 rows and
-  `bouncers` to 19 for one agent and one bouncer.
-- **Prevention:** a security component that fails by freezing its own
+  then navidrome, then "and authentik, so that's its own thing". Being blocked
+  from Authentik ITSELF is the tell: not an app problem, but the middleware
+  chain in front of every published host. The same hosts answered normally
+  from a different IP (302), so the edge, Traefik and the certs were all fine.
+- **What was actually broken:** `crowdsec-lapi` had been crashlooping on a
+  5-minute cycle since **2026-09-10 00:14**, killed each time by its startup
+  probe (failureThreshold 30 x 10s). It never reached the API: it hung inside
+  the entrypoint on
+
+      cscli -c /etc/crowdsec/config.yaml machines list -o json
+
+  which feeds a `yq` that checks whether this pod's machine is registered.
+  Sampled every 15s, the SAME pid sat there past 2m22s and never returned —
+  hung, not slow, on a 24-row table.
+- **The dead ends, recorded because they were expensive:**
+  - *"The SQLite database is corrupt."* It is not. Copied off, it reports
+    `integrity_check: ok` with 5135 decisions, and opens in milliseconds even
+    with its stale `-journal` present.
+  - *"SQLite on NFS is too slow, move it to local-path"* — the conclusion
+    every other app this week earned. Measured instead of assumed: a copy of
+    the same database, opened read-write on the SAME NFS export, connected in
+    1.77s and committed a write in 7.52s. Slow, but nowhere near a hang. The
+    planned local-path migration was dropped on that evidence.
+- **Root cause:** stale NFSv4 state on the client. `/proc/locks` on the NAS
+  showed an ACTIVE WRITE **delegation** pinned to the database's inode:
+
+      5253: DELEG  ACTIVE    WRITE 2398 00:2f:40268    <- inode of crowdsec.db
+
+  Every new opener blocked waiting on a delegation recall that never
+  completed. Two things confirm it was the delegation and not the data: a
+  server-side `cp` of that 7 MB file, on local ZFS, took **2m17s** (the local
+  read triggers the same recall), and the hung process's fd read
+  `/var/lib/crowdsec/data/crowdsec.db (deleted)` — the client still resolving
+  the cached name to the old filehandle. All three NFS clients were confirmed
+  and renewing, so this was not an expired client record.
+- **Fix, in the order it was done:**
+  1. Server-side on the NAS: copied the database to a fresh inode, verified
+     it (`integrity_check: ok`), then atomically swapped it in, keeping the
+     originals as `crowdsec.db.stale-20260911` and
+     `crowdsec.db-journal.stale-20260911`. **This alone did NOT fix it** — the
+     next pod hung in exactly the same place.
+  2. Dropped dentry/inode caches on BOTH the k3s CT and the Proxmox host
+     (`sync; echo 2 > /proc/sys/vm/drop_caches`), then deleted the pod.
+     It came Ready in 89s: `CrowdSec Local API listening on 0.0.0.0:8080`,
+     health 200, community-blocklist update running. `cscli` answers
+     instantly again.
+- **CAVEAT, stated rather than glossed:** because step 2 followed step 1,
+  this does not prove step 1 was necessary. The cache drop is what immediately
+  preceded recovery, and the "(deleted)" fd points at client-side caching
+  rather than at the file. If this recurs, **try the cache drop first** and
+  leave the database alone.
+- **Who was actually blocked:** nobody, by decision. Every one of the 5135
+  decisions had `origin = CAPI`, the community blocklist; there were ZERO
+  locally-issued bans. What blocked people was the Traefik bouncer, which
+  caches the decision list and — with LAPI dead since the 10th — could never
+  refresh it. Its last successful pull was `2026-09-10T00:09`, minutes before
+  LAPI died. The list was frozen, so nothing expired and nothing could be
+  deleted. After the fix the list drains to **0 active decisions**.
+- **Latent issue found alongside:** `machines` had grown to 24 rows and
+  `bouncers` to 19, for one agent and one bouncer. The entrypoint registers by
+  POD NAME, which changes on every restart, so each restart leaves another
+  dead registration behind.
+- **Prevention:** a security component that fails by FREEZING its own
   allow/deny list needs an alert on the COMPONENT, not on its decisions. This
   ran dead for a day and a half and the only signal was a Degraded dot in
-  ArgoCD that nothing was watching.
+  ArgoCD that nothing was watching. A bouncer whose `last_pull` is hours stale
+  is the specific thing to alert on.
 
 ## 2026-09-11 — ArgoCD said Synced, twice, and had applied nothing
 
