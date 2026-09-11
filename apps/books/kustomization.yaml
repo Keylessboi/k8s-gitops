@@ -37,6 +37,7 @@ resources:
   - namespace.yaml
   - media-data-pv.yaml
   - pvc.yaml
+  - pvc-bookdl-local.yaml
   - networkpolicy.yaml
   - calibre-web-automated.yaml
   - book-downloader.yaml

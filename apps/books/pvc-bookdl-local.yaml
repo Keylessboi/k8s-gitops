@@ -1,0 +1,47 @@
+---
+# bookdl's config on LOCAL BLOCK STORAGE.
+#
+# WHY. book-downloader (shelfmark) sat at 0/1 for 29 hours, so its Service had
+# no ready endpoint and Traefik answered 404 for bookdl.sandstorm.chat. It was
+# not crashed - it was writing. Measured inside the pod on 2026-09-11, a
+# 512-byte write plus fsync:
+#
+#     /config  (nfs-csi)   2.7s, 2.8s, 3.0s, 3.7s, 4.7s
+#     /tmp     (local)     0.004s, 0.011s, 0.012s
+#
+# ~300x. The app writes about ten settings files at startup, each taking
+# 3-6 seconds, so it spends a minute before it can serve anything - and the
+# readiness probe gives up after 10s, forever. The log makes it plain: the
+# last settings write landed at 00:21:45 and Flask-SocketIO only finished
+# initialising at 00:25:52.
+#
+# WHY THE EXPORT IS LIKE THIS, since it will bite again. `tank` is a two-disk
+# MIRROR OF SPINNING DISKS WITH NO SLOG. Every fsync an NFS client issues
+# forces a ZIL commit to those spindles, and they are simultaneously serving
+# qBittorrent's seeding, beets' library walk and Lidarr's searches. Under that
+# load a commit queues for seconds. Bulk sequential reads are fine; small
+# synchronous writes are not. Adding an SLOG is the hardware answer; keeping
+# latency-sensitive state off NFS is the software one.
+#
+# This is the same diagnosis as apps/remux/pvc-config-local.yaml, which moved
+# a SQLite database for the same reason. Note this volume holds users.db and
+# users.db-wal - also SQLite, also on NFS, also a bad idea.
+#
+# COST: local-path pins the pod to one node. bookdl only ever ran on
+# k3s-server, and the whole volume is 2.2 MB across 86 files. The nfs-csi PVC
+# (pvc.yaml) stays declared so it is not pruned - it is the rollback and holds
+# the pre-migration copy.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bookdl-config-local
+  namespace: books
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      # Matches the volume it replaces. Actual use is 2.2 MB, most of it
+      # cover thumbnails; local-path does not enforce this anyway.
+      storage: 2Gi
