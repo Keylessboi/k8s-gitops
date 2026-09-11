@@ -40,7 +40,7 @@ spec:
     spec:
       containers:
         - name: shim
-          image: docker.io/library/octo-yt-dlp-shim:2026.09.03
+          image: docker.io/library/octo-yt-dlp-shim:2026.09.11
           # See the header. Always would break this outright.
           imagePullPolicy: IfNotPresent
           env:
