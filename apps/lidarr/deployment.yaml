@@ -10,7 +10,12 @@ spec:
   # Stays 1, permanently. /config/lidarr.db is SQLite and single-writer, so a
   # second replica would not share the load, it would contend on the write
   # lock. The one-off trackFile purge that briefly took this to 0 has finished.
-  replicas: 1
+  # TEMPORARILY 0 for the config migration to local-path (2026-09-11).
+  # Lidarr must not be writing to lidarr.db while it is copied - the remux
+  # migration earlier today produced a `database disk image is malformed`
+  # exactly this way, by copying SQLite out from under a running writer.
+  # Restored to 1 in the follow-up commit that repoints the volume.
+  replicas: 0
   strategy:
     type: Recreate
   selector:

@@ -1,0 +1,40 @@
+---
+# Lidarr's config volume on NODE-LOCAL disk, not NFS.
+#
+# WHY, measured 2026-09-11: /config/lidarr.db had reached 3.94 GB on nfs-csi
+# (a normal Lidarr database is tens of MB), and every command Lidarr runs
+# writes to it across a filesystem where a single 512-byte commit measures
+# ~7.5s. The visible cost:
+#
+#   - GET /api/v1/artist exceeded 180s, which is what made
+#     octo-artist-on-heart fail every 15 minutes
+#   - the mass-search workers took 29.6 and 43.6 HOURS per batch of 50,
+#     about one album per hour, and were suspended over it
+#   - the node sat at load 28 and 88% memory
+#
+# This is the same migration remux, prowlarr and crowdsec each received today.
+# Lidarr is the largest of the four by three orders of magnitude.
+#
+# WHAT THIS COSTS. Node-local storage does not survive losing the node, and
+# unlike the other three, this volume is NOT purely replicable - it holds the
+# library's monitoring state, quality profiles, history and import decisions.
+# The nfs-csi claim in pvc-config.yaml stays declared and keeps the
+# pre-migration copy, so rolling back is a one-line change to deployment.yaml.
+# The maintenance CronJob's backup is the real safety net and matters more now
+# than it did.
+#
+# 20Gi, not 5Gi like the NFS claim it replaces: the database is 3.94 GB before
+# a VACUUM and VACUUM itself needs room for a full second copy while it runs.
+# The node had 32 GB free at migration time.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lidarr-config-local
+  namespace: lidarr
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi
