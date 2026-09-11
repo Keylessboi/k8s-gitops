@@ -75,6 +75,17 @@ helmCharts:
           # sizes summing exactly, the MOVE still returns 201 while Nextcloud
           # logs "Stream from assembly node shorter than expected" and no file
           # appears. Reproduced at both 256 MiB and 64 MiB chunk sizes.
+          # Redis, read by the redis.config.php in `configs:` below. Kept as
+          # env rather than literals so the password never enters git.
+          - name: REDIS_HOST
+            value: redis-master.redis.svc.cluster.local
+          - name: REDIS_HOST_PORT
+            value: "6379"
+          - name: REDIS_HOST_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: redis-auth
+                key: redis-password
           - name: APACHE_BODY_LIMIT
             value: "0"
           - name: OVERWRITEPROTOCOL
@@ -157,6 +168,24 @@ helmCharts:
           secretName: nextcloud-admin
           usernameKey: admin-user
           passwordKey: admin-password
+        # Mounted into /var/www/html/config/. Nextcloud reads every
+        # *.config.php in that directory, so this applies to the EXISTING
+        # install - unlike the image's own redis.config.php, which is only
+        # seeded at first installation and therefore never arrived here.
+        configs:
+          redis.config.php: |-
+            <?php
+            $CONFIG = array (
+              'memcache.local' => '\\OC\\Memcache\\APCu',
+              'memcache.distributed' => '\\OC\\Memcache\\Redis',
+              'memcache.locking' => '\\OC\\Memcache\\Redis',
+              'redis' => array (
+                'host' => getenv('REDIS_HOST') ?: 'redis-master.redis.svc.cluster.local',
+                'port' => (int) (getenv('REDIS_HOST_PORT') ?: 6379),
+                'password' => getenv('REDIS_HOST_PASSWORD') ?: '',
+                'timeout' => 1.5,
+              ),
+            );
         phpConfigs:
           # 200G. This number is a claim about how much SCRATCH DISK a single
           # request may consume, because PHP buffers the whole PUT body before
@@ -268,12 +297,32 @@ helmCharts:
       # Use the ONE shared Redis instead of standing up a second one here.
       redis:
         enabled: false
-      externalRedis:
-        enabled: true
-        host: redis-master.redis.svc.cluster.local
-        port: 6379
-        existingSecret: redis-auth
-        existingSecretPasswordKey: redis-password
+      # `externalRedis:` USED TO BE HERE AND DID NOTHING. Verified two ways,
+      # because the first attempt at checking was itself wrong:
+      #
+      #   1. chart 6.6.10's values.yaml has NO `externalRedis` key at all
+      #      (downloaded and grepped). Helm accepts unknown values silently.
+      #   2. the running pod had no REDIS_* env vars and its config.php had no
+      #      memcache.distributed / memcache.locking.
+      #
+      # NOT valid evidence, recorded so nobody repeats it: `kubectl kustomize
+      # --enable-helm apps/nextcloud | grep -c REDIS` returning 0. helm is not
+      # installed on the workstation, so that command renders NOTHING and
+      # greps an empty file. It returns 0 whether the key works or not.
+      #
+      # The cost was not a missing nicety. With no `memcache.locking`,
+      # Nextcloud falls back to DATABASE transactional file locking, so every
+      # file operation writes lock rows to Postgres. That is a leading cause of
+      # "Nextcloud is incredibly slow".
+      #
+      # This is the exact trap the comment further down already warns about for
+      # extraVolumes - "a mistyped or renamed chart value fails SILENTLY" - and
+      # it had already happened, ten lines above that warning. Helm never errors
+      # on unknown values.
+      #
+      # The replacement is `nextcloud.configs` + `nextcloud.extraEnv` below,
+      # both of which are real keys in this chart and both of which are visible
+      # in the rendered output.
       service:
         main:
           ports:
