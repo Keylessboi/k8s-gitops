@@ -34,6 +34,8 @@ the literal string you are seeing, then read the entry.
 | An *arr app that cannot reach another service by name | bare short hostnames — recurring class |
 | ArgoCD says Synced but the object is stale | ServerSideDiff bug — 2026-08-31 |
 | Blocked from every published host, including Authentik itself | CrowdSec LAPI dead, frozen blocklist — 2026-09-11 |
+| `403` in 0ms with no backend in the Traefik log | bouncer failing closed, restart Traefik — 2026-09-11 |
+| "Broken for me, works for you" on a published host | you are probably in clientTrustedIPs — 2026-09-11 |
 | A pod hung forever on a tiny read from an NFS volume, no error | stale NFSv4 delegation — 2026-09-11 |
 | `(deleted)` in /proc/PID/fd for a file that plainly exists | stale NFS dentry cache — 2026-09-11 |
 | A local `cp` on the NAS taking minutes for a few MB | delegation recall stalling local I/O — 2026-09-11 |
@@ -138,6 +140,39 @@ prose version of the prevention failed:
   ran dead for a day and a half and the only signal was a Degraded dot in
   ArgoCD that nothing was watching. A bouncer whose `last_pull` is hours stale
   is the specific thing to alert on.
+
+### The part that actually restored access: restart Traefik
+
+Fixing LAPI did NOT unblock anyone, and the entry above would have left the
+next reader believing it did. The report came back: "still blocked from
+authentik".
+
+- **What was really rejecting people:** the Traefik CrowdSec bouncer plugin,
+  failing CLOSED. Traefik's access log shows `403` in **0ms with no backend**
+  (`"-"` where the upstream URL goes) - a middleware verdict, reached before
+  routing. One IP took 403 on authentik, immich and ghost in the same second,
+  which is the signature of a global middleware rather than any one app.
+- **Why it did not heal itself:** the plugin runs `crowdsecMode: stream`. It
+  lost its stream when LAPI died on the 10th and stayed in that state. The
+  Traefik pod was 3d4h old, so a healthy LAPI underneath changed nothing -
+  `cscli decisions list --ip <addr>` returned `[]` for every blocked address,
+  proving CrowdSec had decided nothing about them.
+- **Fix:** `kubectl rollout restart deploy/traefik -n kube-system`. Access was
+  restored immediately, and no 403 has appeared since.
+- **THE METHODOLOGICAL TRAP, which cost most of the time here.** The middleware
+  carries an allowlist:
+
+      clientTrustedIPs: [10.42.0.0/16, 10.43.0.0/16, 192.168.1.0/24,
+                         74.101.53.75/32, 144.62.224.77/32]
+
+  The workstation used for testing is **74.101.53.75** - on that list. So every
+  "I verified the edge, it returns 302" check was run from an address exempt
+  from the middleware doing the blocking. It could never have reproduced the
+  bug, and it was used as evidence the edge was fine. **A reachability test
+  from a trusted IP proves nothing about untrusted clients.** When a report is
+  "it's broken for me, fine for you", check the allowlist BEFORE trusting any
+  of your own probes, and read the access log for the reporter's address
+  instead - that is what finally identified both the IP and the verdict.
 
 ## 2026-09-11 — ArgoCD said Synced, twice, and had applied nothing
 
