@@ -12,17 +12,26 @@
 # (gate.py matters: app.py imports it at module scope, so omitting it is a
 # ModuleNotFoundError at startup and total loss of playback).
 #
-# imagePullPolicy: IfNotPresent is LOAD-BEARING, not a default. The image was
-# imported straight into the node's containerd
-# (`k3s ctr images import`) because Forgejo's registry needs a token that does
-# not exist yet, and `docker.io/library/octo-yt-dlp-shim` is not a real
-# registry path - with Always, the kubelet tries Docker Hub and the pod
-# ImagePullBackOffs forever.
+# NO LONGER STATE OUTSIDE GIT. This file used to say "THIS IS THE ONE PIECE OF
+# STATE OUTSIDE GIT and it should not stay that way: a node rebuild loses the
+# image and this Deployment will not start." That debt is paid.
 #
-# THIS IS THE ONE PIECE OF STATE OUTSIDE GIT and it should not stay that way:
-# a node rebuild loses the image and this Deployment will not start. The fix is
-# a Forgejo access token, then push and change the tag here. Until then this is
-# documented debt rather than a silent trap.
+# The image is now built by .github/workflows/octo-yt-dlp-shim.yaml, which
+# checks out winters27/octo at a pinned commit and publishes to GHCR. The
+# blocker was never really a credential: GitHub Actions' built-in GITHUB_TOKEN
+# publishes to GHCR under this repo's owner given `packages: write`, so neither
+# the Forgejo token this comment used to wait on nor a personal access token is
+# involved. The package is public, so the kubelet pulls it anonymously and no
+# imagePullSecret is needed.
+#
+# Pinned by DIGEST, not just the tag. The tag is a date and dates get reused by
+# a rebuild; the digest is what makes "what is running" answerable. To bump the
+# shim, change UPSTREAM_REF in the workflow, let it run, then update both here.
+#
+# imagePullPolicy left at IfNotPresent: with a digest there is nothing to
+# re-resolve, so pulling again on every restart would only cost time. It is no
+# longer load-bearing the way it was when the image existed solely inside one
+# node's containerd - a node rebuild now recovers on its own.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -40,8 +49,7 @@ spec:
     spec:
       containers:
         - name: shim
-          image: docker.io/library/octo-yt-dlp-shim:2026.09.11
-          # See the header. Always would break this outright.
+          image: ghcr.io/keylessboi/octo-yt-dlp-shim:2026.09.11@sha256:9ef769766069a5cfb0949a0634c04b45fef5bd7eee27dc4c2223f5d1dfb3affe
           imagePullPolicy: IfNotPresent
           env:
             # Same VPN path Octo itself uses. yt-dlp and requests both honour
