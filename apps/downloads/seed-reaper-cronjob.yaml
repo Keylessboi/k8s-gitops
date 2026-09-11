@@ -1,6 +1,16 @@
 ---
-# Remove music torrents once they have seeded to ratio 1.0 AND the data is
-# provably safe to lose from the torrent tree.
+# Remove music torrents once they have seeded to ratio 1.0, waited out any
+# private tracker's minimum seed time, AND the data is provably safe to lose
+# from the torrent tree.
+#
+# PRIVATE TRACKERS ARE HELD FOR 30 DAYS regardless of ratio. MyAnonamouse has
+# hit-and-run rules: hitting ratio 1.0 does not entitle you to stop seeding,
+# and deleting early costs the ACCOUNT, not the disk. A well-seeded book can
+# pass ratio 1.0 in hours, so before this the reaper would have deleted MAM
+# torrents almost immediately - it had no seed-time check and no tracker check
+# at all. Matching is on the TRACKER URL, not the qBittorrent category,
+# because the category records where a file went and not who it came from:
+# Lidarr files MAM audiobook grabs under `music` like everything else.
 #
 # THE SAFETY RULE IS THE WHOLE DESIGN. A torrent is only removed when EVERY
 # one of its files has st_nlink > 1 - meaning Lidarr hardlinked it into
@@ -91,6 +101,13 @@ data:
     URL   = os.environ["QBIT_URL"].rstrip("/")
     CAT   = os.environ.get("QBIT_CATEGORY", "music")
     MINR  = float(os.environ.get("MIN_RATIO", "1.0"))
+    # Substrings matched against a torrent's tracker URLs. Anything matching is
+    # held for MIN_SEED_DAYS regardless of ratio.
+    PROTECTED_TRACKERS = [d.strip().lower() for d in
+                          os.environ.get("PROTECTED_TRACKERS",
+                                         "myanonamouse.net,iptorrents.com").split(",")
+                          if d.strip()]
+    MIN_SEED_DAYS = float(os.environ.get("MIN_SEED_DAYS", "30"))
     APPLY = os.environ.get("APPLY", "0") == "1"
 
     jar = http.cookiejar.CookieJar()
@@ -111,10 +128,45 @@ data:
 
     reaped = kept = unsafe = 0
     freed = 0
+    held_seedtime = 0
     for t in torrents:
         if t.get("ratio", 0) < MINR:
             kept += 1
             continue
+        # PRIVATE TRACKERS GET A MINIMUM SEED TIME, ratio notwithstanding.
+        #
+        # MyAnonamouse is a private tracker with hit-and-run rules: reaching
+        # ratio 1.0 does not entitle you to stop seeding, and removing a
+        # torrent early costs the ACCOUNT, not the disk. Ratio can pass 1.0 in
+        # hours on a well-seeded book, so without this the reaper would have
+        # deleted MAM torrents almost immediately - it had no seed-time check
+        # and no tracker check at all.
+        #
+        # 30 days, measured from qBittorrent's own seeding_time (seconds spent
+        # seeding, not wall-clock since it was added - a torrent paused for a
+        # week has not been seeding for that week).
+        #
+        # Matching is on the tracker URL rather than the qBittorrent category,
+        # because the category says where a file went, not who it came from:
+        # Lidarr files MAM audiobook grabs under `music` like anything else.
+        # An unreachable tracker list is treated as "private" and held; the
+        # cost of holding a torrent too long is disk, and the cost of the
+        # opposite is the account.
+        trackers_raw = ""
+        try:
+            trackers_raw = call("/api/v2/torrents/trackers?hash=" + t["hash"])
+        except Exception as e:
+            print(f"  HOLD  (tracker list unavailable: {e}) {t['name'][:45]}")
+            held_seedtime += 1
+            continue
+        is_protected = any(d in trackers_raw.lower() for d in PROTECTED_TRACKERS)
+        if is_protected:
+            seeded_days = t.get("seeding_time", 0) / 86400.0
+            if seeded_days < MIN_SEED_DAYS:
+                print(f"  HOLD  (private tracker, seeded {seeded_days:.1f}d of "
+                      f"{MIN_SEED_DAYS}d) ratio={t['ratio']:.2f} {t['name'][:42]}")
+                held_seedtime += 1
+                continue
         path = t.get("content_path") or t.get("save_path")
         if not path or not os.path.exists(path):
             print(f"  SKIP (no path on disk): {t['name'][:60]}")
@@ -142,5 +194,6 @@ data:
                  {"hashes": t["hash"], "deleteFiles": "true"})
 
     print(f"\nreaped={reaped} kept_below_ratio={kept} kept_unsafe={unsafe} "
+          f"held_min_seed_time={held_seedtime} "
           f"bytes_in_reaped={freed/1073741824:.1f} GB")
     print("DRY RUN - set APPLY=1 to actually remove" if not APPLY else "APPLIED")
