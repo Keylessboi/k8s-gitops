@@ -79,6 +79,31 @@ metadata:
   name: lidarr-mass-search-a
   namespace: lidarr
 spec:
+  # SUSPENDED 2026-09-11. Measured, not guessed:
+  #
+  #   100/15638 albums | batch 106647s | 1/hr | ~11373.2h left
+  #
+  # 29.6 HOURS for one batch of 50, one album per hour, and roughly 150 albums
+  # searched across both workers in 7d22h. 36,091 albums are missing, so at
+  # that rate reaching even 30% would take about seven months of searching
+  # alone, before a single download. Worker B had stopped making progress
+  # entirely and was only logging `GET /command/<id>: timed out`.
+  #
+  # Meanwhile it cost the whole cluster: it pinned Lidarr past a 180s response
+  # time, drove the node to load 28 at 88% memory, and is what made
+  # octo-artist-on-heart fail every 15 minutes.
+  #
+  # THE SEARCH STRATEGY WAS NEVER THE BOTTLENECK. /config/lidarr.db is 3.94 GB
+  # on nfs-csi, and every command Lidarr runs writes to it across a filesystem
+  # where a single commit measures ~7.5s. That is why a batch of 50 takes 29
+  # hours. Swapping in a different searcher without moving that database would
+  # just produce a differently-named slow thing.
+  #
+  # Nothing is lost by suspending. Both workers persist their position to
+  # /config/.mass-search-cursor-{a,b} (a=9368, b=36792 at suspend time), so
+  # removing this line resumes exactly where they stopped. The long tail is
+  # going to Tubifarry's Search Sniper instead, once Lidarr can answer.
+  suspend: true
   backoffLimit: 6
   template:
     metadata:
@@ -319,6 +344,11 @@ metadata:
   name: lidarr-mass-search-b
   namespace: lidarr
 spec:
+  # SUSPENDED 2026-09-11 — see the long note on lidarr-mass-search-a above.
+  # This worker was the worse of the two: it had stopped completing batches
+  # altogether and was only emitting `GET /command/<id>: timed out`.
+  # Cursor preserved at /config/.mass-search-cursor-b (36792).
+  suspend: true
   backoffLimit: 6
   template:
     metadata:
