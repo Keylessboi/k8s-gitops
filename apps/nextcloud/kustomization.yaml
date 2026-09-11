@@ -75,8 +75,25 @@ helmCharts:
           # sizes summing exactly, the MOVE still returns 201 while Nextcloud
           # logs "Stream from assembly node shorter than expected" and no file
           # appears. Reproduced at both 256 MiB and 64 MiB chunk sizes.
-          # Redis, read by the redis.config.php in `configs:` below. Kept as
-          # env rather than literals so the password never enters git.
+          # Redis. THE ENV VARS ARE THE WHOLE FIX - no config file needed.
+          #
+          # The chart already ships files/defaultConfigs/redis.config.php.tpl
+          # and already enables it (`defaultConfigs.redis.config.php: true`),
+          # and that template sets memcache.distributed, memcache.locking and
+          # the redis block - but the entire body is wrapped in
+          # `if (getenv('REDIS_HOST'))`. With no REDIS_HOST it emitted an empty
+          # config, which is why Nextcloud had only memcache.local => APCu and
+          # fell back to DATABASE transactional file locking, writing lock rows
+          # to Postgres on every file operation.
+          #
+          # A hand-written redis.config.php was tried first and was a mistake
+          # twice over: it duplicated what the chart already does, and because
+          # config.yaml ranges over `configs` AND `defaultConfigs` into ONE
+          # ConfigMap data map, defining the same filename in both produced a
+          # duplicate YAML key. kustomize refused to build and the Application
+          # sat at Sync=Unknown - healthy pod, no syncing.
+          #
+          # Password by secretKeyRef so it never enters git.
           - name: REDIS_HOST
             value: redis-master.redis.svc.cluster.local
           - name: REDIS_HOST_PORT
@@ -136,27 +153,6 @@ helmCharts:
             <?php
             $CONFIG = array (
               'allow_local_remote_servers' => true,
-            );
-          # Mounted into /var/www/html/config/. Nextcloud reads every
-          # *.config.php in that directory, so this applies to the EXISTING
-          # install - unlike the image's own redis.config.php, which is only
-          # seeded at FIRST installation and therefore never arrived here.
-          #
-          # Without memcache.locking, Nextcloud falls back to DATABASE
-          # transactional file locking and every file operation writes lock
-          # rows to Postgres. That is a leading cause of "Nextcloud is slow".
-          redis.config.php: |-
-            <?php
-            $CONFIG = array (
-              'memcache.local' => '\\OC\\Memcache\\APCu',
-              'memcache.distributed' => '\\OC\\Memcache\\Redis',
-              'memcache.locking' => '\\OC\\Memcache\\Redis',
-              'redis' => array (
-                'host' => getenv('REDIS_HOST') ?: 'redis-master.redis.svc.cluster.local',
-                'port' => (int) (getenv('REDIS_HOST_PORT') ?: 6379),
-                'password' => getenv('REDIS_HOST_PASSWORD') ?: '',
-                'timeout' => 1.5,
-              ),
             );
         # S3 as PRIMARY storage, which is what the plan asks for: MinIO
         # primary, NFS only as a media-streaming fallback. Nextcloud speaks S3
