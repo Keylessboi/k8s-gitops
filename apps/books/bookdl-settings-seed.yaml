@@ -1,0 +1,31 @@
+---
+# First-run defaults for Shelfmark (book-downloader), used ONLY when
+# /config/settings.json does not exist.
+#
+# Captured from the live install on 2026-09-11 rather than invented, so a
+# rebuild comes back configured the way it actually was. The seed-settings
+# initContainer in book-downloader.yaml copies this in and then never touches
+# it again - Shelfmark writes this file itself, so treating it as a managed
+# template would fight the app.
+#
+# No credentials here on purpose. Every secret this app needs (Hardcover,
+# qBittorrent, Prowlarr, OIDC) arrives as an env var from Doppler, which is why
+# this can sit in git in plain text.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bookdl-settings-seed
+  namespace: books
+data:
+  settings.json: |
+    {
+      "BOOK_LANGUAGE": ["en"],
+      "CALIBRE_WEB_URL": "https://books.sandstorm.chat",
+      "METADATA_PROVIDER": "hardcover",
+      "SEARCH_MODE": "universal",
+      "SEARCH_PAGE_TITLE": "Shelfmark",
+      "SHOW_COMBINED_SELECTOR": false,
+      "SUPPORTED_AUDIOBOOK_FORMATS": ["m4b", "mp3", "m4a", "flac", "ogg", "wma", "aac", "wav", "opus", "zip", "rar"],
+      "SUPPORTED_FORMATS": ["epub", "mobi", "azw3", "pdf", "fb2", "djvu", "cbz", "cbr"],
+      "onboarding_complete": true
+    }

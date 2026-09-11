@@ -21,6 +21,88 @@ spec:
       labels:
         app.kubernetes.io/name: prowlarr
     spec:
+      initContainers:
+        # SEED THE API KEY, so losing the config volume cannot silently break
+        # everything that calls Prowlarr.
+        #
+        # Prowlarr keeps its indexers, applications and credentials in Postgres
+        # (PROWLARR__POSTGRES__* below), so the config PVC is nearly disposable
+        # - with one exception. config.xml holds <ApiKey>, and that value is not
+        # in Postgres. If this volume is ever lost or rebuilt, Prowlarr mints a
+        # fresh random key on first start and comes up looking perfectly
+        # healthy, while every caller that has the OLD key starts getting 401s:
+        #   - remux's Torznab addon (apps/remux), which is where its stream
+        #     sources come from, so playback simply stops finding anything
+        #   - book-downloader (apps/books), via the bookdl-extras secret
+        # Nothing alerts on that. It presents as "search returns no results",
+        # which is exactly the kind of failure that costs an evening.
+        #
+        # Moving the volume to local-path made this worth fixing rather than
+        # just noting: node-local storage is the one that can plausibly go away.
+        #
+        # The key is therefore DECLARATIVE - Doppler is the source of record and
+        # this container makes the file agree with it. Consequence to know
+        # before "fixing" it: rotating the key in Prowlarr's own UI will be
+        # reverted on the next restart. Rotate it in Doppler instead.
+        - name: seed-apikey
+          image: busybox:1.36.1
+          command: ["/bin/sh", "-c"]
+          env:
+            - name: PROWLARR_API_KEY
+              valueFrom:
+                secretKeyRef: {name: prowlarr-apikey, key: api-key}
+          args:
+            - |
+              set -eu
+              CFG=/config/config.xml
+              if [ -z "${PROWLARR_API_KEY}" ]; then
+                echo "no API key in the secret - leaving config.xml alone"
+                exit 0
+              fi
+              if [ ! -f "$CFG" ]; then
+                # Disaster recovery: a fresh volume. Write a complete file
+                # rather than letting Prowlarr generate one, because the whole
+                # point is that the key must not be random.
+                echo "config.xml absent - seeding a fresh one"
+                {
+                  echo '<Config>'
+                  echo '  <BindAddress>*</BindAddress>'
+                  echo '  <Port>9696</Port>'
+                  echo '  <SslPort>6969</SslPort>'
+                  echo '  <EnableSsl>False</EnableSsl>'
+                  echo '  <LaunchBrowser>False</LaunchBrowser>'
+                  echo '  <AuthenticationMethod>Forms</AuthenticationMethod>'
+                  echo '  <AuthenticationRequired>Enabled</AuthenticationRequired>'
+                  echo '  <Branch>master</Branch>'
+                  echo '  <LogLevel>Info</LogLevel>'
+                  echo '  <SslCertPath></SslCertPath>'
+                  echo '  <SslCertPassword></SslCertPassword>'
+                  echo '  <UrlBase></UrlBase>'
+                  echo '  <InstanceName>Prowlarr</InstanceName>'
+                  echo '  <UpdateMechanism>Docker</UpdateMechanism>'
+                  echo "  <ApiKey>${PROWLARR_API_KEY}</ApiKey>"
+                  echo '</Config>'
+                } > "$CFG"
+                chown 1000:1000 "$CFG"
+                exit 0
+              fi
+              cur=$(sed -n 's#.*<ApiKey>\([^<]*\)</ApiKey>.*#\1#p' "$CFG")
+              if [ "$cur" = "${PROWLARR_API_KEY}" ]; then
+                echo "api key already matches the declared one - nothing to do"
+                exit 0
+              fi
+              # Never echo either value. Lengths are enough to debug with.
+              echo "api key differs (file=${#cur} chars, declared=${#PROWLARR_API_KEY} chars) - rewriting"
+              cp "$CFG" "$CFG.bak.$(date +%s)"
+              sed -i "s#<ApiKey>[^<]*</ApiKey>#<ApiKey>${PROWLARR_API_KEY}</ApiKey>#" "$CFG"
+              chown 1000:1000 "$CFG"
+              echo "rewritten"
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - name: config
+              mountPath: /config
       containers:
         - name: prowlarr
           image: lscr.io/linuxserver/prowlarr:2.5.2.5491-ls156

@@ -36,6 +36,48 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # SEED settings.json, so a lost config volume does not land you back in
+        # the onboarding wizard.
+        #
+        # Shelfmark keeps its runtime settings in /config/settings.json, which
+        # it WRITES ITSELF - the UI edits it, and it has overwritten values set
+        # elsewhere before. So this is a seed, not a template: it runs only when
+        # the file is absent. An existing file is never touched, and the app
+        # stays free to manage its own settings.
+        #
+        # Everything below is plain configuration - no credentials, which all
+        # arrive as env vars from Doppler - so it belongs in git rather than in
+        # a secret. `onboarding_complete` is the one that matters most: without
+        # it the app presents a first-run wizard instead of a working search
+        # page, which looks like a much bigger failure than it is.
+        #
+        # Worth seeding now because the config volume is local-path
+        # (apps/books/pvc-bookdl-local.yaml) - node-local storage is the kind
+        # that can plausibly disappear.
+        - name: seed-settings
+          image: busybox:1.36.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              if [ -f /config/settings.json ]; then
+                echo "settings.json present - leaving it alone (the app owns it)"
+                exit 0
+              fi
+              echo "settings.json absent - seeding defaults"
+              cp /seed/settings.json /config/settings.json
+              chown 1000:1000 /config/settings.json
+              echo seeded
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: settings-seed
+              mountPath: /seed
+              readOnly: true
       containers:
         - name: downloader
           # v1.3.12, not :latest. A floating tag means the running version
@@ -529,6 +571,9 @@ spec:
             - name: config
               mountPath: /config
       volumes:
+        - name: settings-seed
+          configMap:
+            name: bookdl-settings-seed
         - name: data
           persistentVolumeClaim:
             claimName: media-data
