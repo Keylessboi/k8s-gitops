@@ -117,25 +117,46 @@ list is ever lost.
   or password").
 - **4 pre-existing `check-invariants.py` findings.**
 
-## 🔴 Lidarr's database is 3.94 GB, on NFS
+## 🗃️ Every embedded database on NFS, and where each one is going
 
-Found 2026-09-11 while looking at mass-search progress. `/config/lidarr.db` is
-**3,940,098,048 bytes** on `nfs-csi`. A normal Lidarr database is tens of MB.
-`logs.db` is another 490 MB.
+Audited 2026-09-11 by scanning the NAS server-side. Do this server-side, not
+with `kubectl exec ... find -printf`: **busybox `find` has no `-printf`**, so a
+container-side audit silently reported navidrome and jellyfin as CLEAN when
+both had databases over 100 MB. The command that works:
 
-This is the same pathology already fixed for remux, prowlarr and crowdsec
-today, at ~560x crowdsec's size, and it is the most likely reason
-`GET /api/v1/artist` exceeds 180s and the node sits at load 28. Suspected
-cause is the two `lidarr-mass-search-a/b` jobs, running continuously for
-7d22h and writing history/release rows the whole time — which would make it
-degenerative: the search bloats the database, the bloat slows the search.
+    doas find /extra/nfs-csi -maxdepth 4 \( -name '*.db' -o -name '*.sqlite*' \) -size +1M
 
-NOT yet diagnosed or fixed. Do not assume the mass search alone is the
-bottleneck until the table sizes are known.
+Placement follows ADR-0009: Postgres if the app supports it, local-path if it
+does not, NFS never.
 
----
+| Database | Size | Destination | Status |
+|---|---|---|---|
+| `lidarr.db` | **3.94 GB** | local-path now, **Postgres later** (*arr supports it) | migrating |
+| `navidrome.db` | 142 MB | local-path (SQLite-only, final) | migrating |
+| slskd `events/transfers/search.db` | **218 MB** | local-path (SQLite-only) | TODO |
+| `qui.db` | 16 MB | **Postgres** — qui supports it | TODO |
+| `grafana.db` | 2.2 MB | Postgres — supported | TODO, low |
+| `readarr.db` | 1.6 MB | Postgres — *arr | TODO, low |
+| `hermes/state.db` | 3.5 MB | unknown, check | TODO, low |
+| `ghost.db` | 1.0 MB | Ghost wants MySQL, not Postgres | leave |
 
-# 🌅 START HERE 2026-09-05 (evening)
+### Already done, and the leftovers are deliberate
+`remux/db.sqlite` (309 MB) and `crowdsec.db` (7 MB) still sit on NFS. **That is
+intentional** — they are the pre-migration rollback copies, and both apps
+already run from local-path. Do not "clean them up" without reading the
+comment in each app's `pvc-*-local.yaml`.
+
+### Orphaned data to reclaim
+`/extra/nfs-csi/jellyfin/` holds `jellyfin.db` (160 MB) and an
+`aiostreams-data/db.sqlite`. **Jellyfin is gone** — no ArgoCD app, no
+namespace, no manifests in git. Nothing to migrate; it is dead data. Same for
+`pvc-872aa5df-….pre-restore/` and `pvc-bb7ab370-…/grafana.db`.
+
+### The copy trick that matters
+**Use `cp`, not `tar`.** `tar` reads in 10 KiB blocks, and over this NFS mount
+that measured **0.42 MB/s** — a 5-hour job for Lidarr. `cp` uses the
+filesystem block size (`rsize=1M` here) and measured **3.7 MB/s**, ~9x faster.
+Running two migrations at once halves each, so do them one at a time.
 
 ## ✅ The Immich migration is DONE and verified
 
