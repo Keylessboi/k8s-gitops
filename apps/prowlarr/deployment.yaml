@@ -10,10 +10,7 @@ metadata:
   name: prowlarr
   namespace: prowlarr
 spec:
-  # TEMPORARILY 0 while /config is copied to the local-path PVC. In git, not
-  # `kubectl scale`: scale loses to selfHeal, which is how the remux migration
-  # produced a torn SQLite file. Restored to 1 after the copy.
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -101,7 +98,13 @@ spec:
                 path: Custom/libgen.yml
         - name: config
           persistentVolumeClaim:
-            claimName: prowlarr-config
+            # prowlarr-config-local, NOT prowlarr-config. prowlarr.db is
+            # SQLite and a search writes every result and history row into it,
+            # on a volume where a 512-byte fsync cost 2.7-4.7s (1.2-2.5s even
+            # after sync=disabled) against 0.006s on local disk. See
+            # apps/prowlarr/pvc-config-local.yaml. The nfs-csi PVC stays
+            # declared in pvc-config.yaml as the rollback.
+            claimName: prowlarr-config-local
 ---
 apiVersion: v1
 kind: Service
