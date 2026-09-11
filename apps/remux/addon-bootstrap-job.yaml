@@ -97,10 +97,26 @@ spec:
                       ' DeviceId="remux-addon-bootstrap", Version="1.0"')
 
               def call(path, data=None, method=None, token=None, timeout=60):
-                  h = {"Content-Type": "application/json",
-                       "X-Emby-Authorization": AUTH}
+                  # THE TWO HEADERS ARE MUTUALLY EXCLUSIVE, and sending both is
+                  # a 401. Measured against this exact build on 2026-09-11:
+                  #   X-Emby-Token + X-Emby-Authorization -> HTTP 401
+                  #   X-Emby-Token alone                  -> 200, 7 addons
+                  #   X-Emby-Authorization with Token=""  -> 200, 7 addons
+                  # remux reads X-Emby-Authorization first; when it is present
+                  # but carries no Token= field, the request is treated as
+                  # unauthenticated no matter what X-Emby-Token says. That is
+                  # why this job failed with a 401 that looked like a bad
+                  # password but came from GET /Addons, one call AFTER
+                  # AuthenticateByName had already succeeded.
+                  #
+                  # apps/remux/user-sync-cronjob.yaml gets this right by
+                  # accident - it builds a fresh header dict for the
+                  # authenticated calls instead of reusing the login one.
+                  h = {"Content-Type": "application/json"}
                   if token:
                       h["X-Emby-Token"] = token
+                  else:
+                      h["X-Emby-Authorization"] = AUTH
                   req = urllib.request.Request(
                       RX + path,
                       data=json.dumps(data).encode() if data is not None else None,
