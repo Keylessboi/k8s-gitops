@@ -22,7 +22,51 @@ tell: playback streams files sequentially from the media mount and always
 worked, while search queries the database and always failed. Same server, same
 network, opposite outcomes.
 
-### Why it is slow - measured, not assumed
+### CORRECTION: it is not NFS. The pool is IOPS-saturated.
+
+This section originally blamed NFS and `recordsize`. That was wrong, and the
+wrong diagnosis is worth keeping because it is the one a reader will reach for
+first. Measured 2026-09-11, in this order:
+
+| Path | Throughput |
+|---|---|
+| raw TCP, k3s container <-> NAS (memory to memory) | **111.5 MB/s** |
+| NFS sequential read, `bs=1M` | **3.0-3.2 MB/s** |
+| the SAME data read LOCALLY ON THE NAS, cold | **~1.7-3 MB/s** |
+
+**NFS delivers essentially everything the pool can produce.** The 111 MB/s
+figure is network only - that test sent a memory buffer and never touched a
+disk, which is exactly why it looked like proof that NFS was broken. It was
+not.
+
+What the pool is actually doing, from `zpool iostat -v`:
+
+    tank   211 read ops/s   3.71 MB/s   <- ~18 KB per read
+
+211 IOPS is about right for a two-disk HDD mirror; that is the ceiling, and it
+is fully consumed. The reads are ~18 KB and scattered, so the disks spend their
+time seeking rather than transferring.
+
+**The consumer is qBittorrent: 2,199 torrents, 959 of them seeding.** Serving
+1.19 MB/s of upload spread across ~1000 torrents means constant small random
+reads all over a 4.4 TB pool. That is the entire IOPS budget, and everything
+else - databases, media streaming, migrations - queues behind it.
+
+Ruled out along the way, each with a measurement, so nobody re-tests them:
+
+- **packet loss / network** - `retrans 0` across 1.4 billion RPC calls
+- **`nconnect=8`** - remounted with it: 3.1 MB/s, unchanged
+- **nfs-ganesha (userspace NFS)** - it is kernel `nfsd`, 16 threads
+- **a Proxmox container rate limit** - `pct config 200` has no `rate=`
+- **file fragmentation** - a file written in ONE pass read at 2.9 MB/s against
+  3.0 MB/s for one grown over months. Identical.
+
+The conclusion below is unchanged, but the REASON is different: databases must
+leave this pool not because NFS is slow, but because a latency-sensitive
+workload cannot share ~200 IOPS with a thousand seeding torrents.
+
+### Contributing factors, measured
+
 
 The NAS pool is a **two-disk mirror of spinning disks** (`rotational=1` on
 both), healthy, 61% full, no SLOG and no special vdev. It has **7 GB of RAM
