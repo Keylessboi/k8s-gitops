@@ -52,6 +52,33 @@ spec:
             runAsNonRoot: true
             runAsUser: 1000
             runAsGroup: 1000
+          initContainers:
+            # kube-router programs this pod's NetworkPolicy 1-2s AFTER the pod
+            # starts, and until it does, allowed egress is REJECTed as a bare
+            # "connection refused". A job that logs in once and exits would
+            # simply fail that race. Caught by scripts/ci/check-invariants.py,
+            # which exists because this cost three consecutive pg_dump runs.
+            - name: wait-for-qbittorrent
+              image: busybox:1.37
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  for i in $(seq 1 60); do
+                    if nc -z qbittorrent.downloads.svc.cluster.local 8080; then
+                      echo "qbittorrent reachable after ${i} attempt(s)"
+                      exit 0
+                    fi
+                    sleep 2
+                  done
+                  echo "qbittorrent not reachable after 120s"
+                  exit 1
+              resources:
+                requests: {cpu: 10m, memory: 16Mi}
+                limits: {cpu: 100m, memory: 64Mi}
           containers:
             - name: forcestart
               image: python:3.12-alpine3.20

@@ -137,6 +137,27 @@ helmCharts:
             $CONFIG = array (
               'allow_local_remote_servers' => true,
             );
+          # Mounted into /var/www/html/config/. Nextcloud reads every
+          # *.config.php in that directory, so this applies to the EXISTING
+          # install - unlike the image's own redis.config.php, which is only
+          # seeded at FIRST installation and therefore never arrived here.
+          #
+          # Without memcache.locking, Nextcloud falls back to DATABASE
+          # transactional file locking and every file operation writes lock
+          # rows to Postgres. That is a leading cause of "Nextcloud is slow".
+          redis.config.php: |-
+            <?php
+            $CONFIG = array (
+              'memcache.local' => '\\OC\\Memcache\\APCu',
+              'memcache.distributed' => '\\OC\\Memcache\\Redis',
+              'memcache.locking' => '\\OC\\Memcache\\Redis',
+              'redis' => array (
+                'host' => getenv('REDIS_HOST') ?: 'redis-master.redis.svc.cluster.local',
+                'port' => (int) (getenv('REDIS_HOST_PORT') ?: 6379),
+                'password' => getenv('REDIS_HOST_PASSWORD') ?: '',
+                'timeout' => 1.5,
+              ),
+            );
         # S3 as PRIMARY storage, which is what the plan asks for: MinIO
         # primary, NFS only as a media-streaming fallback. Nextcloud speaks S3
         # natively, so this needs no filesystem gateway - which is what sank
@@ -168,24 +189,6 @@ helmCharts:
           secretName: nextcloud-admin
           usernameKey: admin-user
           passwordKey: admin-password
-        # Mounted into /var/www/html/config/. Nextcloud reads every
-        # *.config.php in that directory, so this applies to the EXISTING
-        # install - unlike the image's own redis.config.php, which is only
-        # seeded at first installation and therefore never arrived here.
-        configs:
-          redis.config.php: |-
-            <?php
-            $CONFIG = array (
-              'memcache.local' => '\\OC\\Memcache\\APCu',
-              'memcache.distributed' => '\\OC\\Memcache\\Redis',
-              'memcache.locking' => '\\OC\\Memcache\\Redis',
-              'redis' => array (
-                'host' => getenv('REDIS_HOST') ?: 'redis-master.redis.svc.cluster.local',
-                'port' => (int) (getenv('REDIS_HOST_PORT') ?: 6379),
-                'password' => getenv('REDIS_HOST_PASSWORD') ?: '',
-                'timeout' => 1.5,
-              ),
-            );
         phpConfigs:
           # 200G. This number is a claim about how much SCRATCH DISK a single
           # request may consume, because PHP buffers the whole PUT body before
