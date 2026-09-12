@@ -30,11 +30,7 @@ metadata:
   name: qbittorrent
   namespace: downloads
 spec:
-  # TEMPORARILY 0 for the /config migration to local-path (2026-09-12).
-  # BT_backup holds live torrent state and must not be copied while
-  # qBittorrent is writing to it. Restored to 1 in the commit that repoints
-  # the volume.
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -860,7 +856,16 @@ spec:
             type: CharDevice
         - name: config
           persistentVolumeClaim:
-            claimName: qbittorrent-config
+            # qbittorrent-config-local, NOT qbittorrent-config. 78 MB across
+            # 5,070 files (a .torrent + .fastresume per torrent), and the
+            # LinuxServer init stats every one of them via `lsiown -R` before
+            # qBittorrent starts. On nfs-csi that took over TEN MINUTES on
+            # 2026-09-12 - all five containers reporting ready while nothing
+            # listened on 8080 and nothing seeded. Migrated by streaming tar
+            # over ssh from the NAS (5,070 files in 61s) rather than copying
+            # over NFS. See apps/downloads/pvc-qbittorrent-config-local.yaml.
+            # The nfs-csi claim still holds the pre-migration copy.
+            claimName: qbittorrent-config-local
         - name: seedboxapi-config
           persistentVolumeClaim:
             claimName: seedboxapi-config
