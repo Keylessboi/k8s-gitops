@@ -82,7 +82,17 @@ spec:
           restartPolicy: Never
           containers:
             - name: scan
-              image: bitnami/kubectl:1.31.5
+              # rancher/kubectl, NOT bitnami/kubectl. Bitnami withdrew their
+              # public Docker Hub tags, and `bitnami/kubectl:1.31.5` now 404s
+              # on the registry - verified directly, and `bitnamilegacy/kubectl`
+              # does not carry this tag either. The CronJob had been in
+              # ImagePullBackOff for over two days, long enough to start
+              # logging TooManyMissedTimes, while nothing alerted.
+              #
+              # rancher/kubectl is the natural replacement on a k3s cluster -
+              # same vendor as the distribution - and is pinned by digest so a
+              # withdrawn or re-pushed tag cannot repeat this silently.
+              image: rancher/kubectl:v1.31.5@sha256:069d65cb09c9541ef403b258146ed2431728858f9eebc394ef991122f63ecbe0
               command: ["/bin/sh", "-c"]
               args:
                 - |
