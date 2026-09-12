@@ -34,6 +34,7 @@ labels:
 resources:
   - namespace.yaml
   - pvc.yaml
+  - pvc-thumbs-local.yaml
   - networkpolicy.yaml
   - ingress.yaml
 

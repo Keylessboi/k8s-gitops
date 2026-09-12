@@ -1,0 +1,35 @@
+---
+# Immich's generated thumbnails on NODE-LOCAL disk. See docs/adr/0009.
+#
+# MEASURED 2026-09-12, reading real thumbnails through the NFS client:
+#
+#   walk:  77 files in 60.9s
+#   read:  60 thumbnails (7.6 MB) in 146.66s
+#   =>     0.4 thumbnails/sec, 2444 ms EACH
+#
+# An Immich grid loads 50-100 thumbnails per screen, so filling one screenful
+# took two to four minutes. That is not contention noise; it is this pool's
+# random-read latency for small files, and no amount of tuning moves it while
+# the files live there.
+#
+# ONLY THE DERIVATIVES MOVE. The 500 GB of originals stay on nfs-csi where they
+# belong - they are large, sequential, and read rarely. Thumbnails are small,
+# hot, and REGENERABLE: if this volume is ever lost, Immich rebuilds them from
+# the originals (Administration > Jobs > Generate Thumbnails). That is what
+# makes it safe to put them on storage that does not survive losing the node.
+#
+# 10Gi against a measured average of ~127 KB per thumbnail and ~10,400 assets
+# with roughly two derivatives each - about 2.5 GB expected, with room for the
+# library to grow and for the estimate to be wrong by 2x.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: immich-thumbs-local
+  namespace: immich
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi
