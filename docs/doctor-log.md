@@ -33,6 +33,8 @@ the literal string you are seeing, then read the entry.
 | `CrashLoopBackOff` immediately after adding `command:` | `command:` replaces ENTRYPOINT — 2026-08-31 |
 | An *arr app that cannot reach another service by name | bare short hostnames — recurring class |
 | ArgoCD says Synced but the object is stale | ServerSideDiff bug — 2026-08-31 |
+| Immich slow to browse, database is fine | thumbnails on NFS — 2026-09-12 |
+| Immich CrashLoopBackOff, `Failed to read .../.immich` | missing marker file after a volume move — 2026-09-12 |
 | Everything on NFS slow, but disks and network test fine | pool IOPS saturated by seeding — 2026-09-12 |
 | A database is slow but sequential file reads are fine | storage, not the app — 2026-09-12 |
 | `Unrecognized host/PassKey` or `ASN mismatch` from MAM | session locked to the wrong ASN — 2026-09-12 |
@@ -71,6 +73,55 @@ prose version of the prevention failed:
   source *and* ingress in the destination.
 - **Duplicate YAML keys** (1×, but silent) — PyYAML accepts them, Go's yaml does
   not. Validate with the same parser as the consumer.
+
+## 2026-09-12 — Immich: 2,444 ms per thumbnail, and the marker file that blocks the fix
+
+- **Confidence:** CONFIRMED (measured before and after).
+- **Symptom:** "Immich was very slow this morning." Browsing the library
+  crawled; the database was NOT the problem (it has been on CNPG all along).
+- **Root cause:** the 500 GB library PVC is on nfs-csi, and that includes
+  `thumbs/`. Browsing loads 50-100 small thumbnails per screen, which is the
+  worst possible workload for a two-disk HDD mirror. Measured through the NFS
+  client:
+
+      walk:  77 files in 60.9s
+      read:  60 thumbnails (7.6 MB) in 146.66s
+      =>     0.4 thumbnails/sec, 2444 ms EACH
+
+  Two to four minutes to fill one screenful.
+- **Fix:** mount ONLY `thumbs/` from a local-path claim, shadowing that
+  subdirectory of the NFS library. Originals stay on NFS - large, sequential,
+  rarely read. Measured after, same benchmark:
+
+      walk:  600 files in 0.0s
+      read:  60 thumbnails (6.4 MB) in 0.02s
+      =>     2448.7 thumbnails/sec, 0.4 ms EACH
+
+  2444 ms to 0.4 ms, roughly 6000x.
+- **THE TRAP THAT TOOK IMMICH DOWN, and the reason this entry exists.** Immich
+  writes a `.immich` MARKER FILE at the root of every storage folder and
+  REFUSES TO START if one is missing:
+
+      Failed to read (/data/thumbs/.immich): ENOENT
+      microservices worker exited with code 1 -> CrashLoopBackOff
+
+  That is a deliberate safety feature - it is how Immich detects a volume that
+  failed to mount, rather than silently writing into an empty directory. The
+  copy had died before reaching the dotfile, so the new volume had 40,097
+  thumbnails and no marker. Copying `.immich` across and restarting fixed it
+  immediately. **Any Immich storage folder moved to a new volume must carry its
+  `.immich` file**, and an ENOENT on that path is a missing marker, not a
+  broken mount.
+- **Expect gaps after a copy like this.** tar exited non-zero on stale NFS
+  locks (the same thing the slskd migration hit), and counting the source tree
+  to quantify it timed out twice even server-side. The recovery is built in:
+  Administration > Jobs > Generate Thumbnails > MISSING regenerates only what
+  is absent. That is also why derivatives are safe on storage that does not
+  survive losing the node.
+- **Estimate error worth remembering:** sampling 60 files gave an average of
+  127 KB and predicted ~2.5 GB. The real figure is 4.6 GB across 40,097 files -
+  the sample under-represented the larger preview derivatives. Sample-based
+  sizing of a mixed-derivative tree is good to about 2x, no better.
 
 ## 2026-09-12 — the NAS was never slow; a thousand seeding torrents owned the disks
 
