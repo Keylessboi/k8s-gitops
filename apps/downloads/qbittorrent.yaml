@@ -283,6 +283,49 @@ spec:
               grep -q '^\[BitTorrent\]' "$F" || \
                 printf '[BitTorrent]\nSession\\Interface=tun0\nSession\\InterfaceName=tun0\n' >> "$F"
               echo "qBittorrent bound to tun0"
+              # TORRENT QUEUEING. 2,199 torrents with ~959 seeding were
+              # consuming the NAS pool's ENTIRE IOPS budget: zpool iostat showed
+              # 211 read ops/s producing only 3.71 MB/s, i.e. ~18 KB per read -
+              # a thousand torrents' worth of scattered seeks on a two-disk HDD
+              # mirror. Everything else on that pool queued behind it, which is
+              # why databases, media streaming and migrations all crawled.
+              #
+              # THE DANGER THIS CREATES, and why the CronJob next door exists:
+              # a QUEUED torrent in qBittorrent is stopped, and a stopped
+              # torrent DOES NOT ANNOUNCE. Private trackers read that as
+              # abandonment - see qbittorrent/qBittorrent#3473, where users were
+              # flagged hit-and-run while seeding perfectly well, because
+              # queueing suppressed their announces. On MyAnonamouse that costs
+              # the ACCOUNT, not the disk.
+              #
+              # IgnoreSlowTorrentsForQueueing is deliberately FALSE. It looks
+              # like the right answer - idle seeds would stop counting against
+              # the limits - but it is unreliable: it does not override
+              # MaxActiveTorrents (#10168), does not apply on startup until
+              # toggled (#12880), and has been reported to start the entire
+              # queue (#21284). Account safety does not go on top of that.
+              #
+              # Protected trackers are handled by FORCE START instead, which
+              # bypasses the queue outright and keeps the torrent announcing.
+              # See apps/downloads/qbit-protected-forcestart-cronjob.yaml.
+              awk '
+                /^\[BitTorrent\]$/ {
+                  print
+                  print "Session\\QueueingSystemEnabled=true"
+                  print "Session\\MaxActiveDownloads=3"
+                  print "Session\\MaxActiveUploads=8"
+                  print "Session\\MaxActiveTorrents=12"
+                  print "Session\\IgnoreSlowTorrentsForQueueing=false"
+                  next
+                }
+                /^Session\\QueueingSystemEnabled=/ { next }
+                /^Session\\MaxActiveDownloads=/ { next }
+                /^Session\\MaxActiveUploads=/ { next }
+                /^Session\\MaxActiveTorrents=/ { next }
+                /^Session\\IgnoreSlowTorrentsForQueueing=/ { next }
+                { print }
+              ' "$F" > "$F.tmp" && mv "$F.tmp" "$F"
+              echo "qBittorrent queueing enabled (3 dl / 8 ul / 12 active)"
               echo "qBittorrent SOCKS5 proxy + AutoRun configured"
           volumeMounts:
             - name: config
