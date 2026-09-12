@@ -16,8 +16,9 @@
 # had only the proxy, took about a minute to start a stream.
 #
 # Forwarded ports are ONE PER CLIENT, not a pool:
-#   42399 qBittorrent   (Session\Port in qBittorrent.conf; replaced
-#                        6877 on 2026-09-12 - that mapping stuck)
+#   42399 qBittorrent   (TORRENTING_PORT env - NOT Session\Port, which
+#                        the command line overrides; replaced 6877 on
+#                        2026-09-12, whose AirVPN mapping stuck)
 #   6874  slskd         (SLSKD_SLSK_LISTEN_PORT)
 #   50071 remux         (a SEPARATE AirVPN device - see
 #                        apps/doppler/dopplersecrets.yaml)
@@ -312,7 +313,6 @@ spec:
               awk '
                 /^\[BitTorrent\]$/ {
                   print
-                  print "Session\\Port=42399"
                   print "Session\\QueueingSystemEnabled=true"
                   print "Session\\MaxActiveDownloads=3"
                   print "Session\\MaxActiveUploads=8"
@@ -320,7 +320,6 @@ spec:
                   print "Session\\IgnoreSlowTorrentsForQueueing=false"
                   next
                 }
-                /^Session\\Port=/ { next }
                 /^Session\\QueueingSystemEnabled=/ { next }
                 /^Session\\MaxActiveDownloads=/ { next }
                 /^Session\\MaxActiveUploads=/ { next }
@@ -644,8 +643,21 @@ spec:
               value: UTC
             - name: WEBUI_PORT
               value: "8080"
+            # THE PORT THAT ACTUALLY WINS. The LinuxServer image turns this
+            # into `qbittorrent-nox --torrenting-port=<n>`, and a command-line
+            # argument overrides Session\Port in qBittorrent.conf. Writing the
+            # config file alone does nothing: on 2026-09-12 the init container
+            # correctly wrote Session\Port=42399, qBittorrent started, and
+            # SEVEN SECONDS LATER rewrote the file back to 6877 from its
+            # command line. The queueing keys written by the same awk block
+            # survived, which is what made it obvious the awk was fine and the
+            # port specifically was being overridden.
+            #
+            # Must agree with FIREWALL_VPN_INPUT_PORTS on the gluetun container
+            # and with the port assigned in AirVPN. All three, or inbound peers
+            # silently stop and qBittorrent reports "firewalled".
             - name: TORRENTING_PORT
-              value: "6877"
+              value: "42399"
             # Nextcloud WebDAV upload (qbit-upload-config): qBittorrent's AutoRun
             # hook pushes finished torrents to Nextcloud over WebDAV. Values come
             # from the nextcloud-webdav DopplerSecret (kubernetes/prd). Env-gated
