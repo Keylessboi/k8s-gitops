@@ -20,9 +20,15 @@ Two hypotheses were tested and rejected before the real one:
   `sockets-enqueued` (4.6B) was 2x `packets-arrived` (2.3B) and
   `threads-timedout` was 0, meaning no nfsd thread was ever idle. Threads were
   raised 16 -> 64 on a 12-core box. Throughput did not move: still 2 MB/s.
-- **The pool being saturated by ~959 seeding torrents.** Real, and it is what
-  0009 is about, but not this. A cold sequential read of an untouched offset of
-  this very file, on the busy pool, returned 200 MiB in 2577 ms.
+- **The pool being saturated by seeding torrents.** Not true any more, and the
+  "~959 seeding" figure quoted while diagnosing this was stale - it predates the
+  qBittorrent queueing work. Live state is 2,229 torrents of which 1,200 are
+  `queuedDL` and 931 `queuedUP`: 2,131 idle. Only the 51 force-started protected
+  MAM/IPT torrents bypass the queue, by design. A cold sequential read of an
+  untouched offset of this file returned 200 MiB in 2577 ms (**81.4 MB/s**), and
+  sampling `zpool iostat` during an 800 MiB read showed the pool climbing from an
+  80 ops/s idle baseline to **385 read ops/s at 98 MB/s**. The disks have
+  headroom.
 
 The actual cause is on the client. Every NFS bdi is created with
 `read_ahead_kb=128` while the mounts negotiate `rsize=1048576`. A 128 kB
@@ -51,10 +57,9 @@ Measured on `192.168.1.67:/extra/nfs-csi/data`, same file, cold offsets:
 
 60 MB readahead was tested and rejected: 17 MB/s raw but 9.5 MB/s through
 Nextcloud - no better end to end, while multiplying per-stream memory
-exposure. That matters here because qBittorrent holds ~959 seeding torrents
-open on the same export, and readahead is charged per stream, not per mount.
-Inflating the window for random piece reads would add pool IOPS, which is the
-opposite of what 0009 is trying to achieve.
+exposure. Readahead is charged per stream, not per mount, and qBittorrent holds
+thousands of torrents open on the same export - inflating the window for random
+piece reads would add pool IOPS, which is the opposite of what 0009 wants.
 
 ## Consequences
 
@@ -75,6 +80,16 @@ because nothing in the repository will reproduce it.
 
 **This does not make NFS a fast path.** 10 MB/s is still 8x off what the NAS
 can read locally. 0009's ladder is unchanged: databases belong on local-path,
-NFS is for bulk media. For moving whole game files, SFTP straight to the NAS
-measures **48.8 MB/s** and remains the right tool - see the `nas:` rclone
-remote.
+NFS is for bulk media. For moving whole game files, SFTP straight to the NAS is
+the right tool - see the `nas:` rclone remote, mounted at `~/nas`.
+
+## Where the remaining ceiling actually is
+
+Not the pool, not SSH, and not the torrents. The workstation is on **WiFi**:
+600.4 Mbit/s PHY (802.11ax, 80 MHz, 1 spatial stream, -38 dBm). Real TCP
+throughput at that PHY rate is ~40 MB/s, and that is exactly what four parallel
+SSH streams aggregate to - **41 MB/s**, no better than one stream, on a NAS CPU
+(Ryzen 5 3600) that has AES-NI and is not the limit either.
+
+So `~/nas` at 38-41 MB/s **is the line rate of this machine.** No further tuning
+moves it; only Ethernet would.

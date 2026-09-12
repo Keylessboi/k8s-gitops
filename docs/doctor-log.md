@@ -93,9 +93,14 @@ before and after, at cold offsets of the same file.
 2. *nfsd thread starvation.* `pool_stats` pointed straight at it:
    `sockets-enqueued` 4.6B against `packets-arrived` 2.3B, `threads-timedout` 0.
    Threads raised 16 → 64 on a 12-core NAS. **No change: still 2 MB/s.**
-3. *The pool being saturated by ~959 seeding torrents.* Real (see ADR-0009) but
-   not this. A cold read of an untouched offset of this file, on the busy pool,
-   returned 200 MiB in 2577 ms — **81.4 MB/s**.
+3. *The pool being saturated by seeding torrents.* Not true any more. The
+   "~959 seeding" number quoted during this diagnosis was stale — it predates
+   the queueing work, and repeating it sent the investigation sideways twice.
+   Live: 2,229 torrents, 1,200 `queuedDL` + 931 `queuedUP` = **2,131 idle**;
+   only the 51 force-started MAM/IPT ones bypass the queue, by design.
+   `zpool iostat` during an 800 MiB read: 80 ops/s idle → **385 read ops/s at
+   98 MB/s**. A cold read of an untouched offset returned **81.4 MB/s**. The
+   queueing fix worked; the disks have headroom.
 
 **Root cause.** Every NFS bdi is created with `read_ahead_kb=128` while the
 mounts negotiate `rsize=1048576`. A 128 kB window cannot keep a 1 MB read
@@ -119,10 +124,15 @@ looked like a regression with no commit behind it. sysfs is read-only inside
 CT 200, so this cannot be a DaemonSet; it is host state, recorded in ADR-0010.
 
 **Still true afterwards.** 10 MB/s is 8x off what the NAS reads locally. NFS did
-not become a fast path. For whole-file transfers, SFTP straight to the NAS
-measures 48.8 MB/s on the LAN and 35.2 MB/s over Tailscale; the workstation now
-mounts it at `~/nas` via `rclone-nas.service`, which reads at **39 MB/s** —
-126x the original number, by not touching NFS or Nextcloud at all.
+not become a fast path. For whole-file transfers the workstation now mounts the
+NAS at `~/nas` via `rclone-nas.service` (SFTP over Tailscale), reading at
+**38-41 MB/s** — 126x the original number, by not touching NFS or Nextcloud.
+
+**Where the ceiling really is.** Not disk, not SSH, not torrents: the
+workstation is on **WiFi** at 600.4 Mbit/s PHY (802.11ax, 80 MHz, 1 stream,
+-38 dBm). ~40 MB/s is the realistic TCP ceiling for that link, and four parallel
+SSH streams aggregate to 41 MB/s — no better than one. `~/nas` is already at
+line rate for this machine; only Ethernet moves it.
 
 
 ## 2026-09-12 — Immich: 2,444 ms per thumbnail, and the marker file that blocks the fix
@@ -196,6 +206,16 @@ mounts it at `~/nas` via `rclone-nas.service`, which reads at **39 MB/s** —
   small scattered reads. The consumer is **qBittorrent: 2,234 torrents, ~959
   seeding**, serving ~1.19 MB/s spread across a thousand torrents on a 4.4 TB
   pool, which is nearly pure seek. Everything else queues behind it.
+
+  > **Superseded in part — see "Nextcloud downloads at 300 kB/s" (2026-09-12).**
+  > The seeding load was real and the queueing fix resolved it: only 51
+  > force-started torrents now bypass the queue and the pool reaches 385 read
+  > ops/s at 98 MB/s on demand. But this entry's *ruled out* list never tested
+  > **NFS client readahead**, which was the larger cause all along — the 128 kB
+  > bdi default against a 1 MB `rsize`. That is why every measurement here tops
+  > out near 3 MB/s: they were all taken through a client that could not
+  > pipeline. The "~959 seeding" figure outlived its accuracy and was still
+  > being quoted a day later; check it live before reusing it.
 - **Ruled out, each with a measurement, so nobody re-tests them:**
   - packet loss - `retrans 0` across 1.4 billion RPC calls
   - `nconnect=8` - remounted with it, 3.1 MB/s, unchanged
