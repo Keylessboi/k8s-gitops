@@ -142,6 +142,17 @@ helmCharts:
           globalMounts:
             - path: /config
               readOnly: true
+        # Thumbnails on local disk, mounted OVER /data/thumbs so it shadows
+        # that subdirectory of the NFS library. Measured on nfs-csi: 2444 ms
+        # per thumbnail read, 0.4/sec - two to four minutes to fill one grid.
+        # Originals stay on NFS; only the small, hot, regenerable derivatives
+        # move. See apps/immich/pvc-thumbs-local.yaml and docs/adr/0009.
+        thumbs:
+          enabled: true
+          type: persistentVolumeClaim
+          existingClaim: immich-thumbs-local
+          globalMounts:
+            - path: /data/thumbs
 
       postgres:
         enabled: false
