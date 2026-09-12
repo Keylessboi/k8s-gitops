@@ -28,6 +28,8 @@ the literal string you are seeing, then read the entry.
 | `[Unknown Album]` / `[Unknown Artist]` | Navidrome tags — 2026-08-29 |
 | Backups "succeeding" with nothing stored | MinIO zero drives — 2026-08-29 |
 | Everything on the host slow, API server 503 | swap thrash — 2026-08-31 |
+| Downloads at ~300 kB/s from anything backed by NFS | NFS readahead — 2026-09-12 |
+| Sequential reads fast locally on the NAS but slow from a pod | NFS readahead — 2026-09-12 |
 | Disk full, or pods evicted for ephemeral storage | disk-pressure churn — 2026-08-31; ganesha.log 26 GB — 2026-08-31; Wings pulls — 2026-08-29 |
 | A host unreachable at `192.168.1.240` intermittently | duplicate ARP claim — 2026-08-26 |
 | `CrashLoopBackOff` immediately after adding `command:` | `command:` replaces ENTRYPOINT — 2026-08-31 |
@@ -73,6 +75,55 @@ prose version of the prevention failed:
   source *and* ingress in the destination.
 - **Duplicate YAML keys** (1×, but silent) — PyYAML accepts them, Go's yaml does
   not. Validate with the same parser as the consumer.
+
+## 2026-09-12 — Nextcloud downloads at 300 kB/s: NFS readahead, not Nextcloud
+
+**Confidence: CONFIRMED.** Fix measured on the exact path that was reported,
+before and after, at cold offsets of the same file.
+
+**Symptom.** Downloading a 5 GB game file out of Nextcloud ran at ~300 kB/s.
+
+**What it was not.** Three plausible causes were tested and rejected:
+
+1. *Nextcloud's PHP/S3 path.* Believed first, and wrong twice over. `oc_filecache`
+   put the file on storage 7, `local::/media/torrents/nextcloud/` — an external
+   mount, not the S3 primary. `urn:oid:721` does not exist in the bucket. The
+   earlier "Nextcloud PHP → S3 is the bottleneck" conclusion applied to a
+   backend this file was never on.
+2. *nfsd thread starvation.* `pool_stats` pointed straight at it:
+   `sockets-enqueued` 4.6B against `packets-arrived` 2.3B, `threads-timedout` 0.
+   Threads raised 16 → 64 on a 12-core NAS. **No change: still 2 MB/s.**
+3. *The pool being saturated by ~959 seeding torrents.* Real (see ADR-0009) but
+   not this. A cold read of an untouched offset of this file, on the busy pool,
+   returned 200 MiB in 2577 ms — **81.4 MB/s**.
+
+**Root cause.** Every NFS bdi is created with `read_ahead_kb=128` while the
+mounts negotiate `rsize=1048576`. A 128 kB window cannot keep a 1 MB read
+pipelined, so a sequential stream collapses into serialized 128 kB round trips,
+each waiting on a pool busy with torrent IO. Local reads escape this because
+ZFS prefetch does its own large async readahead — which is the whole 81 MB/s
+vs 2 MB/s gap.
+
+**Fix.** `read_ahead_kb=15360` on every NFS bdi:
+
+| path | before | after |
+|---|---|---|
+| `dd` over NFS in the pod | 2.0 MB/s | 12.0 MB/s |
+| Nextcloud download (PHP/WebDAV) | 0.30 MB/s | **10.4 MB/s** |
+
+**What prevents a repeat.** `nfs-readahead.timer` on `pve`, every 2 minutes —
+*not* a one-shot at boot. The NFS CSI driver creates a fresh mount, and so a
+fresh bdi back at 128 kB, every time a pod claiming an NFS volume starts. A
+one-shot would have decayed back to 300 kB/s one pod restart at a time and
+looked like a regression with no commit behind it. sysfs is read-only inside
+CT 200, so this cannot be a DaemonSet; it is host state, recorded in ADR-0010.
+
+**Still true afterwards.** 10 MB/s is 8x off what the NAS reads locally. NFS did
+not become a fast path. For whole-file transfers, SFTP straight to the NAS
+measures 48.8 MB/s on the LAN and 35.2 MB/s over Tailscale; the workstation now
+mounts it at `~/nas` via `rclone-nas.service`, which reads at **39 MB/s** —
+126x the original number, by not touching NFS or Nextcloud at all.
+
 
 ## 2026-09-12 — Immich: 2,444 ms per thumbnail, and the marker file that blocks the fix
 

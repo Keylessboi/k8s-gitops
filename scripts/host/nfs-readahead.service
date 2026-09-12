@@ -1,0 +1,7 @@
+[Unit]
+Description=Raise NFS client readahead on all NFS bdis
+Documentation=https://github.com/keylessboi/k8s-gitops docs/adr/0010
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/nfs-readahead.sh

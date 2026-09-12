@@ -1,0 +1,10 @@
+[Unit]
+Description=Reapply NFS readahead (CSI creates a fresh 128 kB bdi per pod start)
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=2min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

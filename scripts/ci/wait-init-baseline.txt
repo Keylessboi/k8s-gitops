@@ -25,11 +25,9 @@
 #                           wastes the whole run. Highest value to fix.
 #   vaultwarden-data-backup writes to MinIO. Same shape as the pgdump failure.
 #   immich-extensions       runs once at install against Postgres.
-#   forgejo-oauth-source    runs once, calls the Forgejo API.
 #   pelican-admin           runs once, calls the Pelican API.
 #   beets-import            hourly and idempotent; a lost run costs an hour.
 beets-import
-forgejo-oauth-source
 immich-extensions
 pelican-admin
 vaultwarden-data-backup

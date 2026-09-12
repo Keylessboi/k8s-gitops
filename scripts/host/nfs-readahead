@@ -1,0 +1,44 @@
+#!/bin/sh
+# NFS client readahead.
+#
+# The kernel creates every NFS bdi with read_ahead_kb=128 while the mounts
+# negotiate rsize=1048576. A 128 kB readahead window cannot pipeline against a
+# server whose pool is busy, so each 128 kB chunk becomes its own serialized
+# round trip. Measured on this cluster reading a 5 GB file off
+# 192.168.1.67:/extra/nfs-csi/data:
+#
+#   NAS local, cold, sequential ... 81.4 MB/s
+#   over NFS, 128 kB readahead ....  2.0 MB/s   <- default
+#   over NFS, 15 MB readahead ..... 12.0 MB/s
+#   Nextcloud download, 128 kB ....  0.30 MB/s
+#   Nextcloud download, 15 MB ..... 10.4 MB/s
+#
+# 15 MB is the long-standing 15x-rsize guidance. 60 MB was tested and measured
+# no better end to end (17 MB/s raw, 9.5 MB/s through Nextcloud) while
+# multiplying the per-stream memory exposure - which matters here because
+# qBittorrent holds ~959 seeding torrents open on the same export.
+#
+# This runs on the Proxmox host, not in CT 200: bdi objects are kernel-global,
+# but sysfs is read-only inside the unprivileged container.
+#
+# It runs on a timer rather than once at boot because the NFS CSI driver
+# creates a fresh mount - and therefore a fresh bdi at the 128 kB default -
+# every time a pod that claims an NFS volume starts.
+RA=15360
+
+for f in /proc/[0-9]*/mountinfo; do
+    [ -r "$f" ] || continue
+    # mountinfo has a variable number of optional fields, so split on the
+    # " - " separator: major:minor is field 3 before it, fstype is field 1 after.
+    awk -F' - ' 'NF > 1 {
+        split($1, pre, " "); split($2, post, " ")
+        if (post[1] ~ /^nfs/) print pre[3]
+    }' "$f" 2>/dev/null
+done | sort -u | while read -r dev; do
+    p="/sys/class/bdi/$dev/read_ahead_kb"
+    [ -f "$p" ] || continue
+    [ "$(cat "$p" 2>/dev/null)" = "$RA" ] && continue
+    if echo "$RA" > "$p" 2>/dev/null; then
+        logger -t nfs-readahead "bdi $dev: read_ahead_kb -> $RA"
+    fi
+done
