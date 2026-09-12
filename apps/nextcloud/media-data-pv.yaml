@@ -82,17 +82,24 @@ spec:
           restartPolicy: Never
           containers:
             - name: scan
-              # rancher/kubectl, NOT bitnami/kubectl. Bitnami withdrew their
-              # public Docker Hub tags, and `bitnami/kubectl:1.31.5` now 404s
-              # on the registry - verified directly, and `bitnamilegacy/kubectl`
-              # does not carry this tag either. The CronJob had been in
+              # alpine/k8s, NOT bitnami/kubectl. Bitnami withdrew their public
+              # Docker Hub tags, so `bitnami/kubectl:1.31.5` now 404s on the
+              # registry - verified directly, and `bitnamilegacy/kubectl` does
+              # not carry that tag either. This CronJob sat in
               # ImagePullBackOff for over two days, long enough to start
-              # logging TooManyMissedTimes, while nothing alerted.
+              # logging TooManyMissedTimes, and nothing alerted.
               #
-              # rancher/kubectl is the natural replacement on a k3s cluster -
-              # same vendor as the distribution - and is pinned by digest so a
-              # withdrawn or re-pushed tag cannot repeat this silently.
-              image: rancher/kubectl:v1.31.5@sha256:069d65cb09c9541ef403b258146ed2431728858f9eebc394ef991122f63ecbe0
+              # NOT rancher/kubectl, which was tried first and fails at a
+              # different layer: it is DISTROLESS, so `command: ["/bin/sh"]`
+              # dies with `stat /bin/sh: no such file or directory` and exit
+              # 128 before the args ever run. The tag resolving 200 proves
+              # nothing about whether the container can start - this args block
+              # needs a shell, so the image must ship one.
+              #
+              # alpine/k8s carries kubectl on top of Alpine, so /bin/sh exists.
+              # Pinned by digest: a withdrawn or re-pushed tag is exactly how
+              # this broke, and it broke silently.
+              image: alpine/k8s:1.31.5@sha256:0c132d5bc912d29c8baea41c83da1963bd8227c2c1bab489cb0ce88c3a3a4c35
               command: ["/bin/sh", "-c"]
               args:
                 - |
