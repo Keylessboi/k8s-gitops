@@ -1,0 +1,55 @@
+---
+# AIOStreams' configuration UI, at aiostreams.sandstorm.chat.
+#
+# WHY IT EXISTS. AIOStreams decides the ORDER remux shows stream sources in -
+# including sorting by seeder count - and that setting lives in its own config
+# UI, not in an env var and not in this repo. Until now the service was
+# cluster-internal only, so the UI was unreachable and the sort order was
+# effectively unchangeable.
+#
+# FORWARD-AUTH, NOT OIDC, because AIOStreams has no OIDC support: its auth
+# surface is a SECRET_KEY plus its own Postgres-backed accounts. Same call as
+# the remux Ingress next door, and for the same reason - an unauthenticated
+# service on the public edge is the worse failure mode.
+#
+# THIS CANNOT BREAK STREAMING, which is the thing worth checking before adding
+# forward-auth in front of an addon. remux reaches AIOStreams over the
+# in-cluster Service (aiostreams.remux.svc.cluster.local:3000 - the name
+# ADDON_PROXY_CONFIG already references), and it must, because before this file
+# existed there was NO ingress for AIOStreams at all and therefore no public
+# hostname it could have been using. This adds a browser path for the config
+# UI; it does not move the addon traffic.
+#
+# That is the difference from the Jellyfin case documented in
+# apps/remux/ingress.yaml: there, native clients had to traverse the same
+# hostname and forward-auth broke them. Nothing traverses this one but a
+# browser.
+#
+# NetworkPolicy needs no change: apps/remux/networkpolicy.yaml already admits
+# kube-system on port 3000 namespace-wide, which covers this pod.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aiostreams
+  namespace: remux
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - aiostreams.sandstorm.chat
+      secretName: aiostreams-tls
+  rules:
+    - host: aiostreams.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: aiostreams
+                port:
+                  number: 3000
