@@ -33,6 +33,10 @@ the literal string you are seeing, then read the entry.
 | `CrashLoopBackOff` immediately after adding `command:` | `command:` replaces ENTRYPOINT — 2026-08-31 |
 | An *arr app that cannot reach another service by name | bare short hostnames — recurring class |
 | ArgoCD says Synced but the object is stale | ServerSideDiff bug — 2026-08-31 |
+| Everything on NFS slow, but disks and network test fine | pool IOPS saturated by seeding — 2026-09-12 |
+| A database is slow but sequential file reads are fine | storage, not the app — 2026-09-12 |
+| `Unrecognized host/PassKey` or `ASN mismatch` from MAM | session locked to the wrong ASN — 2026-09-12 |
+| Moving big data off the NAS takes hours | stream over ssh, do not read via NFS — 2026-09-12 |
 | Blocked from every published host, including Authentik itself | CrowdSec LAPI dead, frozen blocklist — 2026-09-11 |
 | `403` in 0ms with no backend in the Traefik log | bouncer failing closed, restart Traefik — 2026-09-11 |
 | "Broken for me, works for you" on a published host | you are probably in clientTrustedIPs — 2026-09-11 |
@@ -67,6 +71,87 @@ prose version of the prevention failed:
   source *and* ingress in the destination.
 - **Duplicate YAML keys** (1×, but silent) — PyYAML accepts them, Go's yaml does
   not. Validate with the same parser as the consumer.
+
+## 2026-09-12 — the NAS was never slow; a thousand seeding torrents owned the disks
+
+- **Confidence:** CONFIRMED (every layer measured independently).
+- **Symptom:** everything touching NFS was slow, for weeks, in ways that each
+  looked like a different application bug - Lidarr's API over 180s, Navidrome
+  search failing while playback worked, remux lookups at 21s, crowdsec's
+  bouncer failing closed, a 3.9 GB copy running at 0.79 MB/s, and a `chmod` on
+  an empty directory taking five minutes to start.
+- **The wrong answer I published first:** "this NFS mount is broken", on the
+  strength of 111 MB/s raw TCP against 3 MB/s over NFS. **That test sent a
+  memory buffer and never touched a disk.** It measured the network. Reading
+  the same data locally on the NAS, cold, gives ~1.7-3 MB/s - so NFS was
+  delivering essentially everything the pool could produce, and the 35x loss I
+  reported did not exist.
+- **Root cause:** the pool is IOPS-saturated. `zpool iostat -v` shows
+
+      tank   211 read ops/s   3.71 MB/s     <- ~18 KB per read
+
+  211 IOPS is the ceiling for a two-disk HDD mirror and it is fully consumed by
+  small scattered reads. The consumer is **qBittorrent: 2,234 torrents, ~959
+  seeding**, serving ~1.19 MB/s spread across a thousand torrents on a 4.4 TB
+  pool, which is nearly pure seek. Everything else queues behind it.
+- **Ruled out, each with a measurement, so nobody re-tests them:**
+  - packet loss - `retrans 0` across 1.4 billion RPC calls
+  - `nconnect=8` - remounted with it, 3.1 MB/s, unchanged
+  - nfs-ganesha - it is kernel `nfsd` with 16 threads
+  - a Proxmox rate limit - `pct config 200` has no `rate=`
+  - file fragmentation - a file written in ONE pass reads at 2.9 MB/s against
+    3.0 MB/s for one grown over months
+  - failing disks - `smartctl -H` OK on both, pool ONLINE, resilvered clean
+- **Fix:** queueing in qBittorrent (3 down / 8 up / 12 active) to cap the seek
+  storm, plus moving every latency-sensitive workload off the pool (ADR-0009).
+- **THE TRANSFER TRICK, which is the reusable part.** To move data off this
+  pool, do NOT read it over NFS. The NAS reads its own disk at 121 MB/s, so
+  stream it:
+
+      ssh NAS 'doas cat /extra/nfs-csi/.../file' \
+        | ssh pve "pct exec 200 -- sh -c 'cat > /var/lib/rancher/k3s/storage/<pv>/file'"
+
+  Lidarr's 3.94 GB database: **2m22s at 27.6 MB/s**, against ~80 minutes over
+  NFS. qBittorrent's 5,070-file config, as a streamed `tar`: **61 seconds**.
+  And use `cp`, never `tar`, for any copy that does go over NFS - tar's 10 KiB
+  blocks measured 0.42 MB/s against cp's 3.7 MB/s.
+- **Prevention:** the tell is an application whose DATABASE or metadata
+  operations are slow while sequential file reads are fine. That asymmetry is
+  storage, not the app. Check the PVC's storage class before debugging the
+  application.
+
+## 2026-09-12 — MAM "Unrecognized host/PassKey" is an ASN lock, not a bad key
+
+- **Confidence:** CONFIRMED (fixed and verified).
+- **Symptom:** MyAnonamouse reporting `Unrecognized host/PassKey
+  (23.130.104.134)`, and separately "no torrent clients active".
+- **Root cause:** the seedboxapi log says it exactly, and is the only place it
+  is said plainly:
+
+      {"Success":false,"msg":"Invalid session - ASN mismatch",
+       "ip":"23.130.104.134","ASN":62744,"AS":"Quintex Alliance Consulting"}
+
+  The exit IP had NOT changed - `SERVER_NAMES: Aquila` pins it precisely so it
+  will not. A MAM seedbox session is locked to the **ASN of the connection that
+  created it**. A session created from a home browser locks to the home ISP's
+  ASN, which will never match the VPN exit's ASN 62744, and MAM rejects it
+  forever.
+- **Fix:** create the session on MAM (Preferences → Security) with **"Switch to
+  ASN locked session"** and **"Allow session to set dynamic seedbox IP"**,
+  **while browsing through the same AirVPN exit** so MAM sees ASN 62744. Put
+  the new value in Doppler as `MAM_ID`, then move the stale cookie aside -
+  `/extra/nfs-csi/downloads/seedboxapi-config/MAM.cookies` - because
+  seedboxapi prefers an existing cookie over the env var and will keep failing
+  with a valid MAM_ID sitting right there. It then logs
+  `New session created.`
+- **`MAM_ID_PROWLARR` is a SEPARATE session and must stay separate:** Prowlarr
+  egresses over the house WAN, a different ASN, so one session cannot satisfy
+  both.
+- **"No torrent clients active" is downstream, not a second fault.** MAM only
+  knows what has announced to it; qBittorrent had been down or stuck in
+  start-up across several restarts. It clears when the client announces again.
+- **Prevention:** alert on seedboxapi exiting non-zero. It failed, logged the
+  exact cause, and retried hourly for as long as nobody read the log.
 
 ## 2026-09-11 — locked out of everything, and CrowdSec had been dead since the 10th
 
