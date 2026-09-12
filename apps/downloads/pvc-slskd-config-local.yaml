@@ -1,0 +1,36 @@
+---
+# slskd's state on NODE-LOCAL disk. See docs/adr/0009.
+#
+# 61 MB compressed on ZFS, ~218 MB logical, in only SIXTEEN files - so unlike
+# qBittorrent's config this is not a file-count problem. It is three large
+# SQLite databases doing small random I/O:
+#
+#   events.db     92.6 MB
+#   transfers.db  62.1 MB
+#   search.db     43.5 MB
+#
+# On a pool pinned at ~200 IOPS by seeding, that is the workload it handles
+# worst. Measured symptom on 2026-09-12: after a pod restart slskd's listen
+# port 6874 went from OPEN to refused and stayed down for minutes with an empty
+# log, while qBittorrent - already migrated - was serving in under a minute.
+#
+# SHARES A POD WITH qBITTORRENT, which is why this migration is expensive: the
+# two cannot be restarted independently, so moving slskd costs another
+# qBittorrent resume-check cycle. Worth doing once rather than paying the slow
+# start on every future restart.
+#
+# NOT replicable. transfers.db is the Soulseek transfer history and shares.
+# The nfs-csi claim in pvc.yaml keeps the pre-migration copy, so rollback is a
+# one-line change here.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: slskd-config-local
+  namespace: downloads
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi

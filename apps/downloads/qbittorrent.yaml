@@ -32,7 +32,10 @@ metadata:
   name: qbittorrent
   namespace: downloads
 spec:
-  replicas: 1
+  # TEMPORARILY 0 for the slskd /app migration to local-path (2026-09-12).
+  # slskd shares this pod with qBittorrent, so both stop. transfers.db and
+  # search.db are live SQLite and must not be copied under a running writer.
+  replicas: 0
   strategy:
     type: Recreate
   selector:

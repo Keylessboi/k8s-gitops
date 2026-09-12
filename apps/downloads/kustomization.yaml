@@ -27,6 +27,7 @@ resources:
   - media-data-pv.yaml
   - pvc.yaml
   - pvc-qbittorrent-config-local.yaml
+  - pvc-slskd-config-local.yaml
   - qbit-upload-config.yaml
   - upload-sweep-cronjob.yaml
   - seed-reaper-cronjob.yaml
