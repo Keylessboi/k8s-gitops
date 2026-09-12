@@ -32,10 +32,7 @@ metadata:
   name: qbittorrent
   namespace: downloads
 spec:
-  # TEMPORARILY 0 for the slskd /app migration to local-path (2026-09-12).
-  # slskd shares this pod with qBittorrent, so both stop. transfers.db and
-  # search.db are live SQLite and must not be copied under a running writer.
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -912,7 +909,14 @@ spec:
             secretName: mam
         - name: slskd-config
           persistentVolumeClaim:
-            claimName: slskd-config
+            # slskd-config-local, NOT slskd-config. ~218 MB of SQLite in
+            # sixteen files - events.db, transfers.db, search.db - and on
+            # nfs-csi that made slskd's listen port take minutes to come up
+            # after a restart while qBittorrent in the SAME POD was serving in
+            # under a minute. Migrated 2026-09-12 by streaming tar over ssh
+            # from the NAS; all five databases verified integrity_check ok with
+            # byte-exact sizes before cutover. See pvc-slskd-config-local.yaml.
+            claimName: slskd-config-local
         - name: data
           persistentVolumeClaim:
             claimName: media-data
