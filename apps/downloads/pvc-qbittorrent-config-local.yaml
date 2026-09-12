@@ -1,0 +1,35 @@
+---
+# qBittorrent's config on NODE-LOCAL disk.
+#
+# NOT a database, but the same IOPS argument as docs/adr/0009. This volume is
+# 78 MB across 5,070 FILES - roughly two BT_backup entries (.torrent +
+# .fastresume) for each of 2,234 torrents. Bytes are irrelevant here; file
+# count is everything.
+#
+# WHAT IT COST ON NFS. The LinuxServer image's init runs
+# `lsiown -R abc:abc /config`, which stats all 5,070 files before qBittorrent
+# starts. On a pool already pinned at ~200 IOPS by seeding, that took MINUTES
+# on every single restart - and while it runs, qBittorrent is not seeding at
+# all. For a library that includes MyAnonamouse torrents, a multi-minute
+# non-seeding window on every pod restart is an account risk, not just a
+# nuisance.
+#
+# NOT REPLICABLE, and more sharply than Lidarr's. BT_backup IS the torrent
+# state: lose it and 2,234 torrents have to be re-added and re-checked against
+# 4.4 TB of data, which on this pool is measured in days. The nfs-csi claim in
+# pvc.yaml keeps the pre-migration copy and remains a one-line rollback.
+#
+# 10Gi against the 5Gi it replaces: BT_backup grows with the torrent count, and
+# running out of room here corrupts resume data rather than merely failing.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: qbittorrent-config-local
+  namespace: downloads
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi

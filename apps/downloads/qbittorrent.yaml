@@ -30,7 +30,11 @@ metadata:
   name: qbittorrent
   namespace: downloads
 spec:
-  replicas: 1
+  # TEMPORARILY 0 for the /config migration to local-path (2026-09-12).
+  # BT_backup holds live torrent state and must not be copied while
+  # qBittorrent is writing to it. Restored to 1 in the commit that repoints
+  # the volume.
+  replicas: 0
   strategy:
     type: Recreate
   selector:

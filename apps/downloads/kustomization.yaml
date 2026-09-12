@@ -26,6 +26,7 @@ resources:
   - vpn-proxy-service.yaml
   - media-data-pv.yaml
   - pvc.yaml
+  - pvc-qbittorrent-config-local.yaml
   - qbit-upload-config.yaml
   - upload-sweep-cronjob.yaml
   - seed-reaper-cronjob.yaml
