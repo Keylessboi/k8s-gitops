@@ -16,7 +16,8 @@
 # had only the proxy, took about a minute to start a stream.
 #
 # Forwarded ports are ONE PER CLIENT, not a pool:
-#   6877  qBittorrent   (Session\Port in qBittorrent.conf)
+#   42399 qBittorrent   (Session\Port in qBittorrent.conf; replaced
+#                        6877 on 2026-09-12 - that mapping stuck)
 #   6874  slskd         (SLSKD_SLSK_LISTEN_PORT)
 #   50071 remux         (a SEPARATE AirVPN device - see
 #                        apps/doppler/dopplersecrets.yaml)
@@ -311,6 +312,7 @@ spec:
               awk '
                 /^\[BitTorrent\]$/ {
                   print
+                  print "Session\\Port=42399"
                   print "Session\\QueueingSystemEnabled=true"
                   print "Session\\MaxActiveDownloads=3"
                   print "Session\\MaxActiveUploads=8"
@@ -318,6 +320,7 @@ spec:
                   print "Session\\IgnoreSlowTorrentsForQueueing=false"
                   next
                 }
+                /^Session\\Port=/ { next }
                 /^Session\\QueueingSystemEnabled=/ { next }
                 /^Session\\MaxActiveDownloads=/ { next }
                 /^Session\\MaxActiveUploads=/ { next }
@@ -421,8 +424,25 @@ spec:
             #   remux, navidrome and octo still use.
             - name: FIREWALL_INPUT_PORTS
               value: "8080,5030,1080,8888"
+            # 42399 REPLACED 6877 on 2026-09-12. The old port's mapping got
+            # stuck on AirVPN's side: SYNs were provably reaching the tunnel
+            # (6 of 6 counted by an iptables rule matched on source IP, dst
+            # 10.150.203.3:6877) and qBittorrent was listening there, yet every
+            # connection got an instant RST and qBittorrent reported
+            # `firewalled`. Disabling and re-enabling the port in AirVPN
+            # revived 6874 but not 6877. A freshly assigned port worked on the
+            # first try, with no cluster change at all.
+            #
+            # Ruled out on the way, each by measurement, so none of it is
+            # re-tested: the port was assigned to the correct device (its
+            # WireGuard public key was derived and matched), no AirVPN key was
+            # shared between tunnels, gluetun's ACCEPT rules were present and
+            # counting, and unbinding qBittorrent from tun0 changed nothing
+            # (tested and reverted, with the killswitch verified intact
+            # throughout - egress stayed on 23.130.104.134 and a direct eth0
+            # connection to 1.1.1.1 timed out).
             - name: FIREWALL_VPN_INPUT_PORTS
-              value: "6877,6874"
+              value: "42399,6874"
             # HTTP proxy: remux points HTTP_PROXY/HTTPS_PROXY at
             # vpn-proxy.downloads.svc.cluster.local:8888.
             - name: HTTPPROXY
