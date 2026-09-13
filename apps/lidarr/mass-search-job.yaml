@@ -19,7 +19,7 @@
 #
 # When both workers complete: list a fresh /wanted/missing, cut a new
 # split, and update both jobs' RANGE_START/RANGE_END (and delete their
-# cursor files on the lidarr-config PVC, .mass-search-cursor-a/-b).
+# cursor files on the lidarr-config-local PVC, .mass-search-cursor-a/-b).
 #
 # RE-CUT 2026-09-03. The first run finished: worker A searched 13,253 albums
 # in 63.3h, worker B 18,060 in 69.2h - 31,313 total. Both reported ALL DONE.
@@ -315,7 +315,7 @@ spec:
       volumes:
         - name: config
           persistentVolumeClaim:
-            claimName: lidarr-config
+            claimName: lidarr-config-local
 ---
 apiVersion: batch/v1
 kind: Job
@@ -542,4 +542,4 @@ spec:
       volumes:
         - name: config
           persistentVolumeClaim:
-            claimName: lidarr-config
+            claimName: lidarr-config-local

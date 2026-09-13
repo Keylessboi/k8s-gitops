@@ -1,17 +1,4 @@
 ---
-# qBittorrent's own state: settings, resume data, torrent files.
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: qbittorrent-config
-  namespace: downloads
-spec:
-  accessModes: [ReadWriteMany]
-  storageClassName: nfs-csi
-  resources:
-    requests:
-      storage: 5Gi
----
 
 # qui keeps a small local database of the qBittorrent instances it manages.
 apiVersion: v1
@@ -25,20 +12,6 @@ spec:
   resources:
     requests:
       storage: 1Gi
----
-# slskd's own state (its database, config and share cache).
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: slskd-config
-  namespace: downloads
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: nfs-csi
-  resources:
-    requests:
-      storage: 5Gi
 ---
 # The MAM dynamic-seedbox cookie jar. One file, a few hundred bytes - but it
 # has to survive pod rolls, which is the whole reason this is a PVC and not an

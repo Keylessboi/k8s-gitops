@@ -65,32 +65,32 @@ helmCharts:
     valuesInline:
       prometheus:
         prometheusSpec:
-          # 180d, not 15d. Retention costs DISK, not RAM - Prometheus memory
-          # scales with active series, not with how long they are kept - and
-          # this volume is nfs-csi on the NAS with ~2.7 TB free, while the
-          # thing that is actually scarce here is memory on the compute node.
-          # 15 days cannot answer "how far have we come"; six months can, for
-          # storage that is effectively free on this hardware.
-          retention: 180d
+          # 30d. This was 180d on the reasoning that retention costs only disk
+          # and the NAS has disk to spare. Disk was never the only cost: this
+          # TSDB lives on the HDD pool (see storageSpec below), and every day of
+          # retention is more blocks for compaction to rewrite on those spindles.
+          # 30 days still answers "is this worse than last month".
+          #
+          # Cut on 2026-09-12 when the oldest sample was 18.9 days old, so the
+          # change deleted no history at all.
+          retention: 30d
           # THE ONLY CEILING THAT EXISTS. The PVC says 20Gi, but nfs-csi is a
           # plain directory on an NFS export with no quota - `df` inside the
-          # pod reports the whole 5.4T pool, 2.7T free. Nothing enforces that
-          # 20Gi. Without retentionSize, `retention: 180d` is an instruction to
-          # grow unbounded for six months on the same pool that holds the music
-          # library and the games, and the only thing that would stop it is the
-          # pool filling. This repo has already had one outage from a full disk;
-          # this is the line that prevents the second.
+          # pod reports the whole 5.4T pool. Nothing enforces that 20Gi, so this
+          # is the line that stops unbounded growth on the pool that holds the
+          # music library and the games.
           #
-          # 45GB, from measurement rather than a guess: 4.5G held ~14 days at
-          # 152k active series (~320 MB/day), and the metricRelabelings below
-          # drop 36% of those series, so ~205 MB/day. 180 days is therefore
-          # ~36GB, and 45GB carries that with room for compaction - which needs
-          # working space, since retentionSize governs blocks and not the WAL.
+          # 20GB, measured live on 2026-09-12: prometheus_tsdb_storage_blocks_bytes
+          # was 10.98 GB spanning 18.9 days at ~101k head series = ~580 MB/day,
+          # so 30 days is ~17.4 GB. The previous comment here estimated ~205
+          # MB/day and sized 45GB for 180 days; at the real rate 45GB was a
+          # ~77-day ceiling, not 180. Retention by time should normally win;
+          # this size is the backstop if series count grows.
           #
           # If these two ever disagree, size wins and history is truncated
-          # early. That is the correct failure: losing the oldest month is
+          # early. That is the correct failure: losing the oldest week is
           # recoverable, filling /extra is not.
-          retentionSize: 45GB
+          retentionSize: 20GB
           # SMART metrics from the two bare-metal hosts. These cannot be a
           # DaemonSet: LXC 200 has no block devices in /dev at all, so a pod has
           # nothing to read, and the disks that matter (the NAS pool disks)
@@ -137,10 +137,13 @@ helmCharts:
                 # move had happened.
                 #
                 # It only ever bites if someone deletes that PVC: the volume is
-                # then re-provisioned on local-path, which is CT200's root disk
-                # with ~35 GB free, and retentionSize above is 45GB. Moving the
-                # data is the real fix; until then, anyone deleting this PVC
-                # must lower retentionSize in the same change.
+                # then re-provisioned on local-path, which is CT200's root disk.
+                # On 2026-09-12 that disk had 20 GB free (82% used) against a
+                # retentionSize of 20GB above - a TSDB that grows to its cap
+                # would fill the node's root disk. Moving the data is the real
+                # fix, and it is blocked on freeing node disk first; until then,
+                # anyone deleting this PVC must lower retentionSize well below
+                # the node's free space in the same change.
                 storageClassName: local-path
                 accessModes: [ReadWriteOnce]
                 resources:

@@ -11,17 +11,3 @@ spec:
   resources:
     requests:
       storage: 5Gi
----
-# Staging area Beets imports FROM. Tag and organise here, then the result
-# lands in the music library that Navidrome serves.
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: beets-inbox
-  namespace: music
-spec:
-  accessModes: [ReadWriteMany]
-  storageClassName: nfs-csi
-  resources:
-    requests:
-      storage: 50Gi

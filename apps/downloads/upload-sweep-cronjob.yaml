@@ -85,6 +85,6 @@ spec:
             # RWX, so this shares one log with the in-pod AutoRun hook rather
             # than keeping a second history nobody thinks to read.
             - name: config
-              persistentVolumeClaim: {claimName: qbittorrent-config}
+              persistentVolumeClaim: {claimName: qbittorrent-config-local}
             - name: script
               configMap: {name: qbit-upload-config, defaultMode: 0755}
