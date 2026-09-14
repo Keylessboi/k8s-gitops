@@ -92,9 +92,16 @@ spec:
   # below drops the scrape. It listens on *:9100 and answers fine from the
   # node itself; from a pod the connection simply times out, which is why this
   # looked like a dead exporter rather than a blocked one.
+  #
+  # .67 (the NAS node) was missing until 2026-09-14: up{job="node-exporter",
+  # instance="nas"} had been 0 for the whole 20 days of retained history, so
+  # the NAS - the host with the ZFS pool and now most of the music stack and
+  # Prometheus itself - had no node metrics and no disk-space alerts.
   - to:
     - ipBlock:
         cidr: 192.168.1.172/32
+    - ipBlock:
+        cidr: 192.168.1.67/32
     ports:
     - port: 9100
       protocol: TCP
