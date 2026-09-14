@@ -38,6 +38,9 @@ the literal string you are seeing, then read the entry.
 | Immich slow to browse, database is fine | thumbnails on NFS — 2026-09-12 |
 | Immich CrashLoopBackOff, `Failed to read .../.immich` | missing marker file after a volume move — 2026-09-12 |
 | Everything on NFS slow, but disks and network test fine | pool IOPS saturated by seeding — 2026-09-12 |
+| A task or commit says a DNS leak is closed / DoT is on | DoT never landed — 2026-09-14 |
+| CoreDNS config or image did not change after a k3s upgrade | coredns.yaml.skip — 2026-09-14 |
+| A search in Octo takes several seconds | metadata through the VPN proxy — 2026-09-14 |
 | A database is slow but sequential file reads are fine | storage, not the app — 2026-09-12 |
 | `Unrecognized host/PassKey` or `ASN mismatch` from MAM | session locked to the wrong ASN — 2026-09-12 |
 | Moving big data off the NAS takes hours | stream over ssh, do not read via NFS — 2026-09-12 |
@@ -75,6 +78,46 @@ prose version of the prevention failed:
   source *and* ingress in the destination.
 - **Duplicate YAML keys** (1×, but silent) — PyYAML accepts them, Go's yaml does
   not. Validate with the same parser as the consumer.
+
+## 2026-09-14 — DNS was plaintext to the ISP for nine days after "the leak" was marked fixed
+
+**Symptom.** Nothing visible. The owner asked what had happened to DNS over
+TLS. Task #36 ("Close the DNS leak: tracker lookups still go to the ISP") was
+marked completed.
+
+**Root cause.** It never landed. On 2026-09-05, two attempts to send the torrent
+pod's DNS through gluetun's DoT resolver broke resolution and egress, and both
+were reverted (31b0f78; 3b605c6, then fbfa16a). The last commit message said
+"the leak stays open and filed", but the task was closed anyway. Cluster-wide,
+k3s's CoreDNS did `forward . /etc/resolv.conf`, which on CT 200 is PVE-managed:
+192.168.1.1 and 1.1.1.1, plain UDP/53. CoreDNS's own counters showed ~170k
+plaintext forwards since its last restart.
+
+**Fix (2b2f239).** Quad9 over TLS in CoreDNS itself, which covers both nodes and
+never touches gluetun. k3s's Corefile already has a `forward`, and
+`coredns-custom` cannot replace it (duplicate plugin), so
+`/var/lib/rancher/k3s/server/manifests/coredns.yaml.skip` was created and the
+Corefile key moved into `apps/coredns/coredns-corefile.yaml`. The NodeHosts key
+stays with the k3s supervisor, and server-side apply leaves it alone.
+Validated on a throwaway CoreDNS pod before cutover. After cutover the
+`to="192.168.1.1:53"` and `to="1.1.1.1:53"` counters stopped moving while the
+`:853` ones climbed. Old Corefile: `/root/coredns-Corefile.pre-dot-2026-09-14`
+on CT 200.
+
+**Prevention.** A revert that says "still open" must leave its task open:
+closing a task is a claim about the cluster, not about the effort spent. For
+anything network-shaped, check the counter that would prove it
+(`coredns_proxy_request_duration_seconds_count` by `to=`) rather than the
+manifest. And the `.skip` file means **k3s upgrades no longer update CoreDNS**;
+bump the image by hand when upgrading k3s.
+
+**Not covered.** The pve and NAS host resolvers are still plaintext. So is
+Octo, which since 2967d52 calls Deezer, Last.fm and iTunes directly rather
+than through gluetun: each Deezer call through the VPN proxy measured
+0.92-0.98s against 0.19-0.25s direct, and search3 makes dozens of them. Its
+DNS is now DoT, but those services see the home IP.
+
+**Confidence:** CONFIRMED (counters before and after the reload).
 
 ## 2026-09-12 — Nextcloud downloads at 300 kB/s: NFS readahead, not Nextcloud
 
