@@ -684,6 +684,39 @@ spec:
             limits:
               cpu: "2"
               memory: 2Gi
+          # RESTART QBITTORRENT WHEN GLUETUN REPLACES tun0.
+          #
+          # qBittorrent binds to the tun0 interface (current_network_interface).
+          # When gluetun restarts - 206 times in this pod's life - it deletes
+          # tun0 and creates a new one with a new ifindex, and qBittorrent keeps
+          # its sockets tied to the old one. Nothing crashes and every probe
+          # stays green, but BitTorrent is dead: found 2026-09-14 after a gluetun
+          # restart on 09-13 22:20, with connection_status "firewalled",
+          # dht_nodes 0, every UDP tracker failing with "No such device", and
+          # port 42399 refusing connections from the internet even though
+          # gluetun's firewall counters showed the SYNs arriving. Toggling the
+          # interface through the WebUI API did not recover it. Restarting the
+          # qBittorrent process did, within 150s: connected, 578 DHT nodes, port
+          # open.
+          #
+          # The probe records tun0's ifindex the first time it can read it, and
+          # fails once it changes. A liveness failure restarts only this
+          # container, whose writable layer (and so the recorded value) starts
+          # fresh. No tun0 at all (gluetun still coming up) counts as healthy,
+          # so this never kills qBittorrent for a tunnel that is merely late.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - >-
+                  i=$(cat /sys/class/net/tun0/ifindex 2>/dev/null) || exit 0;
+                  f=/tmp/.tun0-ifindex;
+                  [ -s "$f" ] || { echo "$i" > "$f"; exit 0; };
+                  [ "$(cat "$f")" = "$i" ]
+            periodSeconds: 60
+            failureThreshold: 2
+            timeoutSeconds: 5
           volumeMounts:
             - name: config
               mountPath: /config
