@@ -147,10 +147,12 @@ spec:
         protocol: TCP
     # The shared VPN gateway. qBittorrent's tracker/peer traffic, slskd's
     # Soulseek connections and seedboxapi's MAM API calls go through the plain
-    # SOCKS5 sidecar (1080); Octo's Last.fm and metadata calls go through
-    # gluetun's HTTP proxy (8888), because .NET's HttpClient speaks HTTP
-    # CONNECT natively and has no SOCKS support worth relying on. This is the
-    # only path to the public internet - the killswitch.
+    # SOCKS5 sidecar (1080). 8888 is gluetun's HTTP proxy; Octo used it for
+    # Last.fm and metadata calls until 2026-09-14 and now goes direct (see
+    # apps/downloads/octo.yaml). It stays open for anything else that needs an
+    # HTTP CONNECT proxy. This is NOT the only path to the internet any more:
+    # the 0.0.0.0/0 rule at the bottom exists for gluetun, and the torrent
+    # killswitch is gluetun's own firewall inside its pod.
     #
     # 8888 was missing until Octo needed it, and its absence was silent in the
     # usual way: the vpn namespace's own policy has always admitted 8888 from

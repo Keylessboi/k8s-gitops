@@ -137,33 +137,24 @@ spec:
             - name: TZ
               value: UTC
 
-            # --- Egress through the VPN gateway ---
+            # --- Egress: direct, not through AirVPN (2026-09-14) ---
             #
-            # This is how the airtight requirement is actually met. The
-            # downloads NetworkPolicy denies direct internet egress outright,
-            # so without a proxy Octo's Last.fm and metadata calls would simply
-            # fail; with it they exit through AirVPN like everything else here.
-            # gluetun's HTTP proxy (8888) rather than its Shadowsocks port
-            # (8388) because .NET's HttpClient speaks HTTP CONNECT natively and
-            # has no SOCKS support worth relying on.
+            # Octo's outbound calls are metadata only (Deezer search and cover
+            # art, Last.fm, iTunes). Downloads never leave from this pod:
+            # Soulseek goes through slskd behind gluetun, YouTube through the
+            # yt-dlp shim, albums through Lidarr. Routing the metadata through
+            # gluetun's HTTP proxy made every Deezer call ~0.9s instead of ~0.2s
+            # (measured from the cluster), and search3 fans out to Deezer
+            # dozens of times, so a search took ~7s. The owner does not want
+            # Octo on the VPN.
             #
-            # .NET reads these in both cases (http_proxy then HTTP_PROXY), so
-            # the uppercase forms alone are sufficient.
-            - name: HTTP_PROXY
-              value: http://vpn-proxy.downloads.svc.cluster.local:8888
-            - name: HTTPS_PROXY
-              value: http://vpn-proxy.downloads.svc.cluster.local:8888
-            # Cluster-internal calls must NOT go through the tunnel: Navidrome
-            # and slskd are reachable directly, and proxying them would route
-            # in-cluster traffic out to AirVPN and back, which the VPN
-            # namespace's own policy drops anyway (it excludes RFC1918).
-            #
-            # .NET matches no_proxy entries as HOSTNAME suffixes, not CIDRs, so
-            # it is the .svc.cluster.local suffix that does the real work here.
-            # The CIDRs are kept for any child process or library that does
-            # understand them, and cost nothing.
-            - name: NO_PROXY
-              value: localhost,127.0.0.1,.svc,.cluster.local,.svc.cluster.local,10.42.0.0/16,10.43.0.0/16,192.168.0.0/16
+            # The comment that used to be here said the downloads
+            # NetworkPolicy denies direct internet egress, so the proxy was the
+            # only way out. That stopped being true in 95397f6, when gluetun
+            # moved into the qBittorrent pod and the namespace policy gained a
+            # 0.0.0.0/0 (minus RFC1918) egress rule so gluetun could reach the
+            # AirVPN endpoint. The killswitch for torrent traffic is gluetun's
+            # own firewall inside that pod, not the namespace policy.
 
             # --- Navidrome upstream ---
             #
