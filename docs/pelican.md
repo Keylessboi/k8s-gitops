@@ -194,7 +194,8 @@ shows players the hostname instead of `192.168.1.172`.
 
 **Router port-forwards.** Web apps work because 80/443 already forward to
 Traefik at `192.168.1.240`. Game traffic is raw TCP/UDP and must forward to the
-Wings node, **`192.168.1.172`**, port-for-port. Until a port is forwarded, a
+Wings node, **`192.168.1.67`** (the NAS since 2026-09-13; `.172` before),
+port-for-port. Until a port is forwarded, a
 server is LAN-only. Forward both TCP and UDP.
 
 **Dropping the port from the address.** Two ways, depending on the game:
@@ -215,7 +216,8 @@ forwarding a port each.
 
 ## Automatic port forwarding (pelican-portmap)
 
-`scripts/host/pelican-portmap` — a systemd service on **CT 200**, not in k8s,
+`scripts/host/pelican-portmap` — a systemd service on **the NAS** (on CT 200
+until Wings moved, [ADR-0011](adr/0011-wings-on-the-nas.md)), not in k8s,
 because UPnP discovery is SSDP multicast to `239.255.255.250` and that does not
 escape the pod network.
 
@@ -224,7 +226,7 @@ NAT-PMP), so nothing had to change on the Verizon side. External IP reported by
 the IGD is `74.101.53.75`, matching the `*.sandstorm.chat` wildcard.
 
 **Source of truth is Docker, not the panel.** Wings publishes each allocation as
-a host port binding, TCP *and* UDP, on `192.168.1.172`. A running container is
+a host port binding, TCP *and* UDP, on `192.168.1.67`. A running container is
 therefore already the statement "this port must be reachable" — so there is no
 panel state to poll and no drift when a server is started from the UI, the API,
 or by hand.
@@ -262,8 +264,10 @@ Step 2 is the remaining piece.
 
 ## Automatic DNS (pelican-dns)
 
-`scripts/host/pelican-dns` — a systemd service on CT 200, sibling to
-`pelican-portmap`.
+`scripts/host/pelican-dns` — a systemd service on CT 200. It stayed there when
+`pelican-portmap` and Wings moved to the NAS: it reads the panel database and
+the `porkbun` Secret through the server node's kubectl, and never touches
+Docker.
 
 **Why a daemon and not the panel plugin that was asked for.** The panel runs in
 k8s from an image, so anything `p:plugin:install` writes into the container is

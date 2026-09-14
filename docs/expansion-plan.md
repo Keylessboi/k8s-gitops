@@ -66,11 +66,15 @@ Unused capacity found:
   ~10.8 TB once `sdc1` is expanded over `sdc2`. That is the one purchase that
   adds real space.
 
-**Not space, but worth doing: raise the ZFS ARC.** It is capped at 3.5 GiB
-(`/etc/modprobe.d/zfs.conf`) from when the NAS had 7 GB. ADR-0009 traced the
-pool's latency to ~200 IOPS shared with 959 seeding torrents and a full ARC,
-and said raising it had no headroom *then*. With 24 GB, 8-10 GiB is reasonable,
-sized together with Wings' 6 GiB allocation.
+**Not space: the ZFS ARC is raised (DONE 2026-09-14).** The cap was 3.5 GiB
+from when the NAS had 7 GB. ADR-0009 traced the pool's latency to ~200 IOPS
+shared with 959 seeding torrents and a full ARC, and said raising it had no
+headroom *then*. It is now **10 GiB**, set live via
+`/sys/module/zfs/parameters/zfs_arc_max` and persisted in
+`/etc/modprobe.d/zfs.conf` (backup `zfs.conf.bak-2026-09-14`). The ZFS module
+is not in the initramfs, so modprobe.d applies at boot with no rebuild. Budget:
+10 GiB ARC + 6 GiB Wings allocation + ~2 GiB pods + the OS leaves headroom on
+24 GB. ARC also shrinks under memory pressure.
 
 **Also noticed:** `tank/extra`, which holds every nfs-csi PVC and the library,
 has **no sanoid policy**. Only `tank` and `tank/appdata` are snapshotted.
@@ -129,7 +133,9 @@ Public reachability today is 80/443 only, forwarded to Traefik
 1. Order after step 0. The proposal was Lidarr metadata, then Nextcloud
    federation and XMPP, then PeerTube, then gaming.
 2. Home upload bandwidth.
-3. Can the router forward more ports (5222, 5269, TURN UDP, game ports)? Any
-   game-port forwards that pointed at `.172` now need to point at `.67`.
+3. XMPP needs 5222/5269 and TURN UDP. Game ports need no manual forwards:
+   `pelican-portmap` leases them over UPnP while a server runs (now from the
+   NAS). The router's UPnP could do the same for XMPP, or those could be
+   static forwards.
 4. Move qBittorrent + slskd + gluetun to the NAS?
 5. Is `sda` (btrfs `personal`) really a stale copy, and can it be wiped?

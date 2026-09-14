@@ -91,6 +91,12 @@ allocations to `192.168.1.67` (`UPDATE 1`, `UPDATE 68`). The panel's
 7.1.8-arch1-3, wings 1.0.0-beta29). `.172` was dropped from the panel's
 egress policy, and Docker, Wings and the yolk images were removed from CT 200.
 
+`pelican-portmap` (UPnP port leases, `docs/pelican.md`) was missed in the first
+pass: it reads Docker on the Wings host, so it spent a morning logging "docker
+unavailable" on CT 200. It now runs on the NAS with `INTERNAL_IP` set to `.67`,
+with `miniupnpc` installed there. `pelican-dns` stays on CT 200, because it
+needs the server node's kubectl and never touches Docker.
+
 **Rollback:** the full pre-move copy is on the NAS at `/root/wings-import`
 (`etc/pelican` with the CA and token, `var/lib/pelican`, the binary and the
 unit). Reinstalling on CT 200 means docker-ce again plus that copy, and

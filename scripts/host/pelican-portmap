@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Open router ports for Pelican game servers only while they are running.
 
-Runs on CT 200 (the Wings host) rather than in k8s on purpose: UPnP discovery
+Runs on the NAS (the Wings host since 2026-09-13, CT 200 before that) rather
+than in k8s on purpose: UPnP discovery
 is SSDP multicast to 239.255.255.250, which does not escape the pod network.
 
 The source of truth is Docker, not the Pelican database. Wings publishes each
@@ -27,7 +28,7 @@ import subprocess
 import sys
 import time
 
-INTERNAL_IP = "192.168.1.172"     # the Wings host, where Docker publishes ports
+INTERNAL_IP = "192.168.1.67"      # the Wings host (NAS), where Docker publishes ports
 INTERVAL = 60
 # Short by design: this is the *only* way a port ever closes (see module
 # docstring), so it bounds how long a stopped server stays exposed. Three
