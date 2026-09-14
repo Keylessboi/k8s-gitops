@@ -112,9 +112,6 @@ helmCharts:
                 - targets: [192.168.1.67:9633]
                   labels:
                     host: nas
-          # 0 only while the TSDB moves from nfs-csi to local-path on the NAS
-          # (2026-09-14).
-          replicas: 0
           # On the NAS, whose NVMe root has ~800 GB free. It moved here because
           # CT 200's root disk (23 GB free) could not hold a 20 GB TSDB without
           # tripping kubelet eviction, and the HDD pool is the wrong place for
@@ -139,22 +136,21 @@ helmCharts:
                 # TSDB does heavy random IO and mmap; block storage, not a
                 # network/object-backed filesystem.
                 #
-                # THIS DOES NOT DESCRIBE THE RUNNING SYSTEM. The live PVC is
-                # nfs-csi, provisioned before this line said local-path, and a
-                # StatefulSet's volumeClaimTemplate is immutable - so the
-                # operator cannot migrate it and this value is inert. It is
-                # left as the intent rather than edited to match, because
-                # rewriting it would change nothing on disk while implying the
-                # move had happened.
+                # local-path on the NAS's NVMe since 2026-09-14 (nodeSelector
+                # above). Before that the live PVC was nfs-csi on the HDD pool,
+                # provisioned before this line said local-path, and this value
+                # was inert because a StatefulSet's volumeClaimTemplate is
+                # immutable.
                 #
-                # It only ever bites if someone deletes that PVC: the volume is
-                # then re-provisioned on local-path, which is CT200's root disk.
-                # On 2026-09-12 that disk had 20 GB free (82% used) against a
-                # retentionSize of 20GB above - a TSDB that grows to its cap
-                # would fill the node's root disk. Moving the data is the real
-                # fix, and it is blocked on freeing node disk first; until then,
-                # anyone deleting this PVC must lower retentionSize well below
-                # the node's free space in the same change.
+                # The move: pre-copy the TSDB on the NAS while Prometheus ran
+                # (finished blocks are immutable), replicas 0, final rsync, delete
+                # the nfs PVC (Retain, so pvc-946cbad0... still holds the old
+                # data), pre-create a PVC with the operator's name on local-path
+                # bound to the NAS, mv the data in, replicas back.
+                #
+                # 20Gi is not enforced by local-path either - retentionSize is
+                # still the real ceiling - but the NVMe has ~800 GB free, so it
+                # no longer threatens a node's root disk the way CT 200's did.
                 storageClassName: local-path
                 accessModes: [ReadWriteOnce]
                 resources:
