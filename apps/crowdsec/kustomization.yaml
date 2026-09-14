@@ -143,6 +143,37 @@ helmCharts:
       # community-blocklist decisions and any decision created before this
       # whitelist - parser whitelists do neither.
       config:
+        # The chart's default for this key, plus db_config.flush.agents_autodelete.
+        # Setting the key replaces the chart's default string wholesale, so the
+        # auto_registration block below is copied from chart 0.24.0 verbatim and
+        # must stay.
+        #
+        # Why the flush: the agent registers with LAPI under its POD NAME
+        # (`cscli lapi register --machine "$USERNAME"` in the chart's init
+        # container), so every time the DaemonSet pod is recreated - a node
+        # reboot, a template change - a new machine row appears and the old one
+        # stays forever with a stale heartbeat. Reproduced 2026-09-14:
+        # crowdsec-agent-rswxb was left behind when crowdsec-agent-x485f
+        # replaced it. A stable name is not an option: registering an existing
+        # name fails, and that failure is in the init container, so the agent
+        # would never start. Deleting machines that have not logged in for 24h
+        # cleans the orphans up instead. A live agent re-authenticates far more
+        # often than that.
+        config.yaml.local: |
+          api:
+            server:
+              auto_registration: # Activate if not using TLS for authentication
+                enabled: true
+                token: "${REGISTRATION_TOKEN}" # /!\ Do not modify this variable (auto-generated and handled by the chart)
+                allowed_ranges: # /!\ Make sure to adapt to the pod IP ranges used by your cluster
+                  - "127.0.0.1/32"
+                  - "192.168.0.0/16"
+                  - "10.0.0.0/8"
+                  - "172.16.0.0/12"
+          db_config:
+            flush:
+              agents_autodelete:
+                login_password: 24h
         parsers:
           s02-enrich:
             owner-ip-whitelist.yaml: |
