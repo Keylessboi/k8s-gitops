@@ -41,6 +41,9 @@ the literal string you are seeing, then read the entry.
 | A task or commit says a DNS leak is closed / DoT is on | DoT never landed — 2026-09-14 |
 | CoreDNS config or image did not change after a k3s upgrade | coredns.yaml.skip — 2026-09-14 |
 | A search in Octo takes several seconds | metadata through the VPN proxy — 2026-09-14 |
+| CrowdSec LAPI pod restarts every time anything is pushed | chart random secrets — 2026-09-14 |
+| qBittorrent `firewalled`, `dht_nodes: 0`, trackers `No such device` | stale tun0 after gluetun restart — 2026-09-14 |
+| A node missing from node-exporter dashboards or disk alerts | :9100 egress rule — 2026-09-14 |
 | A database is slow but sequential file reads are fine | storage, not the app — 2026-09-12 |
 | `Unrecognized host/PassKey` or `ASN mismatch` from MAM | session locked to the wrong ASN — 2026-09-12 |
 | Moving big data off the NAS takes hours | stream over ssh, do not read via NFS — 2026-09-12 |
@@ -78,6 +81,74 @@ prose version of the prevention failed:
   source *and* ingress in the destination.
 - **Duplicate YAML keys** (1×, but silent) — PyYAML accepts them, Go's yaml does
   not. Validate with the same parser as the consumer.
+
+## 2026-09-14 — three silent failures found while clearing the backlog
+
+### CrowdSec LAPI restarted on every push to main
+
+**Symptom.** `crowdsec-lapi` at Deployment revision 459. Four rollouts on
+2026-09-14 lined up exactly with four pushes, all docs-only.
+
+**Root cause.** Chart 0.24.0 generates `csLapiSecret` and `registrationToken`
+with `randAscii`/`randAlphaNum` when no value is set. Its `lookup` fallback is
+empty under ArgoCD's render, so every render produced new values, and
+`checksum/lapi-secret` on the pod template changed with them. Each rollout
+makes the Traefik bouncer re-fetch its decision stream, the same fetch whose
+failure caused the 2026-09-11 lockout.
+
+**Fix (cc08d2a, 8f91db6).** Both values live in Doppler (`CROWDSEC_LAPI_SECRET`,
+`CROWDSEC_REGISTRATION_TOKEN`) and sync to `crowdsec-lapi-external`.
+`secrets.externalSecret.name` points the chart at it. The checksum is now the
+hash of an empty template (`e3b0c442...`), constant.
+`CrowdSecBouncerNotPulling` now emails when LAPI sees under one decision-stream
+pull in 10 minutes (normal is ~9). 8bf7b69 also auto-deletes agent machines
+not seen for 24h: the agent registers under its pod name, so every recreated
+pod left a row behind.
+
+**Prevention.** Any Helm chart rendered by ArgoCD that uses `rand*` or `lookup`
+for a value feeding a checksum annotation will restart on every sync. Grep
+rendered charts for `rand` before trusting them, and pin those values.
+
+**Confidence:** CONFIRMED (revision history vs push timestamps; constant
+checksum after).
+
+### qBittorrent looked healthy and moved almost nothing
+
+**Symptom.** `connection_status: firewalled`, `dht_nodes: 0`, every UDP tracker
+`No such device`, 0 B/s, 1,305 torrents queued. Port 42399 was refused from
+the internet while gluetun's `INPUT` counters rose by exactly the number of
+test SYNs. All containers Ready.
+
+**Root cause.** qBittorrent binds to `tun0`. gluetun restarted on 2026-09-13
+22:20 (206 restarts over the pod's life), which replaces `tun0`. qBittorrent
+kept its sockets on the old interface. Toggling `current_network_interface`
+through the WebUI API did not recover it.
+
+**Fix (62b57c8).** `s6-svc -r /run/service/svc-qbittorrent`
+restored it within 150s: connected, 578 DHT nodes, 42399 open. A liveness probe
+now records `/sys/class/net/tun0/ifindex` and fails when it changes, so the
+kubelet restarts only the qBittorrent container after any gluetun reconnect.
+
+**Prevention.** Anything bound to a VPN sidecar's interface needs a probe tied
+to that interface's identity, not just to the process being up.
+
+**Confidence:** CONFIRMED for the restart fixing it; PROBABLE that ifindex
+change is the exact mechanism (the pre-restart index was not recorded).
+
+### The NAS was never scraped by node-exporter
+
+**Symptom.** `max_over_time(up{job="node-exporter",instance="nas"}[20d]) == 0`.
+
+**Root cause.** Monitoring's egress rule for :9100 named only `192.168.1.172`,
+and the catch-all excludes `192.168.0.0/16`. It predates the NAS joining the
+cluster.
+
+**Fix (2fff431).** Added `192.168.1.67/32` to the rule.
+
+**Prevention.** When a node joins, grep NetworkPolicies for the existing nodes'
+IPs. Every hostNetwork target is listed per address.
+
+**Confidence:** CONFIRMED.
 
 ## 2026-09-14 — DNS was plaintext to the ISP for nine days after "the leak" was marked fixed
 

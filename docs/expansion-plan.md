@@ -142,26 +142,28 @@ Public reachability today is 80/443 only, forwarded to Traefik
 
 ## Backlog carried over from the task list (2026-09-14)
 
-These were open tasks, cleared from the session task list at the owner's
-request. They are **not done**. Recorded here so they are not lost:
+Cleared from the session task list at the owner's request, then worked the same
+day. See `docs/doctor-log.md` 2026-09-14 for detail.
 
-- **pve / k3s-server RAM.** 81% used after the moves. Both slots are full, so
-  the fix is a 2x16 or 2x32 GB kit, or moving qBittorrent + slskd + gluetun to
-  the NAS.
-- **Prometheus TSDB still on nfs-csi** (20Gi claim). Blocked on CT 200's root
-  disk: 23 GB free now, ~17.4 GB needed for 30 days of data.
-- **Alert on a stale CrowdSec bouncer `last_pull`.** No PrometheusRule mentions
-  it. CrowdSec's bouncer failing closed caused the 2026-09-11 lockout.
-- **CrowdSec registers machines by pod name**, orphaning a row per restart.
-- **qBittorrent upload / "firewalled" status.** Not re-verified: its WebUI API
-  needs auth from inside the pod.
-- **`nextcloud-upload-sweep` CronJob is suspended** (SUSPEND=True). The 188 GB
-  backfill it was draining is finished (category empty), but new torrents in
-  the `nextcloud` category will not upload until it is resumed.
-- **After a soak period:** remove the rollback claims left by step 0
-  (`navidrome-data-local`, `lidarr-config-local`, the nfs `media-data` PVs and
-  `beets-config` for music/lidarr/navidrome) and `/root/wings-import` on the
-  NAS.
+**Done 2026-09-14:**
+- Prometheus TSDB off nfs-csi: on the NAS NVMe (4c6d28f). WAL replay 4.4s, down
+  from ~9.5 min. 20.7 days of history kept.
+- CrowdSec stale-bouncer alert (`CrowdSecBouncerNotPulling`, 8f91db6), plus the
+  cause of LAPI restarting on every push (random chart secrets, now pinned from
+  Doppler).
+- CrowdSec orphan machine rows: auto-deleted after 24h (8bf7b69).
+- qBittorrent "firewalled": stale tun0 sockets after a gluetun restart, fixed,
+  plus a liveness probe so it self-heals.
+- The NAS's node-exporter was never scraped (2fff431).
+- `nextcloud-upload-sweep` is suspended **on purpose** (ec6220a, "stop
+  uploading games"). Not a fault.
+
+**Still open (blocked or waiting):**
+- **pve / k3s-server RAM**, ~81%. Needs a 2x16/2x32 GB kit, or a decision to
+  move qBittorrent + slskd + gluetun to the NAS.
+- **After a soak period:** remove step 0's rollback copies
+  (`navidrome-data-local`, `lidarr-config-local`, the nfs `media-data` PVs,
+  `beets-config` nfs), `/root/wings-import` on the NAS, and the Released
+  Prometheus nfs PV `pvc-946cbad0`.
 - **k3s upgrades no longer update CoreDNS** (`coredns.yaml.skip`). Bump the
   image by hand.
-
