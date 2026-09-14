@@ -110,6 +110,13 @@ spec:
       labels:
         app.kubernetes.io/name: lidarr-mass-search
     spec:
+      # On the NAS node, next to the library (2026-09-13). The toleration is
+      # for its storage=true:NoSchedule taint, which keeps everything that does
+      # not ask for the NAS off it. See nas-volumes.yaml.
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
       restartPolicy: OnFailure
       securityContext:
         fsGroupChangePolicy: OnRootMismatch
@@ -315,7 +322,7 @@ spec:
       volumes:
         - name: config
           persistentVolumeClaim:
-            claimName: lidarr-config-local
+            claimName: lidarr-config-nas
 ---
 apiVersion: batch/v1
 kind: Job
@@ -355,6 +362,13 @@ spec:
       labels:
         app.kubernetes.io/name: lidarr-mass-search
     spec:
+      # On the NAS node, next to the library (2026-09-13). The toleration is
+      # for its storage=true:NoSchedule taint, which keeps everything that does
+      # not ask for the NAS off it. See nas-volumes.yaml.
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
       restartPolicy: OnFailure
       securityContext:
         fsGroupChangePolicy: OnRootMismatch
@@ -542,4 +556,4 @@ spec:
       volumes:
         - name: config
           persistentVolumeClaim:
-            claimName: lidarr-config-local
+            claimName: lidarr-config-nas

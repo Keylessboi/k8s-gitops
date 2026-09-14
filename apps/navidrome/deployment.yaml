@@ -10,8 +10,7 @@ metadata:
   name: navidrome
   namespace: navidrome
 spec:
-  # 0 only while navidrome-data-local is copied to the NAS (2026-09-13).
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -22,6 +21,13 @@ spec:
       labels:
         app.kubernetes.io/name: navidrome
     spec:
+      # On the NAS node, next to the library (2026-09-13). The toleration is
+      # for its storage=true:NoSchedule taint, which keeps everything that does
+      # not ask for the NAS off it. See nas-volumes.yaml.
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000
@@ -196,10 +202,10 @@ spec:
             # See apps/navidrome/pvc-data-local.yaml and docs/adr/0009.
             # The nfs-csi claim in pvc-data.yaml still holds the pre-migration
             # copy, so this is a one-line rollback.
-            claimName: navidrome-data-local
+            claimName: navidrome-data-nas
         - name: music
           persistentVolumeClaim:
-            claimName: media-data
+            claimName: media-data-nas
 ---
 apiVersion: v1
 kind: Service
