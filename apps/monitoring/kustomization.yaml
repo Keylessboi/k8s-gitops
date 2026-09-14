@@ -112,8 +112,18 @@ helmCharts:
                 - targets: [192.168.1.67:9633]
                   labels:
                     host: nas
+          # 0 only while the TSDB moves from nfs-csi to local-path on the NAS
+          # (2026-09-14).
+          replicas: 0
+          # On the NAS, whose NVMe root has ~800 GB free. It moved here because
+          # CT 200's root disk (23 GB free) could not hold a 20 GB TSDB without
+          # tripping kubelet eviction, and the HDD pool is the wrong place for
+          # it (see storageSpec below). The toleration is for the NAS's
+          # storage=true:NoSchedule taint.
           nodeSelector:
-            homelab/node-class: compute
+            kubernetes.io/hostname: nas
+          tolerations:
+            - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
           resources:
             requests:
               cpu: 100m
