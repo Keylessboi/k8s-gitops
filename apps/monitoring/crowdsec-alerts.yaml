@@ -1,0 +1,46 @@
+---
+# CrowdSec: alert when the Traefik bouncer stops pulling decisions.
+#
+# 2026-09-11: LAPI's decision stream took 7.6-28.5s over NFS, the Traefik
+# plugin's fetch timed out, and the plugin FAILS CLOSED - every published host
+# answered 403 in 0ms, Authentik included. It looked like "the internet is
+# down" and nothing alerted, because nothing watched the bouncer.
+#
+# The signal: the plugin runs in stream mode and polls LAPI's
+# /v1/decisions/stream about once a minute. LAPI counts each poll in
+# cs_lapi_bouncer_requests_total (scraped by the `crowdsec` ServiceMonitor).
+# Measured 2026-09-14: ~9 pulls per 10 minutes. Fewer than one in 10 minutes
+# means the plugin is not reaching LAPI, or LAPI is not answering.
+#
+# The `bouncer` label carries the Traefik pod IP (traefik@10.42.0.138), so it
+# changes whenever Traefik restarts; the sum drops that label. increase()
+# handles the counter resetting when LAPI restarts. absent() catches LAPI being
+# gone or unscraped entirely, where the sum would return nothing and never fire.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: crowdsec
+  namespace: monitoring
+  labels:
+    release: kps
+spec:
+  groups:
+    - name: crowdsec
+      rules:
+        - alert: CrowdSecBouncerNotPulling
+          expr: >-
+            (sum(increase(cs_lapi_bouncer_requests_total{route="/v1/decisions/stream"}[10m])) < 1)
+            or
+            absent(cs_lapi_bouncer_requests_total{route="/v1/decisions/stream"})
+          # 10m on top of the 10m window: a LAPI restart or a single missed
+          # scrape does not page, a real stall does within ~20 minutes.
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: Traefik's CrowdSec bouncer has stopped pulling decisions
+            description: >-
+              No /v1/decisions/stream requests reached CrowdSec LAPI in the last
+              10 minutes. The Traefik plugin fails closed, so published hosts
+              may be answering 403. Check the crowdsec-lapi pod and Traefik's
+              logs; see docs/doctor-log.md 2026-09-11.

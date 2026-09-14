@@ -33,6 +33,20 @@ helmCharts:
     namespace: crowdsec
     includeCRDs: true
     valuesInline:
+      # LAPI's JWT secret and agent registration token come from Doppler
+      # (DopplerSecret crowdsec-lapi-secrets -> Secret crowdsec-lapi-external).
+      #
+      # Left unset, the chart generates both with randAscii/randAlphaNum. Its
+      # `lookup` fallback cannot see the cluster under ArgoCD, so every render
+      # produced new values, and checksum/lapi-secret on the LAPI pod template
+      # changed with them. Every push to main - docs-only included - rolled
+      # the LAPI (Deployment revision 459 by 2026-09-14; four rollouts that
+      # day matched four pushes exactly), and each rollout made the Traefik
+      # bouncer re-fetch its decision stream. With this set, the chart renders
+      # no secret and the checksum is constant.
+      secrets:
+        externalSecret:
+          name: crowdsec-lapi-external
       # The Local API: holds decisions and answers the bouncer.
       lapi:
         persistentVolume:

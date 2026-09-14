@@ -40,6 +40,7 @@ resources:
   - smartctl-alerts.yaml
   - temperature-alerts.yaml
   - backup-alerts.yaml
+  - crowdsec-alerts.yaml
   - minio-probe.yaml
   # Probes every published URL, asserting the status code each SHOULD return.
   - edge-probes.yaml
@@ -447,6 +448,13 @@ helmCharts:
                   - alertname =~ "Smart.*"
                 # Disk problems are slow-moving; a daily nag is plenty.
                 repeat_interval: 24h
+              # CrowdSec's Traefik bouncer going quiet (crowdsec-alerts.yaml).
+              # It fails closed, so a stalled bouncer is every published host
+              # answering 403 - the 2026-09-11 lockout, which nothing reported.
+              - receiver: "smart-email"
+                matchers:
+                  - alertname =~ "CrowdSec.*"
+                repeat_interval: 1h
               # Temperature rules (temperature-alerts.yaml) are all named Temp*.
               # Heat is the owner's stated example of a thing that SHOULD
               # interrupt them: it is a physical errand (a fan, a filter, a
