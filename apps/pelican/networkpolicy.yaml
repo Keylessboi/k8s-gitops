@@ -80,18 +80,14 @@ spec:
             cidr: 192.168.1.67/32
       ports:
         - {port: 9000, protocol: TCP}
-    # Wings on the NAS (192.168.1.67) since 2026-09-13, previously on the
-    # k3s-server LXC (CT 200, .172): the Panel polls the daemon on :8443 (wings
-    # serves its own TLS there — see docs/adr/0011). A host IP, not a Service
-    # IP, so k3s does not DNAT it and the plain ipBlock rule matches — the
-    # post-DNAT trap on the authentik rule below does not apply here. .172
-    # stays allowed until the CT 200 install is removed, so a rollback is a
-    # panel change only.
+    # Wings on the NAS (192.168.1.67) since 2026-09-13; it ran on the k3s-server
+    # LXC (CT 200, .172) before that. The Panel polls the daemon on :8443
+    # (wings serves its own TLS there — see docs/adr/0011). A host IP, not a
+    # Service IP, so k3s does not DNAT it and the plain ipBlock rule matches —
+    # the post-DNAT trap on the authentik rule below does not apply here.
     - to:
         - ipBlock:
             cidr: 192.168.1.67/32
-        - ipBlock:
-            cidr: 192.168.1.172/32
       ports:
         - {port: 8443, protocol: TCP}
     # Outbound HTTPS/HTTP to the internet, minus the private ranges: the

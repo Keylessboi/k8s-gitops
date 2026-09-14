@@ -85,5 +85,13 @@ the NAS's `free -h` shows available memory below ~4 GB with a server running,
 the governor is too loose for a host that also runs ZFS; lower the node's
 panel allocation before raising the ARC.
 
-**Rollback:** `systemctl enable --now wings` on CT 200 and set the node
-FQDN/allocations back to `192.168.1.172`. Nothing there was deleted.
+**Completed 2026-09-14:** the owner updated the node FQDN and all 68
+allocations to `192.168.1.67` (`UPDATE 1`, `UPDATE 68`). The panel's
+`systemInformation()` call then returned the NAS (12 CPUs, kernel
+7.1.8-arch1-3, wings 1.0.0-beta29). `.172` was dropped from the panel's
+egress policy, and Docker, Wings and the yolk images were removed from CT 200.
+
+**Rollback:** the full pre-move copy is on the NAS at `/root/wings-import`
+(`etc/pelican` with the CA and token, `var/lib/pelican`, the binary and the
+unit). Reinstalling on CT 200 means docker-ce again plus that copy, and
+setting the node FQDN/allocations back to `192.168.1.172`.
