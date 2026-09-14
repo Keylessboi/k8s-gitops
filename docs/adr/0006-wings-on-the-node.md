@@ -1,6 +1,6 @@
 # ADR-0006: Run Wings on the k3s-server node itself
 
-**Status:** Accepted
+**Status:** Superseded by [ADR-0011](0011-wings-on-the-nas.md) (2026-09-13)
 **Date:** 2026-08-29
 
 ## Context

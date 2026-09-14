@@ -19,6 +19,7 @@ The **Consequences** section matters most. Particularly the negative ones and th
 | [0003](0003-navidrome-header-auth.md) | Navidrome uses reverse-proxy header auth, not OIDC | Accepted |
 | [0004](0004-lidarr-is-the-tag-writer.md) | Lidarr writes audio tags; beets is read-only | Accepted |
 | [0005](0005-pterodactyl-needs-mysql-and-kvm.md) | Pterodactyl waits for a MySQL host and a KVM node | Accepted |
-| [0006](0006-wings-on-the-node.md) | Wings runs on the k3s-server node itself, governed | Accepted |
+| [0006](0006-wings-on-the-node.md) | Wings runs on the k3s-server node itself, governed | Superseded by 0011 |
 | [0007](0007-freeze-the-platform-layer.md) | Freeze the platform layer; spend effort on headroom and checks | Accepted |
 | [0009](0009-databases-on-local-path-not-nfs.md) | Postgres first, local-path if unsupported; NFS never for databases | Accepted |
+| [0011](0011-wings-on-the-nas.md) | Wings runs on the NAS, not the k3s-server node | Accepted |

@@ -14,8 +14,11 @@ Only the panel half was Pterodactyl-specific, and that has been removed — see
 [pelican.md](pelican.md) for the panel.
 
 Where Wings runs, and under what governors, is decided in
-[ADR-0006](adr/0006-wings-on-the-node.md): a systemd service on CT 200 with its
-own docker-ce, 6144 MiB RAM and 10240 MiB disk allocated, 0% overallocate.
+[ADR-0011](adr/0011-wings-on-the-nas.md): **a systemd service on the NAS
+(192.168.1.67)** against its Docker, server data on the NVMe root, 6144 MiB RAM
+and 10240 MiB disk allocated, 0% overallocate. It ran on CT 200 until
+2026-09-13 ([ADR-0006](adr/0006-wings-on-the-node.md), superseded); the sections
+below that say "the node" or `k3s-server` describe that earlier placement.
 
 ## Already provisioned (2026-08-28)
 
