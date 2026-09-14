@@ -74,6 +74,12 @@ data:
         # was never listed and is gone as of d066e8c.
         fallthrough
       }
-      forward . /etc/resolv.conf
+      # Same upstream as the main Corefile (apps/coredns/coredns-corefile.yaml):
+      # Quad9 over TLS, so unlisted sandstorm.chat names are not plaintext
+      # either.
+      forward . tls://9.9.9.9 tls://149.112.112.112 {
+        tls_servername dns.quad9.net
+        health_check 5s
+      }
       cache 30
     }

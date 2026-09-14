@@ -1,0 +1,67 @@
+---
+# The main CoreDNS Corefile, taken over from k3s on 2026-09-14 so upstream DNS
+# goes to Quad9 over TLS instead of plaintext to the router.
+#
+# WHY THIS FILE EXISTS. Before this, every lookup a pod made for an outside
+# name - tracker hostnames, api.deezer.com, everything - left the cluster as
+# plain UDP/53 via `forward . /etc/resolv.conf`, i.e. to CT 200's PVE-managed
+# resolvers (192.168.1.1, 1.1.1.1). Two per-pod attempts on 2026-09-05 to
+# route the torrent pod's DNS through gluetun's DoT resolver were both reverted
+# (31b0f78, 3b605c6 -> fbfa16a). Doing it here covers every pod on every node
+# and does not depend on gluetun's resolv.conf handling.
+#
+# WHY IT HAD TO BE A TAKEOVER. k3s's addon ships this Corefile with its own
+# `forward` line. `coredns-custom` can only ADD: `*.override` is imported
+# inside this block, and a second forward there is "plugin/forward: this plugin
+# can only be used once per Server Block", which stops CoreDNS starting. So
+# /var/lib/rancher/k3s/server/manifests/coredns.yaml.skip was created on CT 200
+# and this key is owned by git instead. With .skip, k3s leaves the existing
+# CoreDNS objects in place but no longer re-applies or upgrades them - a k3s
+# upgrade will NOT bump the CoreDNS image or change this config.
+#
+# NodeHosts is deliberately absent. The k3s supervisor keeps writing node IPs
+# into that key of this same ConfigMap. Argo syncs with ServerSideApply, which
+# only touches fields named here, so it does not fight the supervisor.
+#
+# Verified before cutover with a throwaway CoreDNS pod on this exact config:
+# real names resolved, isitblocked.org came back NXDOMAIN (Quad9's filter
+# working), and the forward went to :853.
+#
+# ROLLBACK: change the forward line back to `forward . /etc/resolv.conf` and
+# push. The `reload` plugin applies it within ~30s without a pod restart. To
+# hand the file back to k3s entirely: delete this file, remove the .skip on CT
+# 200, restart k3s.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns
+  namespace: kube-system
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health
+        ready
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+          pods insecure
+          fallthrough in-addr.arpa ip6.arpa
+        }
+        hosts /etc/coredns/NodeHosts {
+          ttl 60
+          reload 15s
+          fallthrough
+        }
+        prometheus :9153
+        # Quad9 over TLS. Both anycast addresses, so one being unreachable is
+        # not an outage; health_check takes a dead one out within seconds.
+        forward . tls://9.9.9.9 tls://149.112.112.112 {
+          tls_servername dns.quad9.net
+          health_check 5s
+        }
+        cache 30
+        loop
+        reload
+        loadbalance
+        import /etc/coredns/custom/*.override
+    }
+    import /etc/coredns/custom/*.server

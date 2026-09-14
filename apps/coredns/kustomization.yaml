@@ -1,7 +1,8 @@
 ---
-# CoreDNS customisation. The CoreDNS deployment itself is k3s-managed and is
-# deliberately not touched here; this only supplies the optional custom config
-# it already imports.
+# CoreDNS configuration. The Deployment, Service and RBAC are still the objects
+# k3s created, but since 2026-09-14 k3s no longer manages them
+# (coredns.yaml.skip on CT 200). The main Corefile is owned here, so upstream
+# DNS goes to Quad9 over TLS - see coredns-corefile.yaml.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 metadata:
@@ -17,4 +18,5 @@ labels:
     includeSelectors: false
 
 resources:
+  - coredns-corefile.yaml
   - coredns-custom.yaml
