@@ -34,6 +34,7 @@ resources:
   - namespace.yaml
   - media-data-pv.yaml
   - pvc-config-local.yaml
+  - nas-volumes.yaml
   - networkpolicy.yaml
   - deployment.yaml
   - bgutil-provider.yaml

@@ -53,6 +53,13 @@ spec:
       template:
         spec:
           restartPolicy: Never
+          # On the NAS node, next to the library (2026-09-13). The toleration is
+          # for its storage=true:NoSchedule taint, which keeps everything that does
+          # not ask for the NAS off it. See nas-volumes.yaml.
+          nodeSelector:
+            kubernetes.io/hostname: nas
+          tolerations:
+            - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -121,10 +128,10 @@ spec:
           volumes:
             - name: config
               persistentVolumeClaim:
-                claimName: beets-config
+                claimName: beets-config-nas
             - name: config-file
               configMap:
                 name: beets-config-file
             - name: data
               persistentVolumeClaim:
-                claimName: media-data
+                claimName: media-data-nas

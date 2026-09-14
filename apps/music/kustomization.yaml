@@ -37,6 +37,7 @@ resources:
   - namespace.yaml
   - media-data-pv.yaml
   - pvc.yaml
+  - nas-volumes.yaml
   - networkpolicy.yaml
   - beets-config.yaml
   - beets.yaml

@@ -10,7 +10,8 @@ metadata:
   name: navidrome
   namespace: navidrome
 spec:
-  replicas: 1
+  # 0 only while navidrome-data-local is copied to the NAS (2026-09-13).
+  replicas: 0
   strategy:
     type: Recreate
   selector:

@@ -10,7 +10,8 @@ spec:
   # Stays 1, permanently. /config/lidarr.db is SQLite and single-writer, so a
   # second replica would not share the load, it would contend on the write
   # lock. The one-off trackFile purge that briefly took this to 0 has finished.
-  replicas: 1
+  # 0 only while lidarr-config-local is copied to the NAS (2026-09-13).
+  replicas: 0
   strategy:
     type: Recreate
   selector:

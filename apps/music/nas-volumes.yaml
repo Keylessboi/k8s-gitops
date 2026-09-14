@@ -1,0 +1,71 @@
+---
+# Volumes for running beets ON the NAS node (2026-09-13). See
+# apps/navidrome/nas-volumes.yaml for why these are `local` PVs rather than
+# NFS, and for the k3s-agent/zfs-mount ordering they depend on.
+#
+# Both point at the directories the nfs-csi volumes already use, so nothing
+# was copied: beets-config-nas is the same files as the beets-config claim
+# (subDir music/beets-config), just reached locally instead of over NFS.
+#
+# The old claims (media-data, beets-config) stay declared for rollback.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: media-data-music-nas
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  local:
+    path: /extra/nfs-csi/data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - {key: kubernetes.io/hostname, operator: In, values: [nas]}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media-data-nas
+  namespace: music
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: media-data-music-nas
+  resources:
+    requests:
+      storage: 500Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: beets-config-nas
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  local:
+    path: /extra/nfs-csi/music/beets-config
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - {key: kubernetes.io/hostname, operator: In, values: [nas]}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: beets-config-nas
+  namespace: music
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: beets-config-nas
+  resources:
+    requests:
+      storage: 5Gi

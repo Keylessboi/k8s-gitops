@@ -36,6 +36,7 @@ resources:
   - media-data-pv.yaml
   - pvc-data.yaml
   - pvc-data-local.yaml
+  - nas-volumes.yaml
   - networkpolicy.yaml
   - deployment.yaml
   - strip-auth-headers-middleware.yaml

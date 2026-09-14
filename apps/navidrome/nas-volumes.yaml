@@ -1,0 +1,60 @@
+---
+# Volumes for running Navidrome ON the NAS node (2026-09-13, after the NAS went
+# from 8 to 24 GB). k3s-server is the RAM-starved node; the NAS is where the
+# library physically lives.
+#
+# media-data-nas is a `local` PV onto the same directory the nfs-csi PV serves
+# (/extra/nfs-csi/data), so paths inside the pod are unchanged and hardlinks
+# still land on the same filesystem as qBittorrent's view over NFS. It is NOT a
+# loopback NFS mount of the NAS onto itself.
+#
+# k3s-agent on the NAS is ordered After=zfs-mount with RequiresMountsFor=/extra
+# (/etc/systemd/system/k3s-agent.service.d/10-after-zfs.conf). Without that a
+# pod could start before the dataset mounts and write into an empty directory
+# on the root disk.
+#
+# The old claims (media-data, navidrome-data-local) stay declared for rollback.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: media-data-navidrome-nas
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  local:
+    path: /extra/nfs-csi/data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - {key: kubernetes.io/hostname, operator: In, values: [nas]}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media-data-nas
+  namespace: navidrome
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: media-data-navidrome-nas
+  resources:
+    requests:
+      storage: 500Gi
+---
+# local-path on the NAS's NVMe root disk (820 GB free), not the HDD pool -
+# navidrome.db is SQLite, see docs/adr/0009.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: navidrome-data-nas
+  namespace: navidrome
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi

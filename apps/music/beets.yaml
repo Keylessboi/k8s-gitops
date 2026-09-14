@@ -23,6 +23,13 @@ spec:
       labels:
         app.kubernetes.io/name: beets
     spec:
+      # On the NAS node, next to the library (2026-09-13). The toleration is
+      # for its storage=true:NoSchedule taint, which keeps everything that does
+      # not ask for the NAS off it. See nas-volumes.yaml.
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
       # Pod-level, so it also covers anything added later. Without it the pod
       # runs seccomp Unconfined: this node's kubelet has seccompDefault=false,
       # so nothing applies a profile unless a manifest asks. RuntimeDefault
@@ -102,13 +109,13 @@ spec:
       volumes:
         - name: config
           persistentVolumeClaim:
-            claimName: beets-config
+            claimName: beets-config-nas
         - name: config-file
           configMap:
             name: beets-config-file
         - name: data
           persistentVolumeClaim:
-            claimName: media-data
+            claimName: media-data-nas
 ---
 apiVersion: v1
 kind: Service

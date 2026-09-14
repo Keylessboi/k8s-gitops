@@ -1,0 +1,55 @@
+---
+# Volumes for running Lidarr ON the NAS node (2026-09-13). See
+# apps/navidrome/nas-volumes.yaml for why media is a `local` PV onto
+# /extra/nfs-csi/data rather than NFS, and for the k3s-agent/zfs-mount ordering
+# this depends on.
+#
+# Same directory as the nfs-csi media PV, so /data/torrents/music and
+# /data/media/music are still one filesystem and imports keep hardlinking.
+#
+# The old claims (media-data, lidarr-config-local) stay declared for rollback.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: media-data-lidarr-nas
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  local:
+    path: /extra/nfs-csi/data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - {key: kubernetes.io/hostname, operator: In, values: [nas]}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media-data-nas
+  namespace: lidarr
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: media-data-lidarr-nas
+  resources:
+    requests:
+      storage: 500Gi
+---
+# local-path on the NAS's NVMe root disk, not the HDD pool: lidarr.db is a
+# 3.9 GB SQLite file (docs/adr/0009). 20Gi matches lidarr-config-local; the
+# copy measured 8.1 GB including MediaCover.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lidarr-config-nas
+  namespace: lidarr
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi
