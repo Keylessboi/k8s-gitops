@@ -42,3 +42,4 @@ resources:
   - beets-config.yaml
   - beets.yaml
   - beets-import-cronjob.yaml
+  - replaygain-backfill-job.yaml

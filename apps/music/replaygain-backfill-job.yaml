@@ -1,0 +1,104 @@
+---
+# One-off ReplayGain pass over the existing library.
+#
+# The config change that turns replaygain on (apps/music/beets-config.yaml)
+# only affects files imported from now on. Everything already in the library -
+# sampled 2026-09-15, no REPLAYGAIN_* or R128_* tags anywhere - needs one
+# explicit pass, which is this Job.
+#
+# Resumable by construction: `overwrite: no` in the config means an
+# already-tagged file is skipped, so re-running this Job after a kill, an
+# eviction or a node reboot picks up where it stopped. It is safe to delete
+# and re-create at any time.
+#
+# It only WRITES TAGS. No audio is decoded to disk, re-encoded or moved;
+# ffmpeg reads each file once to measure loudness. Expect it to be slow -
+# every track is decoded end to end - which is why it is a separate Job
+# rather than something bolted onto the import schedule.
+#
+# `-a` means album mode: album gain is computed across each album's tracks,
+# so a quiet interlude keeps its place inside a loud record. Clients that
+# prefer album gain (Navidrome offers both) then have something to use.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: beets-replaygain-backfill
+  namespace: music
+spec:
+  # Starts suspended. beets' library.db is SQLite with one writer, and the
+  # beets-import CronJob holds that writer for ~87 minutes every 6 hours. Two
+  # writers means both sides waiting out the 60s `timeout` in the config, so
+  # this is unsuspended when an import is not running.
+  suspend: true
+  backoffLimit: 2
+  # 20h. Long enough for a full pass over ~40k tracks at the measured decode
+  # rate, short enough that a wedged run does not sit forever.
+  activeDeadlineSeconds: 72000
+  template:
+    spec:
+      restartPolicy: Never
+      # On the NAS, next to the library (2026-09-13). The toleration is
+      # for its storage=true:NoSchedule taint, which keeps everything that does
+      # not ask for the NAS off it. See nas-volumes.yaml.
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        # OnRootMismatch, never the default Always: `data` is the whole
+        # library tree, and a recursive chown across it is the trap that left
+        # beets-import in ContainerCreating for nine hours. See
+        # beets-import-cronjob.yaml.
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: replaygain
+          image: lscr.io/linuxserver/beets:2.2.0
+          # `command` bypasses the s6 init, so PUID/PGID are not honoured and
+          # BEETSDIR/HOME have to be set here - same shape as the import
+          # CronJob, and for the same reasons.
+          command:
+            - /lsiopy/bin/beet
+            - -c
+            - /config/config.yaml
+            - replaygain
+            - -a
+          env:
+            - name: HOME
+              value: /config
+            - name: BEETSDIR
+              value: /config
+            - name: TZ
+              value: UTC
+          resources:
+            requests:
+              cpu: 500m
+              memory: 256Mi
+            # 4 CPUs, matching `threads: 4` in the replaygain config. The NAS
+            # has 12, and the rest are for nfsd, ZFS and the game host.
+            limits:
+              cpu: "4"
+              memory: 1Gi
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: config-file
+              mountPath: /config/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: beets-config-nas
+        - name: config-file
+          configMap:
+            name: beets-config-file
+        - name: data
+          persistentVolumeClaim:
+            claimName: media-data-nas

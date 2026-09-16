@@ -275,11 +275,46 @@ data:
 
     # ----------------------------------------------------------- replaygain
     #
-    # OFF. The default backend decodes every file end to end; the docs call
-    # it "a slow process" and advise disabling auto if import speed matters.
-    # Run `beet replaygain` as a separate pass once the library has settled.
+    # ON since 2026-09-15, with the ffmpeg backend. This is the loudness
+    # normalisation the library had none of: sampled files carried no
+    # REPLAYGAIN_* or R128_* tags at all, so every client played every track
+    # at whatever level it was mastered.
+    #
+    # Navidrome (0.63.2) reads these tags and applies the gain itself, so
+    # tagging here is the whole job - nothing re-encodes and no audio is
+    # touched, only tags.
+    #
+    # backend: ffmpeg, not the `command` default. The default shells out to
+    # mp3gain/aacgain, which only handle MP3/AAC - this library is mostly
+    # FLAC. ffmpeg measures EBU R128 for every format beets can read, and it
+    # is already in the image (verified: ffmpeg, mp3gain and metaflac all
+    # present).
+    #
+    # auto: yes is affordable now in a way it was not when this said "OFF":
+    # imports run on the NAS against local disk rather than over NFS, and the
+    # importer is bounded by MusicBrainz's 1 req/s anyway. parallel_on_import
+    # spreads the decode across threads so it overlaps the rate-limited
+    # lookups instead of adding to them.
+    #
+    # threads: 4, not the default of os.cpu_count() (12 here) - the import
+    # CronJob's CPU limit is 4, and a decode fan-out wider than the limit just
+    # buys CFS throttling.
+    #
+    # overwrite: no means an already-tagged file is skipped, which is what
+    # makes the backfill Job in apps/music/replaygain-backfill-job.yaml
+    # resumable.
+    #
+    # targetlevel 89 dB is the ReplayGain 2.0 reference (~-18 LUFS) and the
+    # default; left explicit because it is the number a listener would ask
+    # about.
     replaygain:
-        auto: no
+        auto: yes
+        backend: ffmpeg
+        parallel_on_import: yes
+        threads: 4
+        overwrite: no
+        targetlevel: 89
+        per_disc: no
 
     # ------------------------------------------------------------- badfiles
     #
