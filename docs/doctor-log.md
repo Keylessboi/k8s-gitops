@@ -44,6 +44,8 @@ the literal string you are seeing, then read the entry.
 | CrowdSec LAPI pod restarts every time anything is pushed | chart random secrets — 2026-09-14 |
 | qBittorrent `firewalled`, `dht_nodes: 0`, trackers `No such device` | stale tun0 after gluetun restart — 2026-09-14 |
 | A node missing from node-exporter dashboards or disk alerts | :9100 egress rule — 2026-09-14 |
+| Lidarr has no Soulseek/YouTube/Lucida clients, /api/v1/plugin 404s | Tubifarry lost in a config restore — 2026-09-15 |
+| Tracks all play at different volumes | no ReplayGain tags — 2026-09-15 |
 | A database is slow but sequential file reads are fine | storage, not the app — 2026-09-12 |
 | `Unrecognized host/PassKey` or `ASN mismatch` from MAM | session locked to the wrong ASN — 2026-09-12 |
 | Moving big data off the NAS takes hours | stream over ssh, do not read via NFS — 2026-09-12 |
@@ -81,6 +83,69 @@ prose version of the prevention failed:
   source *and* ingress in the destination.
 - **Duplicate YAML keys** (1×, but silent) — PyYAML accepts them, Go's yaml does
   not. Validate with the same parser as the consumer.
+
+## 2026-09-15 — Lidarr had been running without Tubifarry, and nothing said so
+
+**Symptom.** The owner asked why Search Sniper was not enabled. It was not
+merely disabled: `/api/v1/plugin` returned 404, `/config/plugins` did not
+exist, `/metadata` listed only the three built-in consumers (Kodi, Roksbox,
+WDTV), and the ONLY download client was qBittorrent.
+
+**Root cause.** The plugin directory was lost. `apps/lidarr/deployment.yaml`
+documents installing Tubifarry through System -> Plugins, and the repo carries
+two services that exist purely for it - `bgutil-provider` for its YouTube
+client and `lucida-solver` for its Lucida indexer - so every artifact said it
+was installed. The archived NFS copy
+`pvc-872aa5df-...pre-restore/plugins/TypNull/Tubifarry` still holds v2.1.0 from
+2026-08-25, while the copy that became the live config has no `plugins/` at
+all. So it went missing in a restore or in the 2026-09-11 nfs-csi ->
+local-path migration, whose commit records deliberately NOT copying
+`MediaCover/` and `Backups/`.
+
+What it cost, silently: Soulseek, YouTube, Lucida and DABMusic disappeared as
+download clients and indexers, leaving torrents as the only acquisition path,
+on a library whose whole design routes around torrents for music. Lidarr never
+logs a missing plugin; there is nothing to log.
+
+**Fix.** Installed Tubifarry v2.1.1 (current release) into
+`/config/plugins/TypNull/Tubifarry` on the local-path volume and restarted
+Lidarr. All four clients and indexers came back, and Search Sniper appeared
+under `/metadata` already enabled. Two follow-ups from the same check: its
+`cacheDirectory` defaulted to `/cache`, which does not exist in this image
+(now `/config/tubifarry-cache`), and `stopWhenQueued` was briefly set to 400
+before being returned to 0 - Lidarr's queue holds 2,407 items, so any such cap
+would pause Sniper permanently.
+
+**Prevention.** Lidarr plugin state lives in `/config/plugins` and is NOT in
+git, like the Authentik objects. Any future config move must copy it, and the
+cheap check afterwards is `GET /api/v1/downloadclient`: if it lists only
+qBittorrent, the plugin is gone. A doc claiming a plugin is installed is not
+evidence that it is.
+
+**Confidence:** CONFIRMED (missing directory, 404, and the clients returning
+after the install).
+
+### The same day: no loudness normalisation anywhere
+
+**Symptom.** Tracks play at wildly different volumes.
+
+**Root cause.** Nothing ever wrote ReplayGain. beets shipped the plugin with
+`auto: no` and a comment to run it later, which nobody did. Verified on real
+files, not just the beets database: `metaflac` shows no REPLAYGAIN_* comments
+on a sampled FLAC and `ffprobe` none on a sampled MP3, and `rg_track_gain` is
+0.0 across the library. A first pass at counting looked like 20,000 tagged
+tracks; that was a quoting artifact, with beets printing the format string
+back literally.
+
+**Fix (80ee665).** beets tags on import with the `ffmpeg` backend - the
+`command` default only handles MP3/AAC and this library is mostly FLAC - and
+`apps/music/replaygain-backfill-job.yaml` does the existing library in one
+pass. Navidrome 0.63.2 applies the tags itself, so nothing is re-encoded.
+
+**Prevention.** When a plugin is added "for later", the later needs a Job in
+git, not a comment.
+
+**Confidence:** CONFIRMED.
 
 ## 2026-09-14 — three silent failures found while clearing the backlog
 

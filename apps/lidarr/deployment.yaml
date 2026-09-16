@@ -32,6 +32,16 @@ spec:
         - name: lidarr
           # Lidarr's `plugins` branch, not master.
           #
+          # PLUGIN STATE LIVES IN /config/plugins AND IS NOT IN GIT. On
+          # 2026-09-15 Lidarr was found running with NO plugins at all:
+          # /api/v1/plugin 404, no /config/plugins, and qBittorrent as the only
+          # download client, so Soulseek, YouTube, Lucida and DABMusic were all
+          # silently gone. The directory survives in the pre-restore NFS copy,
+          # so it was dropped in a restore or in the 2026-09-11 move to
+          # local-path. Reinstalled as v2.1.1. Check with
+          # `GET /api/v1/downloadclient` after any config move: only
+          # qBittorrent means the plugin is missing. See docs/doctor-log.md.
+          #
           # Tubifarry is installed through Lidarr's System -> Plugins page,
           # which master does not have - the linuxserver image tracks master,
           # where /api/v1/plugin returns 404 and no plugin can be installed at
