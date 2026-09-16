@@ -219,3 +219,35 @@ UID=$(curl -s localhost:8096/Users -H "X-Emby-Token: $TOK" \
 curl -s -X POST "localhost:8096/Users/$UID/policy" -H "X-Emby-Token: $TOK" \
   -H 'Content-Type: application/json' -d '{"IsAdministrator":true}'
 ```
+
+## Scrobbling: Last.fm and ListenBrainz (migrated 2026-09-16)
+
+Both are linked for `akadmin` on the cluster Navidrome, carried over from the
+old Compose instance at `/opt/projects/navidrome` on the NAS rather than
+re-linked in a browser.
+
+**Where the link actually lives.** Not in git and not in an env var: Navidrome
+keeps per-user scrobbler credentials in `user_props` inside `navidrome.db`
+(`LastFMSessionKey`, `ListenBrainzSessionKey`), both plaintext. That table is
+cluster state, so a rebuild of the volume loses the links. Backup taken before
+the change: `navidrome.db.bak-before-lastfm-2026-09-16` next to the database.
+
+**ListenBrainz** was linked through the API (`PUT /api/listenbrainz/link` with
+`{"token": ...}`, through a `kubectl port-forward`, since Navidrome's egress
+policy does not allow a pod in its own namespace to call it). It answered
+`{"status": true, "user": "ridden0"}`, and a test scrobble appeared on
+`https://api.listenbrainz.org/1/user/ridden0/listens` seconds later.
+
+**Last.fm needed its API key moved too.** A session key is bound to the API
+*application* that created it, and the key in Doppler was a different
+application from the one the old instance used - so the migrated session would
+have been rejected. `LASTFM_API_KEY` and `LASTFM_SHARED_SECRET` in Doppler
+(`kubernetes/prd`) now hold the old instance's pair, with the previous values
+kept as `LASTFM_API_KEY_PREV` / `LASTFM_SHARED_SECRET_PREV` so the swap is
+reversible. Verified afterwards with a signed `track.updateNowPlaying` call:
+Last.fm accepted it, which only a valid session key against the matching
+application can do.
+
+**If a link ever breaks**, the browser route still works: Navidrome →
+Personal settings → Last.fm / ListenBrainz. That is also the only route for a
+second user, since each account links its own.
