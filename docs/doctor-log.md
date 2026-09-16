@@ -44,6 +44,7 @@ the literal string you are seeing, then read the entry.
 | CrowdSec LAPI pod restarts every time anything is pushed | chart random secrets — 2026-09-14 |
 | qBittorrent `firewalled`, `dht_nodes: 0`, trackers `No such device` | stale tun0 after gluetun restart — 2026-09-14 |
 | A node missing from node-exporter dashboards or disk alerts | :9100 egress rule — 2026-09-14 |
+| `proxyconnect ... connect: connection refused` to a Service that has endpoints | namespaceSelector naming a deleted namespace — 2026-09-15 |
 | Lidarr has no Soulseek/YouTube/Lucida clients, /api/v1/plugin 404s | Tubifarry lost in a config restore — 2026-09-15 |
 | Tracks all play at different volumes | no ReplayGain tags — 2026-09-15 |
 | A database is slow but sequential file reads are fine | storage, not the app — 2026-09-12 |
@@ -111,6 +112,44 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-15 — Navidrome's Last.fm has been dead for ten days, behind a REJECT
+
+**Symptom.** Setting up scrobbling, the logs showed 38 Last.fm errors in 48
+hours, all of the shape:
+
+    Error calling LastFM/album.getInfo ...
+    proxyconnect tcp: dial tcp 10.43.127.51:8888: connect: connection refused
+
+The proxy Service had endpoints (`10.42.0.197:8888`), gluetun was listening on
+8888, and the qBittorrent pod was healthy. "Connection refused" reads as a dead
+listener, so the proxy looks like the suspect.
+
+**Root cause.** Navidrome's egress rule allowed
+`namespaceSelector: kubernetes.io/metadata.name: vpn`. That namespace was
+deleted on 2026-09-05 by 95397f6, which moved gluetun into the qBittorrent pod
+in the `downloads` namespace. A namespaceSelector that matches no namespace
+allows nothing, and kube-router REJECTs rather than dropping - so a policy
+failure presents as a refused connection, not a timeout. The comment above the
+rule still pointed at `apps/vpn/networkpolicy.yaml`, a directory that no longer
+exists.
+
+Ten days of silent loss: no scrobbling, no artist bios, no artist images.
+Nothing alerted, because Navidrome serves music perfectly well without them.
+
+**Fix (7938bf0).** Point the rule at `downloads`. Verified from the Navidrome
+pod afterwards: TCP 8888 open, and a request through the proxy reached Last.fm
+and came back with an HTTP status (400 to a deliberately bare request) instead
+of a refusal. No new refusals in the log.
+
+**Prevention.** Deleting a namespace means grepping every other app's
+NetworkPolicy for its name: `grep -rn "metadata.name: <ns>" apps/`. A selector
+pointing at a deleted namespace is not an error anywhere - it silently denies.
+And "connection refused" between pods in this cluster means the policy first,
+the listener second.
+
+**Confidence:** CONFIRMED (namespace absent; proxy reachable immediately after
+the rule changed).
 
 ## 2026-09-15 — Lidarr had been running without Tubifarry, and nothing said so
 
