@@ -307,11 +307,16 @@ data:
     # targetlevel 89 dB is the ReplayGain 2.0 reference (~-18 LUFS) and the
     # default; left explicit because it is the number a listener would ask
     # about.
+    # HELD AT auto: no PENDING A DECISION (2026-09-15). beets runs with
+    # `import.write: no` per ADR-0004, so the replaygain plugin stores gains in
+    # beets' own database and writes NOTHING to the files. Navidrome reads tags
+    # from files, so computing them here changes nothing a listener can hear -
+    # it would only spend an ffmpeg decode per imported track. Turning this on
+    # is only worth it alongside a decision to write tags to disk; see
+    # docs/expansion-plan.md.
     replaygain:
-        auto: yes
+        auto: no
         backend: ffmpeg
-        parallel_on_import: yes
-        threads: 4
         overwrite: no
         targetlevel: 89
         per_disc: no
