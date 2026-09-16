@@ -84,6 +84,34 @@ prose version of the prevention failed:
 - **Duplicate YAML keys** (1×, but silent) — PyYAML accepts them, Go's yaml does
   not. Validate with the same parser as the consumer.
 
+**Follow-up, same day: the restored clients were not all usable.** Testing each
+one through `/api/v1/{downloadclient,indexer}/test` after the reinstall:
+
+| Provider | Result |
+|---|---|
+| Slskd (client + indexer) | OK |
+| Lucida (client + indexer, via `lucida-solver`) | OK |
+| qBittorrent | OK |
+| YouTube client, YouTube + Tubifarry indexers | **FAIL**: `Cookie file does not exist` for `/data/cookies/youtube.txt` |
+| DABMusic | FAIL, and disabled: `dab.yeet.su` fails TLS |
+
+The cookies directory on the media volume exists but is empty. Clearing
+`cookiePath` made all three pass: `bgutil-provider` supplies the PO token, which
+is what it was deployed for, so cookies are optional here. Saved with
+`forceSave=true`.
+
+Verified end to end rather than by test button - a real `/release?albumId=`
+search on two missing albums returned 24 and 30 releases, 20 of each from
+YouTube plus Soulseek and torrent results. Search Sniper was then triggered by
+hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
+"Collected 50 eligible album(s)... Queued 5 album(s) for search", completed in
+3.7s.
+
+**Prevention.** A plugin being loaded is not the same as its providers working.
+After any plugin restore, POST every client and indexer to its `/test` endpoint
+and then run one real search; the test button alone would not have caught an
+empty cookie file being fine.
+
 ## 2026-09-15 — Lidarr had been running without Tubifarry, and nothing said so
 
 **Symptom.** The owner asked why Search Sniper was not enabled. It was not
