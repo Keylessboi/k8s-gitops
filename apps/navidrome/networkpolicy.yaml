@@ -97,13 +97,23 @@ spec:
   # discovery lookup. Navidrome is Go, so it honours HTTPS_PROXY natively and
   # needs no feature of its own.
   #
-  # Declared on both sides; the matching ingress is in apps/vpn/
-  # networkpolicy.yaml. Deliberately no 0.0.0.0/0 rule - the proxy is the
-  # single exit, exactly as the downloads namespace works.
+  # THE NAMESPACE IS `downloads`, NOT `vpn`. gluetun moved into the
+  # qBittorrent pod in 95397f6 and the `vpn` namespace was deleted with it,
+  # but this rule kept naming it - so a namespaceSelector that matches nothing
+  # denied every proxied request. Navidrome's Last.fm calls have failed with
+  # `proxyconnect tcp: dial tcp 10.43.127.51:8888: connect: connection
+  # refused` ever since (kube-router REJECTs, which is why it reads as refused
+  # rather than a timeout), taking scrobbling, artist bios and artist images
+  # with them. Found 2026-09-15 while setting up scrobbling.
+  #
+  # Declared on both sides; the matching ingress is the downloads namespace's
+  # own app-isolation policy, which has always admitted 8888. Deliberately no
+  # 0.0.0.0/0 rule - the proxy is the single exit, exactly as the downloads
+  # namespace works.
   - to:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: vpn
+          kubernetes.io/metadata.name: downloads
     ports:
     - protocol: TCP
       port: 8888
