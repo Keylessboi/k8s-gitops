@@ -45,6 +45,7 @@ the literal string you are seeing, then read the entry.
 | qBittorrent `firewalled`, `dht_nodes: 0`, trackers `No such device` | stale tun0 after gluetun restart — 2026-09-14 |
 | A node missing from node-exporter dashboards or disk alerts | :9100 egress rule — 2026-09-14 |
 | `proxyconnect ... connect: connection refused` to a Service that has endpoints | namespaceSelector naming a deleted namespace — 2026-09-15 |
+| The same song listed twice on an album, one FLAC and one m4a | typography-blind matching — 2026-09-17 |
 | `Song not found` / `data not found` spam for the same few ids, nothing actually broken | stale Octo preview ids — 2026-09-17 |
 | A Tubifarry task is enabled but never runs on its own | plugin drops it at startup — 2026-09-17 |
 | Tubifarry YouTube errors `Sign in to confirm you’re not a bot` | cookie-less YouTube — 2026-09-17 |
@@ -115,6 +116,41 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-17 — the same song twice on an album, one FLAC and one m4a
+
+**Symptom.** Through Octo, King Von's *Grandson, Vol. 1* listed 16 tracks;
+Navidrome listed 13. The three extras were m4a preview copies of songs already
+in the album. Separately, radio stations streamed YouTube previews of tracks
+whose FLAC was in the library.
+
+**Confidence.** CONFIRMED — reproduced against both servers and fixed by the
+patch below, with the album back to 13/13 FLAC afterwards.
+
+**Root cause.** One comparison, used everywhere Octo merges its own results
+into Navidrome's: `localSongTitles.Contains(deezerSong.Title)`, an ordinal
+case-insensitive match. Navidrome returns what the file's tags say and the
+provider returns its own house style, and the two disagree about typography.
+Three of the thirteen titles are tagged with U+2019 (`What It’s Like`,
+`Hoes Ain’t Shit`, `Mama’s Boy`); every provider writes U+0027. So Octo
+concluded the tracks were missing and appended a preview of each.
+
+The same comparison lives in `LastFmRadioTrackResolver`, which decides whether
+a station track plays the local file or streams — hence previews of music
+already owned. Its library lookup also asked for only the top 3 search hits,
+so an owned copy ranked below a remix or a live take was invisible.
+
+**Fix.** `octo/Services/Common/TitleMatch.cs` in the fork: a comparison key
+that folds case, Unicode punctuation, diacritics and invisible characters and
+drops apostrophes, while deliberately keeping other punctuation so
+"Crazy Story", "Crazy Story, Pt. 3" and "Crazy Story (remix)" stay three
+songs. Wired into getAlbum, getArtist, the native album injection, the search
+dedupe and the radio resolver; the resolver's lookup widened to 10 hits.
+25 tests. Deployed as `fork-bf7cf4b6683c`, sent upstream as winters27/octo#46.
+
+**Prevention.** Any "do I already own this?" comparison between two catalogues
+is a *matching* problem, not a string-equality problem. When tags come from one
+place and metadata from another, compare on a folded key.
 
 ## 2026-09-17 — Feishin spamming "Song not found" / "data not found" from Octo previews
 
