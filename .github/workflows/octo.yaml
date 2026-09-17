@@ -28,8 +28,11 @@ permissions:
 env:
   # Keylessboi/octo branch fix/lastfm-similar-credit-fallback: upstream release
   # 2026.09.14 (2579262a5d5a) plus the MusicBrainz credit fallback.
+  # 2c9b7e1 replaces 421dc96, which retried under the credited name only after
+  # Last.fm's similar-artists guess had already answered - for "Ye" that guess
+  # returned thirty Jon Anderson songs, so the retry never ran.
   FORK_REPO: Keylessboi/octo
-  FORK_REF: 421dc962f3e351d476cefceb122b4c9cd98503c0
+  FORK_REF: 2c9b7e19c49b2a557be31c4b1351c95386af172e
   IMAGE: ghcr.io/keylessboi/octo
 
 jobs:
