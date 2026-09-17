@@ -1,0 +1,111 @@
+---
+# Hourly Search Sniper, scheduled by Kubernetes instead of by Tubifarry.
+#
+# WHY THIS EXISTS. Search Sniper (Tubifarry v2.1.1) is enabled in Lidarr and
+# works when triggered - `POST /api/v1/command {"name":"SearchSniper"}` returns
+# "Collected 50 eligible album(s)... Queued 5 album(s) for search" in ~4s,
+# verified 2026-09-15. But it never ran on its own: 24 hours after enabling it,
+# Lidarr's ScheduledTasks table had no SearchSniperCommand row and the log had
+# no SearchSniperTask lines, while Tubifarry's own LyricsUpdateCommand from
+# the same startup WAS registered.
+#
+# The cause is in the plugin. ScheduledTaskService.InitializeTasks() runs on
+# ApplicationStartedEvent and filters providers through ValidateTaskProvider(),
+# which reads IntervalMinutes. For Search Sniper that is
+# `SearchSniperTaskSettings.Instance!.RefreshInterval` - a static set only in
+# the settings constructor. At startup nothing has constructed one yet, so the
+# read throws, the validator's catch returns false quietly, and the provider is
+# dropped from TaskProviders for the life of the process. Re-saving the
+# settings cannot recover it: the ProviderUpdated handler only looks the
+# provider up in that same list. Confirmed - a re-save left the schedule empty.
+#
+# A task inserted into ScheduledTasks by hand would not survive either: the
+# Servarr TaskManager prunes tasks it does not know at startup.
+#
+# So the schedule lives here, in git, where it is visible and cannot silently
+# vanish. It sends exactly the command the plugin would have scheduled, and the
+# plugin's own settings (5 random wanted albums per run, cache, which album
+# states count) still apply. If a future Tubifarry fixes the startup order and
+# registers the task itself, this double-schedules a cheap, idempotent
+# operation - harmless, but delete this file then.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: lidarr-search-sniper
+  namespace: lidarr
+spec:
+  # Hourly, matching the plugin's own RefreshInterval of 60 minutes. Off the
+  # hour so it does not coincide with the 02:00 maintenance run or beets.
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 1800
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 900
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: trigger
+              image: python:3.12-alpine3.20
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              command: ["python3", "-u", "-c"]
+              args:
+                - |
+                  import json, os, time, urllib.request, urllib.error
+                  B = "http://lidarr.lidarr.svc.cluster.local:8686/api/v1"
+                  K = os.environ["LIDARR_API_KEY"]
+                  def call(method, path, payload=None, timeout=60):
+                      data = json.dumps(payload).encode() if payload is not None else None
+                      req = urllib.request.Request(B + path, data=data, method=method,
+                          headers={"X-Api-Key": K, "Content-Type": "application/json"})
+                      with urllib.request.urlopen(req, timeout=timeout) as r:
+                          body = r.read()
+                          return json.loads(body) if body else {}
+                  # A Job's first request can precede kube-router programming
+                  # this pod's NetworkPolicy and be refused (docs/doctor-log.md).
+                  for attempt in range(30):
+                      try:
+                          call("GET", "/system/status", timeout=20)
+                          break
+                      except Exception as e:
+                          print(f"waiting for lidarr ({attempt}): {e}", flush=True)
+                          time.sleep(5)
+                  else:
+                      raise SystemExit("lidarr unreachable")
+                  cmd = call("POST", "/command", {"name": "SearchSniper"})
+                  cid = cmd["id"]
+                  for _ in range(60):
+                      st = call("GET", f"/command/{cid}")
+                      if st.get("status") in ("completed", "failed", "aborted", "cancelled", "orphaned"):
+                          print(f"SearchSniper {st['status']}: {st.get('message')}", flush=True)
+                          if st["status"] != "completed":
+                              raise SystemExit(1)
+                          break
+                      time.sleep(10)
+                  else:
+                      print("SearchSniper still running after 10 min; leaving it to finish", flush=True)
+              env:
+                - name: LIDARR_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: lidarr-api
+                      key: api-key
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
