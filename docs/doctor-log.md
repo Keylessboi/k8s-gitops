@@ -45,6 +45,8 @@ the literal string you are seeing, then read the entry.
 | qBittorrent `firewalled`, `dht_nodes: 0`, trackers `No such device` | stale tun0 after gluetun restart — 2026-09-14 |
 | A node missing from node-exporter dashboards or disk alerts | :9100 egress rule — 2026-09-14 |
 | `proxyconnect ... connect: connection refused` to a Service that has endpoints | namespaceSelector naming a deleted namespace — 2026-09-15 |
+| A Tubifarry task is enabled but never runs on its own | plugin drops it at startup — 2026-09-17 |
+| Tubifarry YouTube errors `Sign in to confirm you’re not a bot` | cookie-less YouTube — 2026-09-17 |
 | Lidarr has no Soulseek/YouTube/Lucida clients, /api/v1/plugin 404s | Tubifarry lost in a config restore — 2026-09-15 |
 | Tracks all play at different volumes | no ReplayGain tags — 2026-09-15 |
 | A database is slow but sequential file reads are fine | storage, not the app — 2026-09-12 |
@@ -112,6 +114,52 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-17 — "not many new releases": three stalled days and a scheduler that never scheduled
+
+**Symptom.** The owner noticed few new releases. Lidarr's History table:
+
+| Day | Grabbed | Imported |
+|---|---|---|
+| 09-13 | 116 | 0 |
+| 09-14 | 37 | 0 |
+| 09-15 | 19 | 0 |
+| 09-16 | 74 | 1,260 |
+
+**Root causes.**
+
+1. **Zero imports 09-13 to 09-15** lines up with that window's own breakage,
+   each already logged: the NAS moves and reboot, qBittorrent's stale `tun0`
+   sockets (dead BitTorrent), and Tubifarry missing (no Soulseek, YouTube or
+   Lucida). Imports resumed at 1,260 the day those were fixed.
+2. **Search Sniper had run zero times on its own** despite being enabled.
+   Lidarr's `ScheduledTasks` table had no `SearchSniperCommand`, while
+   Tubifarry's `LyricsUpdateCommand` from the same startup did. Plugin bug in
+   v2.1.1: `ScheduledTaskService.InitializeTasks()` validates providers by
+   reading `IntervalMinutes`, which for Sniper is
+   `SearchSniperTaskSettings.Instance!.RefreshInterval` - a static set only by
+   the settings constructor. At startup nothing has built one, the read throws,
+   the validator swallows it, and Sniper is dropped from the task list for the
+   life of the process. A re-save does not recover it (tested), and a
+   hand-inserted `ScheduledTasks` row is pruned by the Servarr TaskManager at
+   the next start.
+
+**Fix.** `apps/lidarr/search-sniper-cronjob.yaml` (e76e33c) sends
+`POST /api/v1/command {"name":"SearchSniper"}` hourly at :17. First run from
+the CronJob: "Search Sniper completed. Queued 5 album(s) for search".
+
+**Still limited, found while checking:** 158 `Sign in to confirm you’re not a
+bot` errors from Tubifarry's YouTube parser. The cookie path was cleared on
+09-15 because the file did not exist; bgutil's PO token alone gets search
+results but YouTube is now challenging the session, so YouTube *downloads* are
+unreliable until a cookies file is provided.
+
+**Prevention.** "Enabled" in a plugin's settings is not evidence it runs. For
+any scheduled plugin feature, check `ScheduledTasks` for its command, or the
+log for a run within one interval.
+
+**Confidence:** CONFIRMED for the Sniper scheduling bug (source read, table
+checked, re-save tested); PROBABLE for the import gap's attribution.
 
 ## 2026-09-15 — Navidrome's Last.fm has been dead for ten days, behind a REJECT
 
