@@ -1,0 +1,77 @@
+---
+# Build Octo itself from the Keylessboi/octo fork, and publish it to GHCR.
+#
+# WHY A FORK. Upstream (winters27/octo) builds and publishes its own image, and
+# that is what this cluster ran until 2026-09-17. The fork carries one fix not
+# yet merged upstream: instant mix / radio returned nothing for renamed
+# artists, because MusicBrainz tags the library "Ye" while Last.fm only knows
+# "Kanye West". The fix retries Last.fm under the recording's MusicBrainz
+# credit. It was sent upstream as a pull request; once it is merged and
+# released, point apps/downloads/octo.yaml back at ghcr.io/winters27/octo and
+# delete this workflow.
+#
+# Same shape as octo-yt-dlp-shim.yaml: no personal access token (GITHUB_TOKEN
+# with packages: write), and nothing vendored - the source is checked out at a
+# PINNED COMMIT, so what the cluster runs only changes when FORK_REF does.
+name: octo
+
+"on":
+  push:
+    branches: [main]
+    paths: ['.github/workflows/octo.yaml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  # Keylessboi/octo branch fix/lastfm-similar-credit-fallback: upstream release
+  # 2026.09.14 (2579262a5d5a) plus the MusicBrainz credit fallback.
+  FORK_REPO: Keylessboi/octo
+  FORK_REF: 421dc962f3e351d476cefceb122b4c9cd98503c0
+  IMAGE: ghcr.io/keylessboi/octo
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the fork at the pinned commit
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FORK_REPO }}
+          ref: ${{ env.FORK_REF }}
+          path: octo
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: tags
+        run: |
+          set -eu
+          short="${FORK_REF:0:12}"
+          date="$(date -u +%Y.%m.%d)"
+          # The Deployment pins the digest; tags are for humans.
+          echo "tags=${IMAGE}:${date},${IMAGE}:fork-${short}" >> "$GITHUB_OUTPUT"
+          echo "built ${IMAGE}:${date} from ${FORK_REPO}@${short}"
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: octo
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          provenance: false
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ env.FORK_REPO }}
+            org.opencontainers.image.revision=${{ env.FORK_REF }}
+            org.opencontainers.image.licenses=GPL-3.0
+
+      - name: Report the digest to pin
+        run: echo "::notice::${IMAGE}@${{ steps.build.outputs.digest }}"
