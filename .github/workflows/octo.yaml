@@ -2,13 +2,19 @@
 # Build Octo itself from the Keylessboi/octo fork, and publish it to GHCR.
 #
 # WHY A FORK. Upstream (winters27/octo) builds and publishes its own image, and
-# that is what this cluster ran until 2026-09-17. The fork carries one fix not
-# yet merged upstream: instant mix / radio returned nothing for renamed
-# artists, because MusicBrainz tags the library "Ye" while Last.fm only knows
-# "Kanye West". The fix retries Last.fm under the recording's MusicBrainz
-# credit. It was sent upstream as a pull request; once it is merged and
-# released, point apps/downloads/octo.yaml back at ghcr.io/winters27/octo and
-# delete this workflow.
+# that is what this cluster ran until 2026-09-17. The fork carries two fixes not
+# yet merged upstream, each sent as a pull request:
+#
+#   1. Instant mix / radio returned nothing for renamed artists, because
+#      MusicBrainz tags the library "Ye" while Last.fm only knows "Kanye West".
+#      The fix retries Last.fm under the recording's MusicBrainz credit.
+#   2. Owned tracks were compared to provider tracks by ordinal string equality,
+#      so a curly apostrophe made a song you own look missing: albums listed a
+#      YouTube preview beside the FLAC, and radio streamed previews of tracks in
+#      the library. The fix compares on a typography-folded key.
+#
+# Once both are merged and released, point apps/downloads/octo.yaml back at
+# ghcr.io/winters27/octo and delete this workflow.
 #
 # Same shape as octo-yt-dlp-shim.yaml: no personal access token (GITHUB_TOKEN
 # with packages: write), and nothing vendored - the source is checked out at a
@@ -26,13 +32,14 @@ permissions:
   packages: write
 
 env:
-  # Keylessboi/octo branch fix/lastfm-similar-credit-fallback: upstream release
-  # 2026.09.14 (2579262a5d5a) plus the MusicBrainz credit fallback.
+  # Keylessboi/octo branch deploy/cluster: upstream release 2026.09.14
+  # (2579262a5d5a), the MusicBrainz credit fallback (2c9b7e1), and the
+  # typography-folded title match (bf7cf4b, PR winters27/octo#46).
   # 2c9b7e1 replaces 421dc96, which retried under the credited name only after
   # Last.fm's similar-artists guess had already answered - for "Ye" that guess
   # returned thirty Jon Anderson songs, so the retry never ran.
   FORK_REPO: Keylessboi/octo
-  FORK_REF: 2c9b7e19c49b2a557be31c4b1351c95386af172e
+  FORK_REF: bf7cf4b6683cb72d9627b663e1d35fcf2af86c5d
   IMAGE: ghcr.io/keylessboi/octo
 
 jobs:
