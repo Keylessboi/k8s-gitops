@@ -70,6 +70,13 @@ data:
         192.168.1.240 alertmanager.sandstorm.chat
         192.168.1.240 invidious.sandstorm.chat
         192.168.1.240 octo.sandstorm.chat
+        # Added 2026-09-17 with apps/notesnook. The auth host matters most: the
+        # sync server validates tokens against it by its public name.
+        192.168.1.240 notesnook-api.sandstorm.chat
+        192.168.1.240 notesnook-auth.sandstorm.chat
+        192.168.1.240 notesnook-events.sandstorm.chat
+        192.168.1.240 notesnook-mono.sandstorm.chat
+        192.168.1.240 notesnook-files.sandstorm.chat
         # jellyfin removed 2026-09-03 (decommissioned in eb910dc); funkwhale
         # was never listed and is gone as of d066e8c.
         fallthrough

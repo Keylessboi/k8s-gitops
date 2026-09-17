@@ -1,0 +1,145 @@
+---
+# Five public hosts, one per server. Native apps talk to them directly, so no
+# Authentik forward-auth (same as Vaultwarden); CrowdSec and rate limiting apply
+# to all of them.
+#
+# The auth host additionally carries lan-only WHILE SIGN-UPS ARE OPEN
+# (DISABLE_SIGNUPS=false in config.yaml): account creation is reachable only from
+# the LAN and Tailscale until the owner's account exists. Then both change
+# together - lan-only removed here, DISABLE_SIGNUPS "true" there - so logging in
+# from a phone on mobile data works and nobody else can register.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: notesnook-api
+  namespace: notesnook
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - notesnook-api.sandstorm.chat
+      secretName: notesnook-api-tls
+  rules:
+    - host: notesnook-api.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: notesnook-server
+                port:
+                  number: 5264
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: notesnook-auth
+  namespace: notesnook
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-lan-only@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - notesnook-auth.sandstorm.chat
+      secretName: notesnook-auth-tls
+  rules:
+    - host: notesnook-auth.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: identity-server
+                port:
+                  number: 8264
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: notesnook-events
+  namespace: notesnook
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - notesnook-events.sandstorm.chat
+      secretName: notesnook-events-tls
+  rules:
+    - host: notesnook-events.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sse-server
+                port:
+                  number: 7264
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: notesnook-mono
+  namespace: notesnook
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - notesnook-mono.sandstorm.chat
+      secretName: notesnook-mono-tls
+  rules:
+    - host: notesnook-mono.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: monograph-server
+                port:
+                  number: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: notesnook-files
+  namespace: notesnook
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - notesnook-files.sandstorm.chat
+      secretName: notesnook-files-tls
+  rules:
+    - host: notesnook-files.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: notesnook-s3
+                port:
+                  number: 9000

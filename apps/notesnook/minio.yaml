@@ -1,0 +1,133 @@
+---
+# Notesnook's own MinIO, for attachments. Separate from the NAS MinIO on purpose:
+# clients reach this API directly from the internet via presigned URLs, and the
+# NAS MinIO holds the cluster's backups. The web console is off; only the S3 API
+# is served, and only through notesnook-files.sandstorm.chat.
+#
+# quay.io, not Docker Hub: MinIO stopped publishing images to Docker Hub, so the
+# minio/minio tags in upstream's compose file do not resolve there any more. Same
+# releases upstream tests with, pinned by digest.
+apiVersion: v1
+kind: Service
+metadata:
+  name: notesnook-s3
+  namespace: notesnook
+spec:
+  selector:
+    app.kubernetes.io/name: notesnook-s3
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: s3
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: notesnook-s3
+  namespace: notesnook
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notesnook-s3
+  namespace: notesnook
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notesnook-s3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: notesnook-s3
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: minio
+          image: quay.io/minio/minio:RELEASE.2024-07-29T22-14-52Z@sha256:29110b4abbcc7c2a71f19f5e375d50c2771c94272efba59c9a0532c88403672d
+          args: ["server", "/data/s3"]
+          env:
+            - name: MINIO_BROWSER
+              value: "off"
+            - name: MINIO_ROOT_USER
+              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_S3_ACCESS_KEY}}
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_S3_SECRET_KEY}}
+          ports:
+            - name: s3
+              containerPort: 9000
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: s3
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 25m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data/s3
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: notesnook-s3
+---
+# Creates the `attachments` bucket (upstream's setup-s3). `mc mb -p` is a no-op
+# when it already exists, so re-running is harmless.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: notesnook-s3-setup
+  namespace: notesnook
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      restartPolicy: OnFailure
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mc
+          image: quay.io/minio/mc:RELEASE.2024-07-26T13-08-44Z@sha256:a8c51dd4a53d46d1c3693106134f714b6c78dfe70469f8312b789d19826fe8d5
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              until mc alias set nn http://notesnook-s3:9000 "$ACCESS" "$SECRET" >/dev/null; do
+                echo "waiting for notesnook-s3"; sleep 5
+              done
+              mc mb -p nn/attachments
+              echo "bucket ready"
+          env:
+            - name: ACCESS
+              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_S3_ACCESS_KEY}}
+            - name: SECRET
+              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_S3_SECRET_KEY}}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}

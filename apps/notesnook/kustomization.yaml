@@ -1,0 +1,49 @@
+---
+# Notesnook: end-to-end encrypted notes, self-hosted sync. Replaces Memos
+# (apps/memos stays until its 309 notes are confirmed imported).
+#
+# Chosen 2026-09-17 over TriliumNext and Joplin because it is the closest FOSS
+# match to Standard Notes: E2EE by default and polished native apps on every
+# platform. Licences: GPL-3.0 clients, MIT sync server.
+#
+# KNOW BEFORE RELYING ON IT: upstream labels self-hosting "alpha, unsupported".
+# Every client keeps a full local copy (offline-first), so losing this server
+# loses sync, not notes - but it still wants a MongoDB backup (not built yet).
+#
+# Shape, following upstream's docker-compose.yml service for service:
+#   notesnook-db      MongoDB 7 single-node replica set (rs0)
+#   notesnook-s3      its OWN MinIO for attachments. Clients upload and download
+#                     attachments directly via presigned URLs, so this API has to
+#                     be public - which is exactly why it is not the NAS MinIO
+#                     that holds the cluster's backups.
+#   identity-server   accounts, login, 2FA (no OIDC upstream, so no Authentik)
+#   notesnook-server  sync API
+#   sse-server        push events to clients
+#   monograph-server  published ("monograph") notes
+#
+# Clients point at it under Settings -> Servers (or "Configure servers" on the
+# login screen) with the five notesnook-*.sandstorm.chat URLs in ingress.yaml.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: notesnook
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+
+namespace: notesnook
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/component: notes
+      homelab/tier: apps
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - networkpolicy.yaml
+  - config.yaml
+  - mongodb.yaml
+  - minio.yaml
+  - servers.yaml
+  - ingress.yaml

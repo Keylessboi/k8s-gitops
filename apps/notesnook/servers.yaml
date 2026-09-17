@@ -1,0 +1,290 @@
+---
+# The four Notesnook application servers, one Deployment + Service each, mirroring
+# upstream's docker-compose.yml. Every image is pinned by digest (upstream only
+# publishes :latest). All run on the NAS node, next to their database.
+
+---
+# Accounts, login, 2FA and password reset (SMTP from Doppler).
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity-server
+  namespace: notesnook
+spec:
+  selector:
+    app.kubernetes.io/name: identity-server
+  ports:
+    - name: http
+      port: 8264
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity-server
+  namespace: notesnook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: identity-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: identity-server
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: identity-server
+          image: streetwriters/identity:latest@sha256:0441b8cabb7c15436e804458bc766fa3b138f2aaa611224762e813cfcfa87b98
+          envFrom:
+            - configMapRef:
+                name: notesnook-env
+            - secretRef:
+                name: notesnook
+          env:
+            - name: MONGODB_CONNECTION_STRING
+              value: "mongodb://notesnook-db-0.notesnook-db.notesnook.svc.cluster.local:27017/identity?replicaSet=rs0"
+            - name: MONGODB_DATABASE_NAME
+              value: "identity"
+          ports:
+            - name: http
+              containerPort: 8264
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+# The sync API. S3_SERVICE_URL is the public attachments host, because presigned URLs it signs are used by clients directly; S3_INTERNAL_SERVICE_URL is how the server itself reaches MinIO.
+apiVersion: v1
+kind: Service
+metadata:
+  name: notesnook-server
+  namespace: notesnook
+spec:
+  selector:
+    app.kubernetes.io/name: notesnook-server
+  ports:
+    - name: http
+      port: 5264
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notesnook-server
+  namespace: notesnook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notesnook-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: notesnook-server
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: notesnook-server
+          image: streetwriters/notesnook-sync:latest@sha256:6c0f5e0fc088ad64cf088935411e3494bcb000535d182a693dc2c63ea7bb13b6
+          envFrom:
+            - configMapRef:
+                name: notesnook-env
+            - secretRef:
+                name: notesnook
+          env:
+            - name: MONGODB_CONNECTION_STRING
+              value: "mongodb://notesnook-db-0.notesnook-db.notesnook.svc.cluster.local:27017/?replicaSet=rs0"
+            - name: MONGODB_DATABASE_NAME
+              value: "notesnook"
+            - name: S3_INTERNAL_SERVICE_URL
+              value: "http://notesnook-s3:9000"
+            - name: S3_INTERNAL_BUCKET_NAME
+              value: "attachments"
+            - name: S3_ACCESS_KEY_ID
+              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_S3_ACCESS_KEY}}
+            - name: S3_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_S3_SECRET_KEY}}
+            - name: S3_SERVICE_URL
+              value: "https://notesnook-files.sandstorm.chat"
+            - name: S3_REGION
+              value: "us-east-1"
+            - name: S3_BUCKET_NAME
+              value: "attachments"
+          ports:
+            - name: http
+              containerPort: 5264
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+# Server-sent events: pushes 'something changed, sync now' to connected clients.
+apiVersion: v1
+kind: Service
+metadata:
+  name: sse-server
+  namespace: notesnook
+spec:
+  selector:
+    app.kubernetes.io/name: sse-server
+  ports:
+    - name: http
+      port: 7264
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sse-server
+  namespace: notesnook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sse-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sse-server
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: sse-server
+          image: streetwriters/sse:latest@sha256:0acdc4c1f1d417ea32411043481b8e98a46cd82690ef4e48280914936481c9ba
+          envFrom:
+            - configMapRef:
+                name: notesnook-env
+            - secretRef:
+                name: notesnook
+          ports:
+            - name: http
+              containerPort: 7264
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+# Monographs: notes published to a public link.
+apiVersion: v1
+kind: Service
+metadata:
+  name: monograph-server
+  namespace: notesnook
+spec:
+  selector:
+    app.kubernetes.io/name: monograph-server
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monograph-server
+  namespace: notesnook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: monograph-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: monograph-server
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: monograph-server
+          image: streetwriters/monograph:latest@sha256:1b7fcf885c8d3cb33ba74354ee32970430f7a6e992de96b61de2e8a310330a66
+          envFrom:
+            - configMapRef:
+                name: notesnook-env
+            - secretRef:
+                name: notesnook
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: HOST
+              value: "0.0.0.0"
+            - name: API_HOST
+              value: "https://notesnook-api.sandstorm.chat"
+            - name: PUBLIC_URL
+              value: "https://notesnook-mono.sandstorm.chat"
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi

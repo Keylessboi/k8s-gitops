@@ -1,0 +1,35 @@
+---
+# Non-secret settings shared by every Notesnook server, mirroring upstream's .env
+# plus its x-server-discovery block. Secrets (API secret, SMTP, S3 keys) come
+# from the Doppler-synced Secret `notesnook`.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notesnook-env
+  namespace: notesnook
+data:
+  INSTANCE_NAME: sandstorm
+  # FALSE ONLY UNTIL THE OWNER'S ACCOUNT EXISTS. While it is false, the auth host
+  # is fenced to LAN/Tailscale by the lan-only middleware (ingress.yaml), so the
+  # open sign-up is never reachable from the internet. Flip to "true" and drop
+  # that middleware together.
+  DISABLE_SIGNUPS: "false"
+  # Used only for links in emails; the official web app talks to any server.
+  NOTESNOOK_APP_PUBLIC_URL: https://app.notesnook.com
+  NOTESNOOK_API_PUBLIC_URL: https://notesnook-api.sandstorm.chat
+  AUTH_SERVER_PUBLIC_URL: https://notesnook-auth.sandstorm.chat
+  MONOGRAPH_PUBLIC_URL: https://notesnook-mono.sandstorm.chat
+  ATTACHMENTS_SERVER_PUBLIC_URL: https://notesnook-files.sandstorm.chat
+  # Empty = allow all origins, upstream's default.
+  NOTESNOOK_CORS_ORIGINS: ""
+  KNOWN_PROXIES: ""
+  # Service discovery between the servers (upstream's x-server-discovery).
+  SELF_HOSTED: "1"
+  NOTESNOOK_SERVER_HOST: notesnook-server
+  NOTESNOOK_SERVER_PORT: "5264"
+  IDENTITY_SERVER_HOST: identity-server
+  IDENTITY_SERVER_PORT: "8264"
+  SSE_SERVER_HOST: sse-server
+  SSE_SERVER_PORT: "7264"
+  IDENTITY_SERVER_URL: https://notesnook-auth.sandstorm.chat
+  NOTESNOOK_APP_HOST: https://app.notesnook.com

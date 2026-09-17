@@ -1,0 +1,61 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: notesnook
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Traefik, to the five published ports.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 5264, protocol: TCP}
+        - {port: 8264, protocol: TCP}
+        - {port: 7264, protocol: TCP}
+        - {port: 3000, protocol: TCP}
+        - {port: 9000, protocol: TCP}
+        # cert-manager HTTP-01 solver pods live in this namespace.
+        - {port: 8089, protocol: TCP}
+    # The servers call each other and MongoDB/MinIO.
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    # The sync server validates tokens against IDENTITY_SERVER_URL, the PUBLIC auth
+    # host. CoreDNS answers that with the load balancer (coredns-custom.yaml), and
+    # k3s rewrites 192.168.1.240:443 to Traefik's pod on :8443 before policy is
+    # evaluated - so both forms are needed, the repo-wide post-DNAT trap.
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.240/32
+      ports:
+        - {port: 443, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 8443, protocol: TCP}
+        - {port: 8000, protocol: TCP}
+    # SMTP for sign-up confirmation, 2FA codes and password resets.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
+      ports:
+        - {port: 587, protocol: TCP}
+        - {port: 465, protocol: TCP}
