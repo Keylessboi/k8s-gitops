@@ -115,12 +115,16 @@ spec:
         - name: octo
           # Digest-pinned per repo convention. Built from the Keylessboi/octo
           # fork (.github/workflows/octo.yaml): upstream release 2026.09.14 plus
-          # the MusicBrainz credit fallback that makes instant mix work for
-          # renamed artists ("Ye" in the library, "Kanye West" on Last.fm).
-          # That fix is proposed upstream; once a release carries it, return to
-          # ghcr.io/winters27/octo. Config backed up before this upgrade from
+          # two fixes, both proposed upstream:
+          #   - the MusicBrainz credit fallback that makes instant mix work for
+          #     renamed artists ("Ye" in the library, "Kanye West" on Last.fm);
+          #   - TitleMatch, which compares owned tracks to provider tracks
+          #     without their typography, so a curly apostrophe stops making a
+          #     song you own look missing (winters27/octo#46).
+          # Once a release carries both, return to ghcr.io/winters27/octo.
+          # Config backed up before this upgrade from
           # 2026.08.24 at <octo-config subDir>.bak-before-2026.09.14 on the NAS.
-          image: ghcr.io/keylessboi/octo:fork-2c9b7e19c49b@sha256:37cfbe03a62a4860576bd3cbf2e357a3be74ba1135fc26ca9ab05f2884d85ecd
+          image: ghcr.io/keylessboi/octo:fork-bf7cf4b6683c@sha256:98cd9bebb6c61966b137ca284412487feec515bdb9a7fe1854d4bb8af2c6ca2a
           securityContext:
             # 1000:1000 matches every other writer in this stack - slskd,
             # qBittorrent and Lidarr all run as 1000 - so files Octo drops in
