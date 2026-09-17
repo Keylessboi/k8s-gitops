@@ -45,6 +45,7 @@ the literal string you are seeing, then read the entry.
 | qBittorrent `firewalled`, `dht_nodes: 0`, trackers `No such device` | stale tun0 after gluetun restart — 2026-09-14 |
 | A node missing from node-exporter dashboards or disk alerts | :9100 egress rule — 2026-09-14 |
 | `proxyconnect ... connect: connection refused` to a Service that has endpoints | namespaceSelector naming a deleted namespace — 2026-09-15 |
+| `Song not found` / `data not found` spam for the same few ids, nothing actually broken | stale Octo preview ids — 2026-09-17 |
 | A Tubifarry task is enabled but never runs on its own | plugin drops it at startup — 2026-09-17 |
 | Tubifarry YouTube errors `Sign in to confirm you’re not a bot` | cookie-less YouTube — 2026-09-17 |
 | Lidarr has no Soulseek/YouTube/Lucida clients, /api/v1/plugin 404s | Tubifarry lost in a config restore — 2026-09-15 |
@@ -114,6 +115,52 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-17 — Feishin spamming "Song not found" / "data not found" from Octo previews
+
+**Symptom.** A stream of errors in the client and, in Navidrome's log, hundreds
+of lines like
+
+```
+level=error msg="Requested MediaFileID not found " id=zclkCP4w51w9bjFM2Yqe80
+level=warning msg="API: Failed response" endpoint=/rest/getSong error=70 message="Song not found"
+level=error msg="Error in ReportPlayback" error="data not found" mediaId=zclkCP4w51w9bjFM2Yqe80
+```
+
+repeating for the same two ids every few seconds. Nothing was broken: Navidrome
+was importing, Octo was serving, and every current station track resolved.
+
+**Confidence.** CONFIRMED.
+
+**Root cause.** Octo mints *Navidrome-shaped* 22-char base62 ids for tracks it
+does not own (YouTube previews, Soulseek results) — `ExternalIdRegistry`, whose
+comment explains why: some Subsonic clients silently drop queue entries whose
+ids are long or pipe-delimited. The registry is the only thing that knows an id
+is Octo's. Miss it, and `ParseExternalId` calls the id local and relays it to
+Navidrome, which has no such media and answers error 70.
+
+The registry is a deterministic sha256 -> base62 map held in memory and, since
+the version running now, mirrored to `/app/config/external-ids.json` on the
+`octo-config` PVC. It restored 51 entries at 15:15 UTC on the redeploy, so
+persistence works — but ids minted *before* the file first appeared are gone
+for good. Feishin still had two of them in its queue and retried them on every
+poll and every play attempt.
+
+**Ruled out.** Not a rescan renumbering tracks: every selective scan that day
+reported `tracksMissing=0`. Not LRU eviction: the registry held 699 of its
+10,000 entries. Not the stations: neither id appears in
+`lastfm-radio-state.json`, and the first eight tracks of J. Cole Radio all
+answered `ok` from `/rest/getSong`. Traefik's log placed the requests on
+`octo.sandstorm.chat` with `c=Feishin`, so the client was pointed at Octo
+correctly.
+
+**Fix.** Clear the queue in the client. The ids are deterministic, so re-running
+the search that produced a track mints the same id again and it works.
+
+**Prevention.** Already upstream: the registry is written to disk, so a restart
+no longer orphans a client's queue. The residue is bounded to ids from before
+that change. Worth remembering for anything else that mints ids clients keep:
+**an id a client can persist must outlive the process that minted it.**
 
 ## 2026-09-17 — "not many new releases": three stalled days and a scheduler that never scheduled
 
