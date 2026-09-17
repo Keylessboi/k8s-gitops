@@ -120,7 +120,7 @@ spec:
           # That fix is proposed upstream; once a release carries it, return to
           # ghcr.io/winters27/octo. Config backed up before this upgrade from
           # 2026.08.24 at <octo-config subDir>.bak-before-2026.09.14 on the NAS.
-          image: ghcr.io/keylessboi/octo:fork-421dc962f3e3@sha256:52a0d715db7df60470f0e66648805151321b044ff0288628a0e07bedbb65a590
+          image: ghcr.io/keylessboi/octo:fork-2c9b7e19c49b@sha256:37cfbe03a62a4860576bd3cbf2e357a3be74ba1135fc26ca9ab05f2884d85ecd
           securityContext:
             # 1000:1000 matches every other writer in this stack - slskd,
             # qBittorrent and Lidarr all run as 1000 - so files Octo drops in
