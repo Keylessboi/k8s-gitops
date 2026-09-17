@@ -113,9 +113,14 @@ spec:
               mountPath: /app/config
       containers:
         - name: octo
-          # Digest-pinned per repo convention. Multi-arch (amd64/arm64);
-          # the tag 2026.08.24 is the newest published release.
-          image: ghcr.io/winters27/octo:2026.08.24@sha256:30496b2c0e53e74944211b1e6f6b9eb8369062f14ba89cdc93eb84b048fa3ced
+          # Digest-pinned per repo convention. Built from the Keylessboi/octo
+          # fork (.github/workflows/octo.yaml): upstream release 2026.09.14 plus
+          # the MusicBrainz credit fallback that makes instant mix work for
+          # renamed artists ("Ye" in the library, "Kanye West" on Last.fm).
+          # That fix is proposed upstream; once a release carries it, return to
+          # ghcr.io/winters27/octo. Config backed up before this upgrade from
+          # 2026.08.24 at <octo-config subDir>.bak-before-2026.09.14 on the NAS.
+          image: ghcr.io/keylessboi/octo:fork-421dc962f3e3@sha256:52a0d715db7df60470f0e66648805151321b044ff0288628a0e07bedbb65a590
           securityContext:
             # 1000:1000 matches every other writer in this stack - slskd,
             # qBittorrent and Lidarr all run as 1000 - so files Octo drops in
