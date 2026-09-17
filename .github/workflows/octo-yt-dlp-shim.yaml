@@ -38,11 +38,13 @@ permissions:
   packages: write
 
 env:
-  # winters27/octo @ main as of 2026-09-11. A tag would be nicer, but upstream
-  # publishes none - so this is pinned by SHA rather than by a moving branch,
-  # which would silently change what this cluster runs.
+  # winters27/octo release 2026.09.14. Bumped 2026-09-17 together with Octo
+  # itself (octo.yaml builds the fork on top of the same release): 1aa82c4
+  # changed the shim's streaming path, so the two must move in step. A tag
+  # would be nicer, but upstream publishes none for the shim - so this is
+  # pinned by SHA rather than by a moving branch.
   UPSTREAM_REPO: winters27/octo
-  UPSTREAM_REF: f9cf6f4c5eef795909335dbe52fe8e43fd739666
+  UPSTREAM_REF: 2579262a5d5ac9ed0b8a11c208e71e5059d71d95
   IMAGE: ghcr.io/keylessboi/octo-yt-dlp-shim
 
 jobs:
