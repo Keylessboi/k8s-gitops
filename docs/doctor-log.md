@@ -45,6 +45,7 @@ the literal string you are seeing, then read the entry.
 | qBittorrent `firewalled`, `dht_nodes: 0`, trackers `No such device` | stale tun0 after gluetun restart — 2026-09-14 |
 | A node missing from node-exporter dashboards or disk alerts | :9100 egress rule — 2026-09-14 |
 | `proxyconnect ... connect: connection refused` to a Service that has endpoints | namespaceSelector naming a deleted namespace — 2026-09-15 |
+| An app behind Authentik "down" while its pod, endpoints and Authentik are all healthy; `/sw.js` repeating in Traefik's log | service worker in the forward-auth loop — 2026-09-19 (qui) |
 | The same song listed twice on an album, one FLAC and one m4a | typography-blind matching — 2026-09-17 |
 | `Song not found` / `data not found` spam for the same few ids, nothing actually broken | stale Octo preview ids — 2026-09-17 |
 | A Tubifarry task is enabled but never runs on its own | plugin drops it at startup — 2026-09-17 |
@@ -116,6 +117,35 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-19 — qui "down": a service worker stuck in the Authentik login loop
+
+**Symptom.** qui looked down in the browser. Nothing was: the pod was
+Running 1/1 with its endpoint, qui was polling qBittorrent (2,278 torrents),
+Authentik's login page answered 200, and the outpost route
+`/outpost.goauthentik.io/ping` answered 204.
+
+**Confidence.** PROBABLE. It fits every log line, but nobody has watched the
+browser do it.
+
+**Root cause.** The owner's Authentik session had expired. Every request
+reached Authentik's authorize endpoint as `"auth_via": "unauthenticated"`, so
+Authentik redirected to the login flow. The browser never showed that page:
+the next requests were `/index.html` and `/sw.js` again, 1-2 seconds apart,
+and `/outpost.goauthentik.io/callback` never appeared in Traefik's log. qui is
+a PWA, and its **service worker** made those fetches. A service worker that
+receives a cross-origin redirect to a login page cannot navigate to it, so
+the app just failed to load.
+
+**Fix.** Log in at `authentik.sandstorm.chat` first, then open qui. Or
+hard-reload qui with the service worker bypassed (DevTools > Application >
+Service Workers > Unregister). The navigation then reaches Authentik itself.
+
+**Prevention.** Any PWA behind forward auth fails this way when its SSO
+session expires. Check for `/sw.js` in the Traefik log before suspecting the
+app. The durable fix is to let the app do its own OIDC login instead of
+forward auth (qui supports OIDC), or to exclude the service-worker script
+from forward auth. Neither is done yet.
 
 ## 2026-09-17 — the same song twice on an album, one FLAC and one m4a
 
