@@ -77,6 +77,7 @@ the literal string you are seeing, then read the entry.
 | Pod stuck ContainerCreating, no events, `unmounted volumes=[…]: context deadline exceeded`, but the volume IS mounted | fsGroup chowning a huge NFS volume — 2026-09-09 (**check `fsGroupChangePolicy`**) |
 | A pod recreated every couple of minutes, Deployment revision in the dozens | ArgoCD vs image-updater — 2026-09-05 (gluetun), 2026-09-09 (navidrome) |
 | An alert that has been firing for days and never clears | scraping something k3s does not expose / probes for deleted apps — 2026-09-09 |
+| Lidarr's queue stuck at ~2,500 and never shrinking; qBittorrent at 0 B/s | stalled torrents holding every download slot — 2026-09-21 |
 
 ### The traps that have bitten more than once
 
@@ -117,6 +118,58 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-21 — the download queue was deadlocked by three stalled torrents
+
+**Symptom.** Lidarr's queue had sat at 2,400-2,600 records for weeks and never
+came down, even though its nightly maintenance CronJob was completing every
+night and reporting ~400 imports. qBittorrent told the other half of the story:
+dl_info_speed was **0 B/s**, with 1,342 torrents in queuedDL and 1,309 of those
+having never received a single byte. The oldest were 25 days old.
+
+**Root cause.** Torrent queueing in apps/downloads/qbittorrent.yaml is
+deliberate: MaxActiveDownloads=3 with IgnoreSlowTorrentsForQueueing=false
+stopped 2,199 torrents consuming the NAS pool's entire IOPS budget. What that
+combination also does is count a STALLED download as an active one. Three
+torrents in stalledDL, with 0 seeds between them, held all three download slots,
+so qBittorrent never promoted anything out of queuedDL. The queue was not
+draining, it was frozen - and every one of those 1,342 queued torrents is also a
+record in Lidarr's queue, which is the whole of the "why is Lidarr's queue so
+big" question.
+
+Two things hid it. Lidarr's maintenance script reports success while only ever
+fetching 500 of 2,587 queue records: one unpaginated pageSize=500 call sorted by
+status ascending, so page 1 is always the completed block. It also returns early
+on any record with no status messages, which is every queued download. (That
+500-record window is a separate, still-open defect.) And "0 B/s" raises no alert
+anywhere.
+
+**Fix.** apps/downloads/qbit-stalled-reaper-cronjob.yaml (06fdbdb) pauses a
+torrent once it has been observed in a stalled download state for 24h
+continuously. A paused torrent is not active, so the slot frees and the next
+queued torrent is promoted. The stall clock is a qBittorrent tag
+(stalled-since=<epoch>) rather than a file, because qBittorrent has no "time
+spent stalled" field and a Job has no persistent disk; a torrent that recovers
+clears its tag and starts over. Protected trackers are never paused, matching
+qbit-protected-forcestart, and the queue itself stays enabled - this removes the
+input that deadlocks it, not the protection.
+
+The three torrents holding the slots were bootstrapped by hand, their tags
+seeded 25h old (they were 23-25 days old and demonstrably stalled), rather than
+waiting out a first 24h. Verified after the first in-cluster run: those three
+went to stoppedDL, dl_info_speed went **0 -> 1.7 MB/s**, and a promoted torrent
+was pulling 1.8 MB/s from 6 seeds.
+
+**Prevention.** "Nothing is downloading" is not the same failure as "downloads
+are failing": it produces no error anywhere, and a client at 0 B/s looks exactly
+like a client that is merely idle. Alert on sustained dl_info_speed == 0 while
+queuedDL > 0 - that is the only thing separating a deadlocked queue from a quiet
+one. More generally, a bounded resource pool whose accounting counts a stuck
+member as an active one has exactly this failure mode, and no amount of
+downstream retrying will clear it.
+
+**Confidence.** CONFIRMED. The slots were held by stalledDL torrents and freed
+when they were paused; throughput went from 0 to 1.7 MB/s within 90 seconds.
 
 ## 2026-09-19 — qui "down": a service worker stuck in the Authentik login loop
 
