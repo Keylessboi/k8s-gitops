@@ -26,6 +26,12 @@
 # The killswitch lives in gluetun's own firewall, not the NetworkPolicy. The
 # policy has to allow internet egress so the WireGuard handshake can happen;
 # gluetun then drops everything not on tun0 except FIREWALL_OUTBOUND_SUBNETS.
+#
+# The download queue is deliberate - see the TORRENT QUEUEING block in the init
+# script below - and qbit-stalled-reaper-cronjob.yaml keeps it from deadlocking.
+# Queueing counts a STALLED download as an active one, so three seedless
+# torrents can hold all three download slots and freeze the queue at 0 B/s:
+# measured 2026-09-21, after three weeks with 1,342 torrents queued behind them.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
