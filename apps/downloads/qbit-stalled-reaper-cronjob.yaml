@@ -1,0 +1,269 @@
+---
+# Retire stalled downloads so they stop holding qBittorrent's queue slots.
+#
+# WHY THIS EXISTS. apps/downloads/qbittorrent.yaml enables the download queue on
+# purpose: MaxActiveDownloads=3 with IgnoreSlowTorrentsForQueueing=false stopped
+# 2,199 torrents saturating the NAS pool's IOPS. But qBittorrent counts a
+# STALLED download as an active one, so three seedless torrents consume all
+# three download slots and no queued torrent is ever promoted.
+#
+# Measured 2026-09-21: 1,342 queuedDL against exactly 3 stalledDL, dl_speed 0.
+# The download queue had been frozen for about three weeks and 1,309 torrents
+# had never received a byte. Every one of them shows up in Lidarr's queue, which
+# is why that queue sat at ~2,500 records and could not shrink.
+#
+# WHY PAUSE AND NOT DELETE. Pausing is reversible and destroys nothing - the
+# partial data stays on disk and the torrent can be resumed. Deleting a
+# 31%-complete download throws away what little exists, and doing it to a
+# private tracker is the same hit-and-run that
+# qbit-protected-forcestart-cronjob.yaml exists to prevent.
+#
+# This does NOT weaken the queue. It removes the one input that deadlocks it,
+# so the queue does what it was configured to do instead of stalling forever.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: qbit-stalled-reaper
+  namespace: downloads
+spec:
+  # Every 15 minutes. The work is one torrents/info call plus a few tag writes,
+  # and a shorter interval means a freed slot is refilled promptly.
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          initContainers:
+            # kube-router programs this pod's NetworkPolicy 1-2s AFTER the pod
+            # starts, and until it does, allowed egress is REJECTed as a bare
+            # "connection refused". This job logs in on its first line of real
+            # work, so without this it loses that race. Caught by
+            # scripts/ci/check-invariants.py.
+            - name: wait-for-qbittorrent
+              image: busybox:1.37
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  for i in $(seq 1 60); do
+                    if nc -z qbittorrent.downloads.svc.cluster.local 8080; then
+                      echo "qbittorrent reachable after $i attempt(s)"
+                      exit 0
+                    fi
+                    sleep 2
+                  done
+                  echo "qbittorrent not reachable after 120s"
+                  exit 1
+              resources:
+                requests: {cpu: 10m, memory: 16Mi}
+                limits: {cpu: 100m, memory: 64Mi}
+          containers:
+            - name: stalled-reaper
+              image: python:3.12-alpine3.20
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              command: ["python3", "-u", "/scripts/stalled-reaper.py"]
+              env:
+                - name: QBIT_URL
+                  value: http://qbittorrent.downloads.svc.cluster.local:8080
+                - name: QBIT_USER
+                  value: travis
+                - name: QBIT_PASS
+                  valueFrom: {secretKeyRef: {name: qbittorrent-webui, key: password}}
+                # The same list qbit-protected-forcestart-cronjob.yaml uses, and
+                # for the same reason: a private tracker's account is not
+                # replaceable the way a disk is.
+                - name: PROTECTED_TRACKERS
+                  value: "myanonamouse.net,iptorrents.com"
+                # How long a torrent must be CONTINUOUSLY stalled before it is
+                # paused. The clock is qBittorrent's own tag, so a torrent that
+                # recovers clears it and starts over.
+                - name: STALL_HOURS
+                  value: "24"
+                # metaDL (stuck fetching metadata) is deliberately NOT included
+                # by default: widening this is a judgment call, not a default.
+                - name: STALLED_STATES
+                  value: "stalledDL"
+              resources:
+                requests: {cpu: 25m, memory: 64Mi}
+                limits: {cpu: 500m, memory: 192Mi}
+              volumeMounts:
+                - {name: script, mountPath: /scripts}
+          volumes:
+            - name: script
+              configMap: {name: qbit-stalled-reaper-script, defaultMode: 0755}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qbit-stalled-reaper-script
+  namespace: downloads
+data:
+  stalled-reaper.py: |
+    #!/usr/bin/env python3
+    """Pause downloads that have stalled long enough to be holding a queue slot.
+
+    The queue in apps/downloads/qbittorrent.yaml is deliberate - 2,199 torrents
+    were consuming the NAS pool's entire IOPS budget. What was not anticipated
+    is that qBittorrent counts a STALLED download as an active one, so three
+    seedless torrents were enough to consume all three download slots and
+    freeze the download queue for three weeks.
+
+    A torrent observed stalled for STALL_HOURS continuously is paused. A paused
+    torrent does not count against the queue, so the next queued torrent is
+    promoted and downloads resume.
+    """
+    import http.cookiejar, json, os, sys, time, urllib.error, urllib.parse, urllib.request
+
+    URL = os.environ["QBIT_URL"].rstrip("/")
+    STALL_HOURS = float(os.environ.get("STALL_HOURS", "24"))
+    STALLED_STATES = {s.strip() for s in
+                      os.environ.get("STALLED_STATES", "stalledDL").split(",")
+                      if s.strip()}
+    PROTECTED = [d.strip().lower() for d in
+                 os.environ.get("PROTECTED_TRACKERS",
+                                "myanonamouse.net,iptorrents.com").split(",")
+                 if d.strip()]
+    # APPLY=0 reports the plan and writes nothing.
+    APPLY = os.environ.get("APPLY", "1") == "1"
+
+    # The stall clock lives in qBittorrent as a tag, because qBittorrent exposes
+    # no "time spent stalled" field and a Job has no persistent disk to keep one
+    # in. A tag written by the previous run is the entire state machine.
+    SINCE = "stalled-since="
+    PAUSED = "stalled-paused="
+
+    jar = http.cookiejar.CookieJar()
+    op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+
+    def call(path, data=None, timeout=120):
+        body = urllib.parse.urlencode(data).encode() if data else None
+        with op.open(URL + path, body, timeout=timeout) as r:
+            return r.read().decode()
+
+    if "Ok" not in call("/api/v2/auth/login",
+                        {"username": os.environ["QBIT_USER"],
+                         "password": os.environ["QBIT_PASS"]}):
+        sys.exit("qbittorrent login failed")
+
+    def stop_torrents(hashes):
+        """Pause these torrents. qBittorrent 5.0 renamed /torrents/pause to
+        /torrents/stop; this box runs v5.1.2, so prefer the new name and fall
+        back for an older server."""
+        try:
+            call("/api/v2/torrents/stop", {"hashes": "|".join(hashes)})
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+            call("/api/v2/torrents/pause", {"hashes": "|".join(hashes)})
+
+    def protected_tracker(t):
+        """Same rule as qbit-protected-forcestart-cronjob.yaml.
+
+        The info payload's tracker field is the CURRENTLY-WORKING tracker, which
+        is blank for a stalled torrent - exactly the ones that matter here - so
+        the per-torrent tracker list has to be consulted. An unreachable tracker
+        list means "do not know", and unknown is treated as protected: the cost
+        of pausing a public torrent is a lost stall, the cost of the reverse is
+        a private-tracker account.
+        """
+        tr = (t.get("tracker") or "").lower()
+        if tr:
+            return any(d in tr for d in PROTECTED)
+        try:
+            raw = call("/api/v2/torrents/trackers?hash=" + t["hash"], timeout=60).lower()
+        except Exception as e:
+            print("  HOLD-SAFE (tracker list unavailable: %s) %s" % (e, t["name"][:40]))
+            return True
+        return any(d in raw for d in PROTECTED)
+
+    torrents = json.loads(call("/api/v2/torrents/info"))
+    now = int(time.time())
+    grace = STALL_HOURS * 3600
+    print("%d torrents total | stalled_states=%s | grace=%gh | apply=%s"
+          % (len(torrents), sorted(STALLED_STATES), STALL_HOURS, APPLY))
+
+    tag_new, tag_untag, to_pause, held = {}, {}, [], 0
+    for t in torrents:
+        tags = [x for x in (t.get("tags") or "").split(",") if x]
+        since = [x for x in tags if x.startswith(SINCE)]
+        paused = [x for x in tags if x.startswith(PAUSED)]
+        state = t.get("state")
+
+        if state in STALLED_STATES:
+            if protected_tracker(t):
+                held += 1
+                continue
+            if not since:
+                tag_new.setdefault(SINCE + str(now), []).append(t)
+                continue
+            try:
+                started = int(since[0][len(SINCE):])
+            except ValueError:
+                started = None
+            if started is None or now - started >= grace:
+                to_pause.append((t, since[0]))
+            # A duplicate clock would keep a torrent paused forever, so clear
+            # any beyond the first.
+            for extra in since[1:]:
+                tag_untag.setdefault(extra, []).append(t)
+        elif state not in ("pausedDL", "pausedUP", "stoppedDL", "stoppedUP"):
+            # Not stalled and not paused: it recovered, so the clock restarts.
+            # stalled-paused is cleared too, or a torrent that later downloads
+            # fine would keep a tag claiming it was retired.
+            for tag in since + paused:
+                tag_untag.setdefault(tag, []).append(t)
+
+    n_new = sum(len(v) for v in tag_new.values())
+    n_clear = sum(len(v) for v in tag_untag.values())
+    print("  stalled now:  %d" % (held + n_new + len(to_pause)))
+    print("  protected:    %d" % held)
+    print("  start clock:  %d" % n_new)
+    print("  due to pause: %d" % len(to_pause))
+    print("  clear clock:  %d" % n_clear)
+
+    if not APPLY:
+        for t, tag in to_pause:
+            print("  WOULD PAUSE (%s) %s" % (tag, t["name"][:70]))
+        for tag, ts in tag_new.items():
+            print("  WOULD TAG %s on %d torrent(s)" % (tag, len(ts)))
+        print("APPLY=0 - nothing written")
+        sys.exit(0)
+
+    def batch_tag(path, tag, items):
+        for i in range(0, len(items), 100):
+            chunk = items[i:i + 100]
+            call(path, {"hashes": "|".join(x["hash"] for x in chunk), "tags": tag})
+
+    for tag, ts in tag_new.items():
+        batch_tag("/api/v2/torrents/addTags", tag, ts)
+    for tag, ts in tag_untag.items():
+        batch_tag("/api/v2/torrents/removeTags", tag, ts)
+
+    stop_torrents([t["hash"] for t, _ in to_pause])
+
+    # The clock is spent. Leaving the since tag on a paused torrent would pause
+    # it again the instant anyone resumed it, with no grace period at all.
+    for t, tag in to_pause:
+        call("/api/v2/torrents/removeTags", {"hashes": t["hash"], "tags": tag})
+        call("/api/v2/torrents/addTags", {"hashes": t["hash"], "tags": PAUSED + str(now)})
+        print("  PAUSED %s" % t["name"][:70])
+
+    print("paused %d stalled download(s); started %d clock(s); cleared %d"
+          % (len(to_pause), n_new, n_clear))

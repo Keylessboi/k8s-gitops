@@ -32,6 +32,7 @@ resources:
   - upload-sweep-cronjob.yaml
   - seed-reaper-cronjob.yaml
   - qbit-protected-forcestart-cronjob.yaml
+  - qbit-stalled-reaper-cronjob.yaml
   - networkpolicy.yaml
   - qbittorrent.yaml
   - qui.yaml
