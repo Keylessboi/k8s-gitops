@@ -78,6 +78,7 @@ the literal string you are seeing, then read the entry.
 | A pod recreated every couple of minutes, Deployment revision in the dozens | ArgoCD vs image-updater — 2026-09-05 (gluetun), 2026-09-09 (navidrome) |
 | An alert that has been firing for days and never clears | scraping something k3s does not expose / probes for deleted apps — 2026-09-09 |
 | Lidarr's queue stuck at ~2,500 and never shrinking; qBittorrent at 0 B/s | stalled torrents holding every download slot — 2026-09-21 |
+| A nightly job reports success but the thing it manages never shrinks | truncated fetch window / unreachable rule — 2026-09-21 |
 
 ### The traps that have bitten more than once
 
@@ -137,12 +138,20 @@ draining, it was frozen - and every one of those 1,342 queued torrents is also a
 record in Lidarr's queue, which is the whole of the "why is Lidarr's queue so
 big" question.
 
-Two things hid it. Lidarr's maintenance script reports success while only ever
-fetching 500 of 2,587 queue records: one unpaginated pageSize=500 call sorted by
-status ascending, so page 1 is always the completed block. It also returns early
-on any record with no status messages, which is every queued download. (That
-500-record window is a separate, still-open defect.) And "0 B/s" raises no alert
-anywhere.
+Two things hid it, both in Lidarr's maintenance script and both fixed the same
+day (lidarr-maintenance-script f506892). It reported success while only ever
+fetching 500 of 2,587 queue records: one unpaginated call sorted by status
+ascending, so page 1 was always the completed block and the other ~2,000 records
+- including every stalled download it exists to clear - were never examined. Its
+stale-download rule also sat below an early return for records with no status
+messages, which is every queued download.
+
+Moving that rule was the dangerous part. Lidarr reports trackedDownloadState
+"downloading" for anything the client has not finished, which includes a torrent
+merely queued behind the 3-slot limit: measured 2026-09-21, that is 1,289 healthy
+records against 40 genuinely stalled, and every delete fires an AlbumSearch. The
+fix keys on the CLIENT status instead, so queued and delay are never stale. And
+"0 B/s" raises no alert anywhere.
 
 **Fix.** apps/downloads/qbit-stalled-reaper-cronjob.yaml (06fdbdb) pauses a
 torrent once it has been observed in a stalled download state for 24h
@@ -166,7 +175,10 @@ like a client that is merely idle. Alert on sustained dl_info_speed == 0 while
 queuedDL > 0 - that is the only thing separating a deadlocked queue from a quiet
 one. More generally, a bounded resource pool whose accounting counts a stuck
 member as an active one has exactly this failure mode, and no amount of
-downstream retrying will clear it.
+downstream retrying will clear it. So does a job that reads a WINDOW and
+reports success: a truncated fetch, or a rule the code can never reach, is
+invisible in the output and indistinguishable from "there was nothing to do".
+If a script bounds what it looks at, it should say so in what it prints.
 
 **Confidence.** CONFIRMED. The slots were held by stalledDL torrents and freed
 when they were paused; throughput went from 0 to 1.7 MB/s within 90 seconds.
