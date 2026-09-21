@@ -153,6 +153,22 @@ records against 40 genuinely stalled, and every delete fires an AlbumSearch. The
 fix keys on the CLIENT status instead, so queued and delay are never stale. And
 "0 B/s" raises no alert anywhere.
 
+**Verified on a live run, 2026-09-21.** The deployment's CronJob was instantiated
+by hand so the fix could be proved before the 02:00 schedule: 2,595 records
+fetched across every page (previously 500), 50 deleted and re-searched, 499
+imported, 1 deleted after a failed import, 104 flagged for oversight - about 125
+minutes, with Lidarr never wedging and the command queue staying clear the whole
+time. The caps also report what they DEFERRED (44 deletes, 249 imports), so the
+next run's work is stated rather than implied.
+
+Worth keeping, because it reframes the original question: the queue total barely
+moved, 2,595 to 2,582. That queue is an equilibrium, not a backlog waiting to
+drain. The same two hours took in roughly ten new grabs an hour, and a manual
+import puts files in the library without necessarily clearing the client's queue
+record. So the maintenance script's job is to keep the pipeline honest, not to
+make that number small. The number that actually mattered was download
+throughput, and that is what the reaper fixed.
+
 **Fix.** apps/downloads/qbit-stalled-reaper-cronjob.yaml (06fdbdb) pauses a
 torrent once it has been observed in a stalled download state for 24h
 continuously. A paused torrent is not active, so the slot frees and the next
