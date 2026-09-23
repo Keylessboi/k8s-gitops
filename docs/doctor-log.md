@@ -79,6 +79,9 @@ the literal string you are seeing, then read the entry.
 | An alert that has been firing for days and never clears | scraping something k3s does not expose / probes for deleted apps — 2026-09-09 |
 | Lidarr's queue stuck at ~2,500 and never shrinking; qBittorrent at 0 B/s | stalled torrents holding every download slot — 2026-09-21 |
 | A nightly job reports success but the thing it manages never shrinks | truncated fetch window / unreachable rule — 2026-09-21 |
+| Lidarr grabs nothing from a streaming plugin although every search returns releases, with no warnings | disabled delay-profile protocol — 2026-09-23 (applemusicarr) |
+| "No items are below cutoff" / the Wanted → Cutoff Unmet page is empty | profile `Cutoff` sitting at the bottom of the ladder — 2026-09-23 |
+| `POST /v1/download HTTP/1.1" 400` from applemusic-decryptor, or an *arr logging only an opaque HTTP 400 | chunked body at a Content-Length-only server — 2026-09-23 |
 
 ### The traps that have bitten more than once
 
@@ -119,6 +122,85 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-23 — the Apple Music plugin searched forever and grabbed nothing
+
+**Symptom.** The freshly installed `AppleMusicarr` indexer returned results on every
+search ("Apple Music search yielded 75 releases"), the log had **zero** Warn/Error lines
+under that logger, and the decryptor sidecar was completely idle — not one
+`POST /v1/download`. It looked exactly like a plugin that does not work.
+
+**Root cause.** `DelayProfile.IsAllowedProtocol` is
+`Items.FirstOrDefault(x => x.Protocol == protocol)?.Allowed ?? false`, and Lidarr creates
+the entry for a new download-client protocol with `Allowed = false`.
+`AppleMusicarrDownloadProtocol` was sitting in the profile as `allowed: false` while every
+other streaming protocol (Youtube, Soulseek, Lucida, Qobuz, SubSonic, AmazonMusic) had been
+switched on, so `ProtocolSpecification` rejected every release as
+`[Permanent] AppleMusicarrDownloadProtocol is not enabled for this artist`. That line is
+Debug-level only; at Info the plugin looks perfectly healthy.
+
+**Fix.** `PUT /api/v1/delayprofile/1` with that item's `allowed` set to true. The first
+grab arrived within a minute.
+
+**Prevention.** Adding a download client is not the same as enabling it. After adding any
+non-torrent/non-usenet client, check Settings → Profiles → Delay Profiles and confirm its
+protocol row is enabled — the default is *off*. Any "the plugin works but nothing ever
+downloads and there are no errors" report should start by grepping the debug log for
+`is not enabled for this artist`.
+
+**Confidence.** CONFIRMED — the rejection is in `lidarr.debug.txt` and clearing the field
+produced a grab.
+
+## 2026-09-23 — Wanted → Cutoff Unmet went blank on a library that plainly was not
+
+**Symptom.** Lidarr reported *"no items are below cutoff"* with a library full of MP3 and
+sub-CD-quality FLAC. The page had been populated before the Apple Music quality-profile work.
+
+**Root cause.** `AlbumCutoffService.AlbumsWhereCutoffUnmet` computes
+`belowCutoff = profile.Items.Take(cutoffIndex.Index)` and, when that comes out empty, returns
+**zero albums without querying the database at all**. The profile's `Cutoff` had been set to
+`Unknown` — index 0 — while trying to neutralise the quality cutoff and drive everything from
+`cutoffFormatScore`. `Take(0)` is empty, so the page short-circuits. The deeper point: this
+page is **quality-driven only** and never consults `cutoffFormatScore`, so a format-score
+cutoff cannot be expressed there at all.
+
+**Fix.** Restore `cutoff` to `FLAC (6)`, its original value. 0 albums → 697.
+`cutoffFormatScore` stays 200; it is read by `CutoffSpecification` /
+`UpgradableSpecification`, not by this page.
+
+**Prevention.** Never move a quality profile's `Cutoff` to the bottom of the ladder to
+"disable" it — it silently empties the Wanted page and buys nothing. When a cutoff is meant to
+be format-score based, leave the quality cutoff where a sane release would land and treat the
+two cutoffs as separate contracts.
+
+**Confidence.** CONFIRMED — the short-circuit is in the source and the count moved 0 → 697 on
+that one field.
+
+## 2026-09-23 — every decryptor request answered HTTP 400 while both ends looked fine
+
+**Symptom.** The `applemusic-decryptor` sidecar logged
+`"POST /v1/download HTTP/1.1" 400 -` for every request, the plugin logged only
+`decryptor returned HTTP 400`, and nothing downloaded. The sidecar's log gave no reason.
+
+**Root cause.** The body was arriving as **zero bytes**. The .NET client used
+`PostAsJsonAsync`, which wraps the payload in a `JsonContent` whose `TryComputeLength`
+returns false; with no length to advertise, `HttpClient` sends
+`Transfer-Encoding: chunked`. The sidecar is stdlib Python and read `Content-Length` only,
+so it read nothing, parsed `{}`, and rejected the request for a missing `albumId` — a
+message describing the wrong problem entirely.
+
+**Fix.** The sidecar decodes chunked bodies as well as `Content-Length`, and the plugin
+serialises to a `ByteArrayContent` so a length is always present. The missing-field 400 now
+reports how many body bytes it received, so "zero bytes" is distinguishable from "fields
+absent".
+
+**Prevention.** A stdlib HTTP server is not a full HTTP/1.1 server — never assume
+`Content-Length`. When a handler rejects a request for a missing field, log how much it
+actually read; a framing bug otherwise presents as a validation bug and sends you to the wrong
+end of the wire.
+
+**Confidence.** CONFIRMED — chunked and length-delimited POSTs both returned 202, and `{}`
+returned 400 with "received 2 body byte(s)".
 
 ## 2026-09-21 — the download queue was deadlocked by three stalled torrents
 
