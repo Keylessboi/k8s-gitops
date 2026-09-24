@@ -1,0 +1,96 @@
+---
+# FairPlay decryptor sidecar for the AppleMusicarr Lidarr plugin.
+#
+# Apple Music audio is FairPlay-protected and the plugin performs no decryption itself. The
+# shared plugin packaging internalises the DRM types (ILRepack Internalize=true with an empty
+# exclude list), so Common's out-of-tree IExternalDownloadHandler assembly seam cannot be
+# loaded/cast - a separate process is the only workable design. It also keeps gamdl's Python,
+# ffmpeg and native muxer out of the Lidarr image entirely.
+#
+# Reached only by Lidarr, over the in-cluster Service:
+#   http://applemusic-decryptor.lidarr.svc.cluster.local:8080
+#
+# NO NetworkPolicy is needed. The namespace's app-isolation policy already permits egress to
+# 0.0.0.0/0 on 443 (which is how the sidecar reaches amp-api.music.apple.com) and admits
+# ingress from the lidarr namespace on any port.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: applemusic-decryptor
+  namespace: lidarr
+spec:
+  replicas: 1
+  # The media volume is a `local` PV bound to the NAS node, so a replacement pod can only
+  # start once the old one has released it. Recreate avoids a multi-attach deadlock.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: applemusic-decryptor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: applemusic-decryptor
+    spec:
+      # Same placement constraint as Lidarr itself: the data lives on this node.
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: decryptor
+          # Built on the NAS itself (the only host here with a working Docker daemon) and imported
+          # straight into the NAS node's containerd. This cluster has no registry, so the tag is
+          # local and must never be pulled - a pull fails with ImagePullBackOff rather than
+          # falling back. Rebuild steps are in the plugin README.
+          image: applemusic-decryptor:0.1.0
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "/app/app.py"]
+          env:
+            # The same volume Lidarr mounts at /data. The plugin sends a directory relative to
+            # this root and rebases it onto its own Download Path, so the two agree without
+            # duplicating any path sanitisation.
+            - {name: OUTPUT_DIR, value: "/data/torrents/apple"}
+            - {name: PORT, value: "8080"}
+            # Pacing is the main behavioural signal Apple could notice, so it is on by default:
+            # one album at a time, with a gap between tracks.
+            - {name: JOB_DELAY_SECONDS, value: "5"}
+            - {name: MAX_CONCURRENT, value: "1"}
+            # Deliberately off. A proxy changes which address appears in Apple's logs, not who
+            # the logs are about; see the note in decryptor/app.py.
+            - {name: REQUIRE_PROXY, value: "0"}
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 50m, memory: 256Mi}
+            limits: {cpu: "2", memory: 2Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: media-data-nas}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: applemusic-decryptor
+  namespace: lidarr
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: applemusic-decryptor
+  ports:
+    - {name: http, port: 8080, targetPort: 8080}

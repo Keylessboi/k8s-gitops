@@ -39,6 +39,7 @@ resources:
   - deployment.yaml
   - bgutil-provider.yaml
   - lucida-solver.yaml
+  - applemusic-decryptor.yaml
   - maintenance-cronjob.yaml
   - search-sniper-cronjob.yaml
   - mass-search-job.yaml
