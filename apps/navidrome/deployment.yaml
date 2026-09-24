@@ -190,6 +190,14 @@ spec:
               mountPath: /music
               subPath: media/music
               readOnly: true
+            # 7.1.4 Atmos companion files rendered on the PC by the
+            # rhythm-spatial-audio sidecar. Added in the UI as a second library
+            # (Settings > Libraries > /spatial); kept out of media/music so beets
+            # and Lidarr never see them. Remove this mount to drop the library.
+            - name: music
+              mountPath: /spatial
+              subPath: media/spatial
+              readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
