@@ -65,6 +65,26 @@ mode. If native clients are wanted later, carve the API paths out of
 forward-auth (Remux's own login becomes the gate — the Jellyfin arrangement)
 or front clients individually.
 
+### Since the API carve-out (2026-09-26)
+
+`apps/remux/ingress-api.yaml` now serves the Jellyfin API paths **without**
+forward-auth, so Remux's own login is the gate for native clients. Two
+consequences:
+
+- `remux-user-sync` creates accounts with a **random** password, never `""`
+  (see the doctor-log entry of the same date). An admin sets a real one, or
+  approves a QuickConnect code for that user, when they first need a client.
+- **Kodi (LibreELEC Pi 4, JellyCon)** signs in as `akadmin` with a session token,
+  not a password. Doppler `kubernetes/prd` → `REMUX_KODI_JELLYCON` is JSON:
+  `server`, `username`, `user_id`, `token`, `client_id`, `device_id`. It was
+  minted by an admin-approved QuickConnect (`POST /QuickConnect/Authorize?code=…&userId=<akadmin>`),
+  so akadmin's password was never needed. JellyCon's device id is
+  `<client_id>-md5(username)`; `client_id` goes in the box's
+  `special://temp/jellycon_guid`, and `user_id`/`token` in
+  `addon_data/plugin.video.jellycon/auth.json`. Nothing in the cluster mounts
+  this secret; Doppler is its source of record. To revoke it: remux dashboard →
+  Devices, delete the `LibreELEC Pi4` entry.
+
 ## Headless bootstrap
 
 **This is now automated** by `apps/remux/admin-job.yaml`, an idempotent ArgoCD
