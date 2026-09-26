@@ -156,6 +156,7 @@ them:
 | `ghost` | No — Ghost 5.x supports MySQL 8 and SQLite only | Exempt. The MySQL upgrade path is already documented in its Deployment. |
 | `remux` | No — Jellyfin-compatible, SQLite only | Exempt. 295 MB `db.sqlite`; back it up before any upgrade. |
 | `convertx` | No — Bun app using `bun:sqlite` | Exempt. |
+| `spatial-sidecar` | Could be ported (we own the code) | **Exempt by decision** ([rhythm-spatial-audio ADR-0031](https://github.com/Keylessboi/rhythm-spatial-audio/blob/spatial-audio/docs/decisions/0031-companion-sidecar-in-cluster.md)): exactly one writer by construction (one process, one worker thread, `replicas: 1`, `Recreate`), 19 MB, reconstructible from the library and the published tree, on `local-path` NVMe per ADR-0009 with nightly online backups to the tank. Postgres would add a network dependency and a credential to a pod that otherwise has no egress at all. |
 
 **To migrate aiostreams**, add `AIOSTREAMS_DB_USER` and `AIOSTREAMS_DB_PASSWORD`
 to Doppler (`kubernetes/prd`); then it needs a `Database` CR and managed role in

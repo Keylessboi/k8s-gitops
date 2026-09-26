@@ -124,6 +124,15 @@ spec:
     ports:
     - port: 8080
       protocol: TCP
+  # Lidarr's Webhook (Settings -> Connect) -> the Atmos companion renderer in
+  # apps/spatial-sidecar, whose NetworkPolicy admits only this namespace on 8080.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: spatial-sidecar
+    ports:
+    - port: 8080
+      protocol: TCP
   # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
   # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so
   # the old rule was a no-op. Every NetworkPolicy in this repo was missing real

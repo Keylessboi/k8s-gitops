@@ -1,0 +1,128 @@
+# Lidarr Connect entry (lives in lidarr.db, NOT in git): Settings -> Connect -> Webhook
+# "spatial-sidecar", POST http://spatial-sidecar.spatial-sidecar.svc.cluster.local:8080/hook/lidarr,
+# events: Release Import, Upgrade, Rename, Track Retag, Album Delete, Artist Delete. Test -> 200.
+# Without it companions still appear, only at the next 6-hourly reconcile.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spatial-sidecar
+  namespace: spatial-sidecar
+spec:
+  # Exactly 1, permanently: the state DB is single-writer SQLite and the worker thread is the
+  # only writer. Recreate so the old pod releases it before a new one starts.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spatial-sidecar
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: spatial-sidecar
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      # uid 1001 / gid 1000 is the NAS's `travis`, the owner of media/spatial (mode 2755).
+      # No fsGroup on purpose: it would chown the whole media volume (doctor-log 2026-09-09).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        # One-shot migration of the PC's state DB (uploaded to spatial-sidecar/import/state.db).
+        # Idempotent: a no-op once /state/state.db exists, so a restart never re-seeds. `rekey`
+        # adopts the NAS's ns mtimes where size and whole seconds match, requires a SHA-256 match
+        # for the 270 Atmos sources, then runs the acceptance scan on a throwaway copy. If it
+        # would queue or remove more than the thresholds, or demote any Atmos source, it exits
+        # non-zero and writes nothing, so the pod sits in Init:Error rather than starting a
+        # 45 GB re-render. The thresholds are exactly the deltas observed on 2026-09-26 since
+        # the PC's last sync: one new Atmos album (30 tracks, rendered here) and 18 replaced
+        # non-Atmos files.
+        - name: seed-state
+          image: spatial-sidecar:0.1.0
+          imagePullPolicy: Never
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              if [ -e /state/state.db ]; then echo "state present, nothing to seed"; exit 0; fi
+              if [ ! -e /import/state.db ]; then echo "no import DB; starting empty"; exit 0; fi
+              exec spatial-sidecar rekey --from-state /import/state.db --state /state/state.db \
+                --library /library --hash-atmos --max-queue 30 --max-remove 18
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: media, mountPath: /library, subPath: media/music, readOnly: true}
+            - {name: media, mountPath: /import, subPath: spatial-sidecar/import, readOnly: true}
+            - {name: state, mountPath: /state}
+      containers:
+        - name: sidecar
+          # Local image, built on the NAS and imported into its containerd (no registry); the
+          # tarball also sits in /var/lib/rancher/k3s/agent/images/ so k3s re-imports it. Never
+          # pulled: a missing image is ErrImageNeverPull, not a Docker Hub pull loop. Rebuild:
+          # rhythm-spatial-audio docs/research/in-cluster-rendering.md section 2, and bump the tag
+          # (here and in seed-state) on every build.
+          # 0.1.0 = rhythm-spatial-audio 4fe499befe0badaaa64f245f31fca880d837f960.
+          image: spatial-sidecar:0.1.0
+          imagePullPolicy: Never
+          # `serve` renices itself to 10 (--nice): renders are batch work, Navidrome wins.
+          args:
+            - serve
+            - --listen=0.0.0.0:8080
+            - --lidarr-root=/data/media/music
+            - --debounce=60
+            - --reconcile-every=6h
+            - --library=/library
+            - --state=/state/state.db
+            - --state-dir=/scratch/renderer
+            - --out=/scratch/out
+            - --staging-dir=/scratch/staging
+            - --remote-dir=/spatial
+            - --backup-dir=/backup
+            - --max-queue=100
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 30
+            timeoutSeconds: 10
+          # Worst case (CONTRIBUTING rule 6): one render at a time, so 1 CPU and ~0.6 GiB RSS
+          # (measured 520-564 MiB); 1.2-3 GB of scratch per track, bounded by sizeLimit; tank I/O
+          # ~0.5 GB written + read back per track; a reconcile walks ~75k files (2 min cold)
+          # every 6 h; --max-queue aborts any pass that would queue more than 100 renders.
+          resources:
+            requests: {cpu: 250m, memory: 384Mi, ephemeral-storage: 1Gi}
+            limits: {cpu: "1", memory: 1536Mi, ephemeral-storage: 10Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: media, mountPath: /library, subPath: media/music, readOnly: true}
+            - {name: media, mountPath: /spatial, subPath: media/spatial}
+            - {name: media, mountPath: /backup, subPath: spatial-sidecar/backup}
+            - {name: state, mountPath: /state}
+            - {name: scratch, mountPath: /scratch}
+      volumes:
+        - name: media
+          persistentVolumeClaim: {claimName: media-data-nas}
+        - name: state
+          persistentVolumeClaim: {claimName: spatial-state}
+        - name: scratch
+          emptyDir: {sizeLimit: 8Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spatial-sidecar
+  namespace: spatial-sidecar
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: spatial-sidecar
+  ports:
+    - {name: http, port: 8080, targetPort: http}

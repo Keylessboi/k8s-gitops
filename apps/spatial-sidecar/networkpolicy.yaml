@@ -1,0 +1,19 @@
+# Default deny both ways. The only flow is Lidarr's Webhook in, on 8080; the matching egress
+# rule is in apps/lidarr/networkpolicy.yaml (declared on both sides, CONTRIBUTING rule 5).
+# No egress at all: the sidecar reads and writes local volumes only (not even DNS).
+# This policy is also the webhook's only authentication (rhythm-spatial-audio ADR-0031).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: lidarr
+      ports:
+        - {protocol: TCP, port: 8080}
+  egress: []

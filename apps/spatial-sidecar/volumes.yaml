@@ -1,0 +1,51 @@
+# Same directory as media-data-{lidarr,navidrome}-nas: a `local` PV on the NAS's ZFS dataset,
+# not a loopback NFS mount. One PV per namespace because a PVC cannot be shared across
+# namespaces. The pod mounts only subPaths: media/music and spatial-sidecar/import read-only,
+# media/spatial and spatial-sidecar/backup read-write. Depends on k3s-agent's After=zfs-mount
+# ordering (see apps/navidrome/nas-volumes.yaml); the sidecar's mass-removal guard is the
+# second line of defence against an unmounted library.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: media-data-spatial-sidecar-nas
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  local:
+    path: /extra/nfs-csi/data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - {key: kubernetes.io/hostname, operator: In, values: [nas]}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media-data-nas
+  namespace: spatial-sidecar
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: media-data-spatial-sidecar-nas
+  resources:
+    requests:
+      storage: 500Gi
+---
+# The sidecar's SQLite state DB (19 MB) on the NAS NVMe, per docs/adr/0009: never SQLite on
+# the HDD pool or NFS. `serve` writes a nightly online backup to spatial-sidecar/backup on the
+# tank (7 kept), and the DB is reconstructible from the library and the published tree.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: spatial-state
+  namespace: spatial-sidecar
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi
