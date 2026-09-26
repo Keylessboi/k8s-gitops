@@ -8,17 +8,16 @@
 # username header, remux sees an authenticated visitor arrive and shows them a
 # login form for an account nobody made.
 #
-# WHY AN EMPTY PASSWORD IS NOT A HOLE HERE. `POST /Users/New` defaults the
-# password to "" (crates/remux-server/src/api/users.rs), and that is what this
-# uses. remux is not the security boundary: apps/remux/ingress.yaml puts
-# authentik-forward-auth on `/` with no path carve-outs, so nothing reaches
-# remux at all without an authentik session. The remux account exists to hold
-# per-user state - watch history, favourites, trackers - not to keep anyone
-# out.
-#
-#   ⚠ If forward-auth is ever removed from that ingress, this CronJob must be
-#   removed or given real passwords IN THE SAME COMMIT. Otherwise every
-#   account on the server becomes password-less to the internet.
+# WHY A RANDOM PASSWORD AND NOT AN EMPTY ONE. `POST /Users/New` defaults the
+# password to "" (crates/remux-server/src/api/users.rs). That used to be what
+# this sent, on the grounds that authentik-forward-auth covered all of `/`.
+# It no longer does: apps/remux/ingress-api.yaml serves /Users (including
+# /Users/AuthenticateByName) WITHOUT forward-auth so native clients work, and
+# an empty password there is a login anyone on the internet can use. So each
+# account is created with a random password nobody is told. An admin sets a
+# real one (remux dashboard -> Users) or approves a QuickConnect code for the
+# person when they first need a client. Never go back to "" while that
+# carve-out exists - the two files are one decision.
 #
 # It only ever ADDS. Removing someone from authentik does not delete their
 # remux account, on purpose: that would destroy watch history on what may be a
@@ -118,7 +117,7 @@ spec:
               command: ["python3", "-c"]
               args:
                 - |
-                  import json, os, sys, urllib.error, urllib.request
+                  import json, os, secrets, sys, urllib.error, urllib.request
 
                   RX   = os.environ["REMUX_URL"].rstrip("/")
                   RXU  = os.environ["REMUX_ADMIN_USER"]
@@ -190,10 +189,11 @@ spec:
                   created = []
                   for name in missing:
                       try:
-                          # Password omitted entirely - remux defaults it to "".
-                          # See the header for why that is safe here.
+                          # Never omitted: remux would default it to "", and
+                          # /Users/AuthenticateByName is public. See the header.
                           u = call(f"{RX}/Users/New",
-                                   data=json.dumps({"Name": name}).encode(),
+                                   data=json.dumps({"Name": name,
+                                               "Password": secrets.token_urlsafe(32)}).encode(),
                                    headers=H, method="POST")
                           created.append(u.get("Name", name))
                           print(f"created remux account {name!r} (id {u.get('Id')})")
@@ -205,8 +205,9 @@ spec:
                       notify("New remux accounts",
                              "Created on remux to match authentik: "
                              + ", ".join(created)
-                             + "\n\nThey have no password - remux is reached only "
-                               "through authentik, which already did the checking.")
+                             + "\n\nEach has a random password nobody knows. Set a "
+                               "real one in the remux dashboard (Users) before "
+                               "they need a native client.")
                   print(f"done: {len(created)} created")
               resources:
                 requests: {cpu: 50m, memory: 96Mi}

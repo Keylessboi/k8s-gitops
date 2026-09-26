@@ -27,6 +27,7 @@ the literal string you are seeing, then read the entry.
 | A Service with no endpoints after an edit | named-port contract — 2026-09-01; over-tight readiness probes — recurring |
 | `[Unknown Album]` / `[Unknown Artist]` | Navidrome tags — 2026-08-29 |
 | Backups "succeeding" with nothing stored | MinIO zero drives — 2026-08-29 |
+| remux account with no password / `HasPassword: false` | user-sync vs API carve-out — 2026-09-26 |
 | Everything on the host slow, API server 503 | swap thrash — 2026-08-31 |
 | Downloads at ~300 kB/s from anything backed by NFS | NFS readahead — 2026-09-12 |
 | Sequential reads fast locally on the NAS but slow from a pod | NFS readahead — 2026-09-12 |
@@ -122,6 +123,30 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-26 — remux's user-sync would have made password-less accounts on a public login API
+
+**Symptom.** None yet — found while wiring a Kodi client, before it bit.
+`apps/remux/user-sync-cronjob.yaml` created every authentik person's remux account
+with an empty password, and its header justified that by "forward-auth on `/` with no
+path carve-outs". But `apps/remux/ingress-api.yaml` (3e7b2de) had since carved `/Users`,
+`/QuickConnect` and the rest of the Jellyfin API out of forward-auth for native clients.
+Together: the next authentik user added would get a remux account anyone on the
+internet could sign into with a blank password via `POST /Users/AuthenticateByName`.
+
+**Root cause.** Two files making one security decision, changed separately. The header
+of the CronJob even carried the warning ("if forward-auth is ever removed … IN THE SAME
+COMMIT"), but the carve-out landed in a different file and nobody re-read it.
+
+**Fix.** User-sync now sends `Password: secrets.token_urlsafe(32)` on `POST /Users/New`
+(verified on a throwaway account: blank login 401, real password 200). Both existing
+accounts (`admin`, `akadmin`) already had passwords — checked via `/Users`
+`HasPassword`, so nothing was ever actually exposed.
+
+**Prevention.** The CronJob header now names `ingress-api.yaml` directly. Anyone
+touching remux auth should grep `apps/remux/` for `AuthenticateByName` and read every hit.
+
+**Confidence.** CONFIRMED — behaviour checked against the live server in-cluster.
 
 ## 2026-09-23 — the Apple Music plugin searched forever and grabbed nothing
 
