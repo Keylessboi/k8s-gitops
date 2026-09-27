@@ -112,7 +112,15 @@ spec:
             #
             # Only a claim, not a code change: these nine fields are what the daemon tells Apple
             # it is, and Apple's servers never see the loaded libraries.
-            - {name: WRAPPER_DEVICE_INFO, value: "Music/5.0.2/Android/10/Pixel 8/7663314/en-US/en-US/09e23db86b14ae99"}
+            # THE ANDROIDID HERE IS NOT ARBITRARY: it must match the device that CREATED the
+            # session in the state volume. wrapper-v2 derives the FairPlay DeviceGUID from this
+            # field (DeviceGUID::configure() F4), and the session was minted by wrapper-lite's
+            # authenticator under its own default of dc28071e981c439e. Restoring under a
+            # different AndroidID presents a different device to a session keyed to another.
+            #
+            # The tuple is consequently wrapper-lite's, not wrapper-v2's: when the session is
+            # produced elsewhere and imported, the device that produced it is the one to claim.
+            - {name: WRAPPER_DEVICE_INFO, value: "Music/4.9/Android/10/Samsung S9/7663313/en-US/en-US/dc28071e981c439e"}
           ports:
             - {name: http, containerPort: 8080}
             - {name: decrypt, containerPort: 10020}
