@@ -1,0 +1,138 @@
+---
+# FairPlay Streaming (FPS) decrypt daemon for the AppleMusicarr sidecar pair.
+#
+# WHY THIS EXISTS AS A SEPARATE WORKLOAD. The decryptor (applemusic-decryptor.yaml) shells out
+# to gamdl, and gamdl performs no decryption itself: it drives an out-of-process FPS daemon
+# over a raw TCP socket and hands it encrypted samples. This is that daemon. No image for it is
+# published, because it has to load Apple's own Android native libraries, extracted from an
+# Apple Music APK that is not redistributable - so it is built locally by wrapper/build.sh in
+# the plugin repo and imported straight into the NAS node's containerd.
+#
+# Until this pod is Ready and signed in, the decryptor still runs and still fetches the
+# DRM-free streams: roughly a fifth of what Apple serves. Full tracks need this.
+#
+# PRIVILEGES, AND WHY THEY ARE NOT NEGOTIABLE. The daemon chroots into a staged Android rootfs
+# and execs AOSP's linker64 inside it. chroot(2) needs CAP_SYS_CHROOT; upstream's compose file
+# also grants SYS_ADMIN and SYS_PTRACE, and that set was carried over rather than minimized -
+# SYS_ADMIN is the one to try removing first if the worker still boots without it. This is the
+# only workload in the cluster with these capabilities, which is why it is pinned to one node.
+#
+# PLACEMENT. nodeSelector nas, for two independent reasons: the image lives only in that node's
+# containerd (there is no registry), and the state volume below is node-local.
+#
+# NO APPLE CREDENTIAL IS IN GIT, and none is read from the environment. The daemon signs in once
+# over its own HTTP API; the session lands in the wrapper-state volume and is restored on every
+# restart (WRAPPER_RESTORE_SESSION=1), so the interactive 2FA step is a one-off. See "Signing
+# the wrapper in" in the plugin README.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: applemusic-wrapper-state
+  namespace: lidarr
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # local-path, never nfs-csi: this holds Apple's mpl_db/kvs.sqlitedb session database, and
+  # ADR-0009 keeps SQLite off NFS.
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: applemusic-wrapper
+  namespace: lidarr
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate: the state claim is ReadWriteOnce and node-local, so a
+  # replacement pod cannot start until the old one has released it.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: applemusic-wrapper
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: applemusic-wrapper
+      annotations:
+        # The chroot launcher is what upstream ships as apparmor:unconfined. Without this the
+        # failure is an EPERM on chroot or a SIGSEGV during Apple library load, neither of which
+        # names AppArmor.
+        container.apparmor.security.beta.kubernetes.io/wrapper: unconfined
+    spec:
+      # Same placement constraint as Lidarr itself and the decryptor.
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      securityContext:
+        # Unconfined for this pod only. Docker's default seccomp profile is what upstream tests
+        # against, and k8s's RuntimeDefault is stricter - it denies part of what SYS_ADMIN
+        # implies, and the resulting failure is indistinguishable from a missing .so.
+        seccompProfile:
+          type: Unconfined
+      containers:
+        - name: wrapper
+          # Built by wrapper/build.sh in the plugin repo and imported into this node. Pulled
+          # never: the tag is local, so a pull fails ImagePullBackOff instead of falling back.
+          image: applemusic-wrapper:0.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: WRAPPER_HOST, value: "0.0.0.0"}
+            - {name: WRAPPER_PORT, value: "8080"}
+            - {name: WRAPPER_DECRYPT_HOST, value: "0.0.0.0"}
+            - {name: WRAPPER_DECRYPT_PORT, value: "10020"}
+            # Upstream defaults this to 60s. One IPC request covers the samples for a track, and
+            # the first request after a restart pays the Apple library load on top; timing out
+            # there restarts the worker and the next request repeats it.
+            - {name: WRAPPER_WORKER_TIMEOUT_SECS, value: "180"}
+            # Harvest the on-disk Apple session at startup, so a pod restart does not force
+            # another interactive 2FA round.
+            - {name: WRAPPER_RESTORE_SESSION, value: "1"}
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: decrypt, containerPort: 10020}
+          readinessProbe:
+            httpGet: {path: /health, port: 8080}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            # The Apple library load has to complete before /health answers, and a cold start on
+            # this CPU is not fast. The default 3 failures would restart a pod that is working.
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "2", memory: 2Gi}
+          securityContext:
+            # Root is required: a non-root process cannot chroot into a rootfs it does not own,
+            # and no fsGroup can fix the ownership of the staged AOSP tree inside the image.
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["SYS_ADMIN", "SYS_CHROOT", "SYS_PTRACE"]
+          volumeMounts:
+            # The launcher chroots at /app/rootfs, so an Apple sandbox-relative path under
+            # WRAPPER_BASE_DIR (/data/data/com.apple.android.music/files) resolves here. Mounting
+            # at that exact path is what keeps the login session across pod restarts.
+            - {name: state, mountPath: /app/rootfs/data/data/com.apple.android.music/files}
+      volumes:
+        - name: state
+          persistentVolumeClaim: {claimName: applemusic-wrapper-state}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: applemusic-wrapper
+  namespace: lidarr
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: applemusic-wrapper
+  ports:
+    # gamdl's HTTP client (--wrapper-url) and its raw decrypt socket
+    # (--wrapper-decrypt-host / --wrapper-decrypt-port) are two distinct protocols.
+    - {name: http, port: 8080, targetPort: 8080}
+    - {name: decrypt, port: 10020, targetPort: 10020}

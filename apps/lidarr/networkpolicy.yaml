@@ -96,6 +96,21 @@ spec:
     ports:
     - port: 8686
       protocol: TCP
+  # The FairPlay wrapper, also in this namespace: applemusic-decryptor drives gamdl, and gamdl
+  # talks to the wrapper over HTTP (--wrapper-url) and a raw TCP decrypt socket
+  # (--wrapper-decrypt-port). Same trap as the hermes and octo rules above, one port further on:
+  # an allow is per-direction AND per-port, and this namespace's only existing lidarr->lidarr
+  # egress rule is 8686. Without this the pair fails with connection refused from the decryptor's
+  # own side - which the sidecar reports as "wrapper at ... is unreachable".
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: lidarr
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 10020
+      protocol: TCP
   # slskd's API, which shares gluetun's pod in the downloads namespace.
   - to:
     - namespaceSelector:
