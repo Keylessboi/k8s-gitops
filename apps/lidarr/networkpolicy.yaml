@@ -96,16 +96,20 @@ spec:
     ports:
     - port: 8686
       protocol: TCP
-  # The FairPlay wrapper, also in this namespace: applemusic-decryptor drives gamdl, and gamdl
-  # talks to the wrapper over HTTP (--wrapper-url) and a raw TCP decrypt socket
-  # (--wrapper-decrypt-port). Same trap as the hermes and octo rules above, one port further on:
-  # an allow is per-direction AND per-port, and this namespace's only existing lidarr->lidarr
-  # egress rule is 8686. Without this the pair fails with connection refused from the decryptor's
-  # own side - which the sidecar reports as "wrapper at ... is unreachable".
+  # The FairPlay wrapper, which lives in its own namespace. Not a stylistic split: the daemon
+  # chroots into a staged Android rootfs, so it needs SYS_ADMIN/SYS_PTRACE and unconfined
+  # seccomp and AppArmor, and this namespace enforces PSA baseline - which refuses the pod at
+  # creation with an event on the ReplicaSet and nothing on the Deployment. See
+  # apps/applemusic-wrapper/namespace.yaml.
+  #
+  # applemusic-decryptor drives gamdl, and gamdl talks to the daemon over HTTP (--wrapper-url)
+  # and a raw TCP decrypt socket (--wrapper-decrypt-port). The matching ingress rule is in
+  # apps/applemusic-wrapper/networkpolicy.yaml: an allow is per-direction AND per-port, so one
+  # end alone reads correct and drops the traffic.
   - to:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: lidarr
+          kubernetes.io/metadata.name: applemusic-wrapper
     ports:
     - port: 8080
       protocol: TCP

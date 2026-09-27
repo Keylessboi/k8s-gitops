@@ -1,0 +1,25 @@
+---
+# Namespace for the AppleMusicarr FairPlay Streaming decrypt daemon.
+#
+# WHY THIS IS NOT A WORKLOAD IN THE LIDARR NAMESPACE. The wrapper chroots into a staged Android
+# rootfs and execs AOSP's linker64 inside it. That needs SYS_ADMIN, SYS_CHROOT and SYS_PTRACE,
+# an unconfined AppArmor profile, and seccomp Unconfined - and lidarr enforces Pod Security
+# Admission baseline, which forbids every one of those.
+#
+# WHAT THAT FAILURE LOOKS LIKE, because it is invisible from the Deployment: the ReplicaSet is
+# refused at pod creation with "violates PodSecurity baseline:latest". No pod object is ever
+# created, so there is no ImagePullBackOff, no CrashLoopBackOff, no warning on the Deployment,
+# and `kubectl describe deploy` shows nothing at all. The only evidence is a FailedCreate event
+# on the ReplicaSet. PSA is a namespace property, so the choice is a separate namespace or
+# dropping the whole lidarr stack - Tubifarry, the decryptor, Lidarr itself - to privileged.
+# This repo has already made that trade for crowdsec, cnpg and cert-manager.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: applemusic-wrapper
+  labels:
+    app.kubernetes.io/name: applemusic-wrapper
+    app.kubernetes.io/part-of: homelab
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged

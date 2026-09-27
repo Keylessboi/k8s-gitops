@@ -1,0 +1,20 @@
+---
+# The FairPlay Streaming (FPS) decrypt daemon for AppleMusicarr.
+#
+# A separate app from lidarr because it needs Pod Security Admission privileged, which the
+# lidarr namespace cannot grant; see namespace.yaml and docs/doctor-log.md 2026-09-27.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: applemusic-wrapper
+  annotations:
+    # Lidarr's decryptor sidecar is the only consumer, and it tolerates the wrapper being
+    # absent, so there is no ordering this must beat. Wave 20 matches lidarr.
+    argocd.argoproj.io/sync-wave: "20"
+
+namespace: applemusic-wrapper
+
+resources:
+  - namespace.yaml
+  - networkpolicy.yaml
+  - applemusic-wrapper.yaml

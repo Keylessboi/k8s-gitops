@@ -1,34 +1,31 @@
 ---
 # FairPlay Streaming (FPS) decrypt daemon for the AppleMusicarr sidecar pair.
 #
-# WHY THIS EXISTS AS A SEPARATE WORKLOAD. The decryptor (applemusic-decryptor.yaml) shells out
-# to gamdl, and gamdl performs no decryption itself: it drives an out-of-process FPS daemon
-# over a raw TCP socket and hands it encrypted samples. This is that daemon. No image for it is
-# published, because it has to load Apple's own Android native libraries, extracted from an
-# Apple Music APK that is not redistributable - so it is built locally by wrapper/build.sh in
-# the plugin repo and imported straight into the NAS node's containerd.
+# WHY THIS EXISTS. applemusic-decryptor shells out to gamdl, and gamdl performs no decryption
+# itself: it drives an out-of-process FPS daemon over a raw TCP socket and hands it encrypted
+# samples. This is that daemon. No image for it is published, because it has to load Apple's own
+# Android native libraries, extracted from an Apple Music APK that is not redistributable - so it
+# is built locally by wrapper/build.sh in the plugin repo and imported straight into the NAS
+# node's containerd.
 #
-# Until this pod is Ready and signed in, the decryptor still runs and still fetches the
-# DRM-free streams: roughly a fifth of what Apple serves. Full tracks need this.
+# Until this pod is Ready and signed in, the decryptor still runs and still fetches the DRM-free
+# streams: roughly a fifth of what Apple serves. Full tracks need this.
 #
-# PRIVILEGES, AND WHY THEY ARE NOT NEGOTIABLE. The daemon chroots into a staged Android rootfs
-# and execs AOSP's linker64 inside it. chroot(2) needs CAP_SYS_CHROOT; upstream's compose file
-# also grants SYS_ADMIN and SYS_PTRACE, and that set was carried over rather than minimized -
-# SYS_ADMIN is the one to try removing first if the worker still boots without it. This is the
-# only workload in the cluster with these capabilities, which is why it is pinned to one node.
-#
-# PLACEMENT. nodeSelector nas, for two independent reasons: the image lives only in that node's
-# containerd (there is no registry), and the state volume below is node-local.
+# PRIVILEGES, AND WHY THE NAMESPACE IS NOT lidarr. The daemon chroots into a staged Android rootfs
+# and execs AOSP's linker64 inside it, so it needs SYS_CHROOT - and upstream's compose also grants
+# SYS_ADMIN and SYS_PTRACE, which was carried over rather than minimized. SYS_ADMIN is the one to
+# try removing first if the worker still boots without it. lidarr enforces PSA baseline, which
+# forbids all three, hence the separate privileged namespace; see namespace.yaml.
 #
 # NO APPLE CREDENTIAL IS IN GIT, and none is read from the environment. The daemon signs in once
 # over its own HTTP API; the session lands in the wrapper-state volume and is restored on every
-# restart (WRAPPER_RESTORE_SESSION=1), so the interactive 2FA step is a one-off. See "Signing
-# the wrapper in" in the plugin README.
+# restart (WRAPPER_RESTORE_SESSION=1), so the interactive 2FA step is a one-off. See "Signing the
+# wrapper in" in the plugin README.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: applemusic-wrapper-state
-  namespace: lidarr
+  namespace: applemusic-wrapper
 spec:
   accessModes:
     - ReadWriteOnce
@@ -43,7 +40,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: applemusic-wrapper
-  namespace: lidarr
+  namespace: applemusic-wrapper
 spec:
   replicas: 1
   # Recreate, not RollingUpdate: the state claim is ReadWriteOnce and node-local, so a
@@ -63,7 +60,8 @@ spec:
         # names AppArmor.
         container.apparmor.security.beta.kubernetes.io/wrapper: unconfined
     spec:
-      # Same placement constraint as Lidarr itself and the decryptor.
+      # Pinned to one node for two independent reasons: the image lives only in that node's
+      # containerd (there is no registry), and the state claim below is node-local.
       nodeSelector:
         kubernetes.io/hostname: nas
       tolerations:
@@ -126,7 +124,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: applemusic-wrapper
-  namespace: lidarr
+  namespace: applemusic-wrapper
 spec:
   type: ClusterIP
   selector:

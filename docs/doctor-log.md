@@ -70,7 +70,7 @@ the literal string you are seeing, then read the entry.
 | Stale NFS handles, pods stuck ContainerCreating | closet move — 2026-08-28 |
 | SQLite slow to the point of unusable; `PRAGMA wal_checkpoint` taking seconds | SQLite on NFS — 2026-09-10 (remux) |
 | `database disk image is malformed` after a migration | copied while the writer was running; `kubectl scale` loses to selfHeal — 2026-09-10 |
-| Deployment 0/1 with NO pod and nothing to `kubectl logs` | PodSecurity rejection — read the ReplicaFailure condition — 2026-09-10 |
+| Deployment 0/1 with NO pod and nothing to `kubectl logs` | PodSecurity rejection — read the ReplicaFailure condition, not the Deployment — 2026-09-27 (baseline namespace), 2026-09-10 (gluetun) |
 | `no successful lookups` from a torrent client, forever | DHT is UDP and the egress path is a TCP-only SOCKS5 proxy — 2026-09-10 |
 | High load average but `ps` shows few blocked tasks, disk barely busy | you are counting processes, not threads — 2026-09-10 (`ps -eLo`) |
 | A pod running with no limits although the chart declares them | Helm values at a path the chart does not read — 2026-09-10 (immich), 2026-09-09 (monitoring) |
@@ -122,6 +122,49 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-27 — a Deployment that could never create a pod, and nothing on the Deployment said so
+
+**Symptom.** `applemusic-wrapper` scheduled on the `nas` node, the Service and PVC
+appeared, ArgoCD reported the app Synced and Progressing. `kubectl -n lidarr get pods`
+was **empty**, and there was no pod to `kubectl logs`, no `kubectl describe` to read,
+and no event anywhere on the Deployment. The Deployment just sat at `0/1`.
+
+**Root cause.** The wrapper daemon chroots into a staged Android rootfs, so it declares
+`SYS_ADMIN`, `SYS_CHROOT`, `SYS_PTRACE`, `seccompProfile: Unconfined` and an unconfined
+AppArmor annotation. The `lidarr` namespace enforces Pod Security Admission `baseline`,
+which forbids every one of those, so the **ReplicaSet** could not create a pod:
+
+    FailedCreate: pods "applemusic-wrapper-..." is forbidden: violates PodSecurity
+    "baseline:latest": forbidden AppArmor profiles (... "Unconfined"), non-default
+    capabilities (container "wrapper" must not include "SYS_ADMIN", "SYS_PTRACE"),
+    seccompProfile (pod must not set securityContext.seccompProfile.type to "Unconfined")
+
+The event is on the ReplicaSet and in the namespace event stream, never on the Deployment
+— which is why the Deployment looked like a slow rollout rather than a refusal.
+
+**Fix.** Moved the workload into its own `applemusic-wrapper` namespace with
+`pod-security.kubernetes.io/enforce: privileged`, and opened the flow in both directions:
+egress to that namespace on 8080/10020 in `apps/lidarr/networkpolicy.yaml`, ingress from
+`lidarr` on the same ports in `apps/applemusic-wrapper/networkpolicy.yaml`. The alternative
+— dropping `lidarr` itself to `privileged` — was rejected because that namespace also runs
+Lidarr, Tubifarry and the decryptor, none of which need anything above `baseline`.
+
+**Prevention.** This is the *second* entry for this class (see 2026-09-10, gluetun and
+`NET_ADMIN`), so the prose prevention from that entry did not hold. Stated as a rule a
+manifest author can apply before deploying: **read the destination namespace's
+`pod-security.kubernetes.io/enforce` label before adding a workload that names a capability,
+a `seccompProfile` or an AppArmor profile; if it is `baseline`, the workload needs its own
+namespace.** A refusal here produces no pod, so the usual debugging reflexes find nothing —
+when a Deployment is `0/1` with no pod, read the ReplicaFailure condition and the
+ReplicaSet, not the Deployment. Note also that nothing in `kubectl kustomize`, the YAML
+linter or the repo's invariant checks can see this: PSA is enforced at admission time by the
+API server, so it only appears once the manifest is actually applied.
+
+**Confidence.** CONFIRMED. The ReplicaSet event names the exact three forbidden fields, and
+the pod was created on the first attempt after the namespace change; the workload then
+moved on to the expected `ImagePullBackOff`, because its image is built locally and does not
+exist yet.
 
 ## 2026-09-23 — the Apple Music plugin searched forever and grabbed nothing
 

@@ -1,0 +1,53 @@
+---
+# Default-deny for this namespace. Exactly three flows are opened, and the lidarr side of the
+# first one is declared in apps/lidarr/networkpolicy.yaml - a NetworkPolicy allow is
+# per-direction AND per-port, so one end alone reads correct and drops the traffic.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: applemusic-wrapper
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Only the decryptor sidecar, only on the daemon's own two ports.
+    #
+    # Narrow on purpose, and not just tidy-mindedness: POST /login on this daemon takes an
+    # Apple ID and password, and POST /login/2fa takes the six-digit code. On a single-node
+    # homelab the tempting shortcut is to leave this namespace reachable from everywhere, but
+    # then any pod that can be made to issue an HTTP request - an indexer, a metadata proxy, a
+    # compromised container - can drive the account, and the daemon's own logs would attribute
+    # every one of those attempts to the owner.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: lidarr
+      ports:
+        - {port: 8080, protocol: TCP}
+        - {port: 10020, protocol: TCP}
+    # No rule is needed for the readiness probe: the kubelet is exempt from NetworkPolicy.
+  egress:
+    # DNS. Without this the Apple calls fail with a name-resolution error rather than anything
+    # that points at the policy.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    # Apple, over 443 only. amp-api.music.apple.com and the FairPlay licence endpoints. The
+    # private ranges are excluded the same way the lidarr policy excludes them, so this cannot
+    # be used as a hop to the rest of the homelab.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 192.168.0.0/16
+              - 172.16.0.0/12
+      ports:
+        - {port: 443, protocol: TCP}
