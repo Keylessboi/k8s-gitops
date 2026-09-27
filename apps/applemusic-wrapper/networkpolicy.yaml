@@ -13,21 +13,23 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Only the decryptor sidecar, only on the daemon's own two ports.
+    # Only the decryptor sidecar, only on the daemon's routed HTTP port.
     #
-    # Narrow on purpose, and not just tidy-mindedness: POST /login on this daemon takes an
-    # Apple ID and password, and POST /login/2fa takes the six-digit code. On a single-node
-    # homelab the tempting shortcut is to leave this namespace reachable from everywhere, but
-    # then any pod that can be made to issue an HTTP request - an indexer, a metadata proxy, a
-    # compromised container - can drive the account, and the daemon's own logs would attribute
-    # every one of those attempts to the owner.
+    # Narrow on purpose, and not just tidy-mindedness: the daemon holds a signed-in Apple Music
+    # session, and anything that can reach it can pull that account's catalogue. On a single-node
+    # homelab the tempting shortcut is to leave this namespace reachable from everywhere, but then
+    # any pod that can be made to issue an HTTP request - an indexer, a metadata proxy, a
+    # compromised container - can drive the account.
+    #
+    # One port now, where wrapper-v2 needed two: /m3u8, /key, /lyrics and /status are all on 8080,
+    # and amdl decrypts in-process from the key template it fetches there, so the raw sample
+    # socket on 10020 is no longer part of the design.
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: lidarr
       ports:
         - {port: 8080, protocol: TCP}
-        - {port: 10020, protocol: TCP}
     # No rule is needed for the readiness probe: the kubelet is exempt from NetworkPolicy.
   egress:
     # DNS. Without this the Apple calls fail with a name-resolution error rather than anything

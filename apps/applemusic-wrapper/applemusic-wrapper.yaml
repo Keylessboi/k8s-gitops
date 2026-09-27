@@ -1,25 +1,40 @@
 ---
 # FairPlay Streaming (FPS) decrypt daemon for the AppleMusicarr sidecar pair.
 #
-# WHY THIS EXISTS. applemusic-decryptor shells out to gamdl, and gamdl performs no decryption
-# itself: it drives an out-of-process FPS daemon over a raw TCP socket and hands it encrypted
-# samples. This is that daemon. No image for it is published, because it has to load Apple's own
-# Android native libraries, extracted from an Apple Music APK that is not redistributable - so it
-# is built locally by wrapper/build.sh in the plugin repo and imported straight into the NAS
-# node's containerd.
+# WHY THIS EXISTS. applemusic-decryptor shells out to a downloader, and neither gamdl nor amdl
+# performs the FairPlay decryption itself against Apple's own libraries: an out-of-process daemon
+# does. No image for it is published, because it has to load Apple's own Android native libraries
+# - extracted from an Apple Music APK that is not redistributable - so it is built locally by
+# wrapper/build.sh in the plugin repo and imported straight into the NAS node's containerd.
 #
-# Until this pod is Ready and signed in, the decryptor still runs and still fetches the DRM-free
-# streams: roughly a fifth of what Apple serves. Full tracks need this.
+# WHICH IMPLEMENTATION, AND WHY IT IS NOT wrapper-v2. The sibling project
+# github.com/WorldObservationLog/wrapper (branch: lite) is the one that works here. wrapper-v2
+# cannot complete AuthenticateFlow at all against these libraries: its token harvest calls
+# SVFootHillSessionCtrl::getPersistentKey, which is an UNDEFINED SYMBOL in the shipped .so, so
+# every login and every session import fails with "cached-session restore found Apple session
+# files but token harvest failed" (upstream issues #8 and #10). wrapper-lite completed the same
+# login on the first attempt and raised the 2FA challenge wrapper-v2 never saw.
 #
-# PRIVILEGES, AND WHY THE NAMESPACE IS NOT lidarr. The daemon chroots into a staged Android rootfs
-# and execs AOSP's linker64 inside it, so it needs SYS_CHROOT - and upstream's compose also grants
-# SYS_ADMIN and SYS_PTRACE, which was carried over rather than minimized. SYS_ADMIN is the one to
-# try removing first if the worker still boots without it. lidarr enforces PSA baseline, which
-# forbids all three, hence the separate privileged namespace; see namespace.yaml.
+# The two are different API generations, and that decides the downloader as well:
+#   wrapper-v2   - POST /login, GET /me, GET /playback, and sample decryption over a RAW TCP
+#                  socket on 10020. That is what gamdl speaks.
+#   wrapper-lite - one routed HTTP base URL with /status /m3u8 /key /lyrics /webplayback
+#                  /license. That is what amdl (zhaarey/apple-music-downloader) speaks.
+# So the sidecar runs amdl against this daemon; see apps/lidarr/applemusic-decryptor.yaml and the
+# plugin README. There is NO raw decrypt port any more: amdl decrypts in-process, using the
+# FairPlay key template this daemon returns from /key.
+#
+# PRIVILEGES, AND WHY THE NAMESPACE IS NOT lidarr. The rootless launcher unshares a user and mount
+# namespace, chroots into a staged Android rootfs and execs AOSP's linker64 inside it, so it needs
+# SYS_CHROOT, SYS_ADMIN (for unshare) and SYS_PTRACE, plus unconfined seccomp and AppArmor.
+# lidarr enforces PSA baseline, which forbids all of those - and refusal leaves NO pod object at
+# all, so the Deployment simply sits at 0/1 with the event on the ReplicaSet. Hence the separate
+# namespace; see namespace.yaml.
 #
 # NO APPLE CREDENTIAL IS IN GIT, and none is read from the environment. The daemon signs in once
-# over its own HTTP API; the session lands in the wrapper-state volume and is restored on every
-# restart (WRAPPER_RESTORE_SESSION=1), so the interactive 2FA step is a one-off. See "Signing the
+# through its own one-shot CLI mode (--login user:pass --code-from-file, which reads the
+# verification code from <base-dir>/2fa.txt); the session lands in the wrapper-state volume and
+# the daemon refreshes it in place, so the interactive 2FA step is a one-off. See "Signing the
 # wrapper in" in the plugin README.
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -74,61 +89,55 @@ spec:
           type: Unconfined
       containers:
         - name: wrapper
-          # Built by wrapper/build.sh in the plugin repo and imported into this node. Pulled
-          # never: the tag is local, so a pull fails ImagePullBackOff instead of falling back.
-          image: applemusic-wrapper:0.1.0
+          # Built from the lite branch by wrapper/build.sh in the plugin repo and imported into
+          # this node's containerd. Pulled never: the tag is local, so a pull fails
+          # ImagePullBackOff instead of falling back.
+          #
+          # THE SOURCE BUILD, NOT THE RELEASE ZIP. The published Wrapper.x86_64.latest.zip is a
+          # different API generation: its launcher exposes four single-purpose ports
+          # (-D decrypt 10020, -M m3u8 20020, -A account 30020, -K key 40020) and no routed
+          # server, and its 10020/20020 do not answer HTTP at all. The lite branch builds
+          # wrapper-lite-rootless with the single routed server on one port, default 12340 -
+          # which is exactly amdl's lite-server default.
+          image: wrapper-lite-src:0.1.0
           imagePullPolicy: IfNotPresent
+          # Upstream's launcher ships the routing server, not an entrypoint: rootfs/data is
+          # .dockerignore'd so nothing is baked in, and the staged binaries arrive mode 0644, so
+          # the exec fails with "execve: Permission denied" - which reads like a security
+          # problem and is a permission bit. Both are fixed here rather than in the image so the
+          # image stays upstream's build.
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              chmod -R a+rx /app/rootfs/system &&
+              exec /app/wrapper-lite-rootless
+              --host 0.0.0.0 --port 8080
+              --device-info "$WRAPPER_DEVICE_INFO"
+              --base-dir /data/data/com.apple.android.music/files
           env:
-            - {name: WRAPPER_HOST, value: "0.0.0.0"}
-            - {name: WRAPPER_PORT, value: "8080"}
-            - {name: WRAPPER_DECRYPT_HOST, value: "0.0.0.0"}
-            - {name: WRAPPER_DECRYPT_PORT, value: "10020"}
-            # Upstream defaults this to 60s. One IPC request covers the samples for a track, and
-            # the first request after a restart pays the Apple library load on top; timing out
-            # there restarts the worker and the next request repeats it.
-            - {name: WRAPPER_WORKER_TIMEOUT_SECS, value: "180"}
-            # Harvest the on-disk Apple session at startup, so a pod restart does not force
-            # another interactive 2FA round.
-            - {name: WRAPPER_RESTORE_SESSION, value: "1"}
             # A UNIQUE DEVICE IDENTITY, and the last field is the one that matters.
             #
-            # The upstream default is the 9-tuple
-            #   Music/4.9/Android/10/Samsung S9/7663313/en-US/en-US/dc28071e981c439e
-            # and that trailing AndroidID is a CONSTANT: every wrapper-v2 installation on earth
-            # presents the same device to Apple. wrapper-v2 issue #13 documents the consequence -
-            # Apple answers with a native dialog, "This device is linked to another Apple Account"
-            # - and the sibling wrapper-lite derives this field per account instead, as FNV-1a
-            # 64-bit of the username, persisting it in ANDROID_ID. Ours is that same derivation
-            # for this account, so it is reproducible rather than invented.
+            # Apple's FairPlay DeviceGUID is derived from this AndroidID (wrapper-lite's
+            # DeviceGUID::configure() step F4), and the session in the state volume was minted
+            # under this exact value. Restoring under a different AndroidID presents a different
+            # device to a session keyed to another, so this field is not cosmetic and must match
+            # whatever produced mpl_db/kvs.sqlitedb.
             #
-            # The other eight fields are left at upstream's values deliberately. They describe the
-            # client the loaded Apple libraries actually are; changing them to look newer would
-            # make the claim and the code disagree, which is worse than an old-looking client.
-            # The first eight fields are the tuple wrapper-lite, the maintained sibling project,
-            # ships as its own example: Music/5.0.2, a Pixel 8, build 7663314. Upstream
-            # wrapper-v2's default still claims Music/4.9 on a Samsung S9, which is the 2020-era
-            # client, and the wrapper-v2 source tree it ships with is built from a 2021 APK - a
-            # stale claim about a client Apple may no longer accept on the auth endpoint.
-            #
-            # Only a claim, not a code change: these nine fields are what the daemon tells Apple
-            # it is, and Apple's servers never see the loaded libraries.
-            # THE ANDROIDID HERE IS NOT ARBITRARY: it must match the device that CREATED the
-            # session in the state volume. wrapper-v2 derives the FairPlay DeviceGUID from this
-            # field (DeviceGUID::configure() F4), and the session was minted by wrapper-lite's
-            # authenticator under its own default of dc28071e981c439e. Restoring under a
-            # different AndroidID presents a different device to a session keyed to another.
-            #
-            # The tuple is consequently wrapper-lite's, not wrapper-v2's: when the session is
-            # produced elsewhere and imported, the device that produced it is the one to claim.
+            # The other eight fields are wrapper-lite's own default tuple, kept as they are: they
+            # describe the client the loaded Apple libraries actually are, and changing them to
+            # look newer would make the claim and the code disagree.
             - {name: WRAPPER_DEVICE_INFO, value: "Music/4.9/Android/10/Samsung S9/7663313/en-US/en-US/dc28071e981c439e"}
           ports:
             - {name: http, containerPort: 8080}
-            - {name: decrypt, containerPort: 10020}
           readinessProbe:
-            httpGet: {path: /health, port: 8080}
+            # /status, not /health: wrapper-lite has no /health. /status is served from the
+            # daemon's own configuration and does not consult Apple, so it is a liveness answer
+            # and not something that can hang on a slow account call. It also proves the routed
+            # server itself is up, which is what the sidecar depends on.
+            httpGet: {path: /status, port: 8080}
             initialDelaySeconds: 10
             periodSeconds: 20
-            # The Apple library load has to complete before /health answers, and a cold start on
+            # The Apple library load has to complete before /status answers, and a cold start on
             # this CPU is not fast. The default 3 failures would restart a pod that is working.
             failureThreshold: 6
           resources:
@@ -143,43 +152,17 @@ spec:
               drop: ["ALL"]
               add: ["SYS_ADMIN", "SYS_CHROOT", "SYS_PTRACE"]
           volumeMounts:
-            # The launcher chroots at /app/rootfs, so an Apple sandbox-relative path under
-            # WRAPPER_BASE_DIR (/data/data/com.apple.android.music/files) resolves here. Mounting
-            # at that exact path is what keeps the login session across pod restarts.
+            # The mount is what carries the signed-in session across restarts, and its in-chroot
+            # path is what --base-dir names. The launcher chroots at /app/rootfs, so the host
+            # path /app/rootfs/data/data/com.apple.android.music/files is
+            # /data/data/com.apple.android.music/files from inside it - and the launcher mkdirs
+            # its base dir AFTER chrooting, so passing the host path here fails with
+            # "mkdir base_dir_arg failed: No such file or directory" and then silently runs
+            # logged out.
             - {name: state, mountPath: /app/rootfs/data/data/com.apple.android.music/files}
-            # A resolver INSIDE the chroot. See the initContainer below.
-            - {name: resolv, mountPath: /app/rootfs/etc/resolv.conf, subPath: resolv.conf}
-      # THE CHROOT HAS NO /etc/resolv.conf WITHOUT THIS.
-      #
-      # wrapper chroots into /app/rootfs and bind-mounts exactly two things inside it:
-      # /dev/urandom and /proc (src/launcher/wrapper.c). Upstream's Dockerfile copies only the CA
-      # bundle into that tree, so /app/rootfs/etc/ contains ssl and nothing else - no resolver.
-      # Apple's libraries then make every HTTPS call - the token harvest, the AuthenticateFlow
-      # exchange, the playback dispatch, the FairPlay licence request - with no nameserver
-      # configured inside the chroot. That is why /me answers in milliseconds about one time in
-      # four and blocks past 25 s the rest of the time.
-      #
-      # The copy is done from the main container's own /etc/resolv.conf, which the kubelet writes,
-      # rather than from a ConfigMap naming 10.43.0.10: the ClusterIP of kube-dns is not this
-      # manifest's business, and the search domains and ndots come along for free.
-      initContainers:
-        - name: seed-resolv
-          # The same local image, so nothing has to be pulled. Only the image's own userland is
-          # used here; the Apple libraries are irrelevant to a cp.
-          image: applemusic-wrapper:0.1.0
-          imagePullPolicy: IfNotPresent
-          command: ["cp", "/etc/resolv.conf", "/seed/resolv.conf"]
-          securityContext:
-            runAsUser: 0
-            allowPrivilegeEscalation: false
-            capabilities: {drop: ["ALL"]}
-          volumeMounts:
-            - {name: resolv, mountPath: /seed}
       volumes:
         - name: state
           persistentVolumeClaim: {claimName: applemusic-wrapper-state}
-        - name: resolv
-          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -191,7 +174,7 @@ spec:
   selector:
     app.kubernetes.io/name: applemusic-wrapper
   ports:
-    # gamdl's HTTP client (--wrapper-url) and its raw decrypt socket
-    # (--wrapper-decrypt-host / --wrapper-decrypt-port) are two distinct protocols.
+    # One port, one protocol. wrapper-lite serves the whole routed API here - manifest, key
+    # template, lyrics - and amdl decrypts in-process from the key template it returns, so the
+    # raw sample-decryption socket wrapper-v2 used is gone.
     - {name: http, port: 8080, targetPort: 8080}
-    - {name: decrypt, port: 10020, targetPort: 10020}

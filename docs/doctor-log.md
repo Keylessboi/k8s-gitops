@@ -83,6 +83,8 @@ the literal string you are seeing, then read the entry.
 | "No items are below cutoff" / the Wanted → Cutoff Unmet page is empty | profile `Cutoff` sitting at the bottom of the ladder — 2026-09-23 |
 | `POST /v1/download HTTP/1.1" 400` from applemusic-decryptor, or an *arr logging only an opaque HTTP 400 | chunked body at a Content-Length-only server — 2026-09-23 |
 | One endpoint on a service answers instantly and another never returns, same pod and port | use the liveness endpoint for liveness — wrapper /health vs /me, 2026-09-27 |
+| A binary that works on the build host and fails inside the image, complaining about a missing bundled library | compile-time path from `runtime.Caller` — 2026-09-27 (Temari cdylib) |
+| `no bundled cdylib for linux-amd64 (bundled: … linux x86_64 …)` — a listing that contains the platform it says is missing | compile-time path from `runtime.Caller` — 2026-09-27 (Temari cdylib) |
 
 ### The traps that have bitten more than once
 
@@ -123,6 +125,50 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-27 — the same binary decrypted on the host and failed in the image
+
+**Symptom.** `applemusic-decryptor:0.3.0` — the wrapper-lite + amdl backend — produced nothing.
+Every track failed identically and early:
+
+    temari library error: runv4: load temari library: temari: no bundled cdylib for linux-amd64
+    (bundled: android arm64, linux x86_64/arm64, windows x86_64/arm64, macos x86_64/arm64)
+
+The message contradicts itself: linux x86_64 *is* in the bundled list. The identical binary,
+copied out of that image and run directly on the NAS, decrypted seventeen tracks. Nothing about
+the network, the policy or the Apple session was involved — `/status` answered
+`{"code":0,"data":{"regions":["us"]}}` from inside the failing container.
+
+**Root cause.** amdl decrypts through Temari, a Rust cdylib. Temari's Go binding does not embed it:
+`BundledLibraryPath()` reads its own **compile-time** source path with `runtime.Caller(0)` and
+then stats `<that dir>/lib/<platform>/libtemari.so`. In a normal `go build` that path is inside
+the module cache, so a prebuilt binary copied into a different image looks for a module directory
+that was never shipped. `LoadDefault()` then falls back to compiling the embedded Rust crate,
+which needs `cargo`; the observed error is the bundled-path error returned after that fallback
+also failed.
+
+The host run masked it: **the NAS has a Rust toolchain**, so the self-build fallback succeeded
+there and the first end-to-end test passed. The failure only existed inside the image.
+
+**Fix.** Build amdl in a Dockerfile stage and reconstruct the path it recorded:
+
+    RUN temari="$(go list -m -f '{{.Dir}}' github.com/WorldObservationLog/Temari/bindings/go)" \
+     && echo "$temari" > /out/temari-module-dir && cp -a "$temari/." /out/temari-module
+    # ... final stage ...
+    COPY --from=amdl /out/temari-module-dir /tmp/temari-module-dir
+    RUN temari="$(cat /tmp/temari-module-dir)"; mkdir -p "$temari"; cp -a /tmp/temari-module/. "$temari/"
+
+The image is then self-contained: 638 KB of cdylib, no Rust toolchain, no crates.io access from a
+pod whose NetworkPolicy opens 443 and nothing else.
+
+**Prevention.** When a binary works on the machine that built it and fails inside the image, check
+what it resolves through `runtime.Caller`, `/proc/self/exe` or its own argv[0] before suspecting
+credentials, DNS or the network — a compile-time absolute path is not a runtime dependency any
+tool surfaces, and a build host with more tooling than the runtime image will hide the fallback
+that covers for it. The general form: **prove the artefact in the image it ships in, not on the
+host that produced it.**
+
+**Confidence:** CONFIRMED (the fix was verified by watching the same image decrypt 17/17 tracks).
 
 ## 2026-09-27 — the decrypt daemon answered /health in 10ms and never answered /me
 

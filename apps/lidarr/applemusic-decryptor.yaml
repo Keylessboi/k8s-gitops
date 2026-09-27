@@ -49,9 +49,11 @@ spec:
           # straight into the NAS node's containerd. This cluster has no registry, so the tag is
           # local and must never be pulled - a pull fails with ImagePullBackOff rather than
           # falling back. Rebuild steps are in the plugin README.
-          # 0.2.0 adds the wrapper-v2 backend (WRAPPER_URL below) and the Apple ID sign-in page
-          # the lidarr Ingress publishes at /applemusic. 0.1.0 had neither.
-          image: applemusic-decryptor:0.2.0
+          # 0.2.0 added the wrapper-v2 backend (WRAPPER_URL) and the Apple ID sign-in page the
+          # lidarr Ingress publishes at /applemusic. 0.3.0 replaces the backend with wrapper-lite:
+          # it ships amdl (apple-music-dl), switches on LITE_SERVER below, and reports
+          # drm.backend="wrapper-lite (amdl)".
+          image: applemusic-decryptor:0.3.0
           imagePullPolicy: IfNotPresent
           command: ["python3", "/app/app.py"]
           env:
@@ -67,17 +69,21 @@ spec:
             # Deliberately off. A proxy changes which address appears in Apple's logs, not who
             # the logs are about; see the note in decryptor/app.py.
             - {name: REQUIRE_PROXY, value: "0"}
-            # Setting WRAPPER_URL switches gamdl onto the FairPlay Streaming backend: app.py
-            # picks its command template from this and passes --use-wrapper plus the two wrapper
-            # endpoints. The daemon's host is also where the raw decrypt socket lives, so
-            # WRAPPER_DECRYPT_HOST is left unset and derived from this URL - one value to keep in
-            # step instead of two.
+            # LITE_SERVER is the switch. Set, app.py selects the wrapper-lite backend, runs amdl
+            # against this URL, and reports drm.backend="wrapper-lite (amdl)". Unset, it falls
+            # back to the cookie path and can only fetch the DRM-free streams - which /healthz
+            # reports as drm.backend="none" rather than failing silently.
             #
-            # The sidecar also serves the Apple ID sign-in page from this process, so this URL is
-            # what the /applemusic route talks to. Unset, the sidecar falls back to the cookie
-            # path and can only fetch the DRM-free streams - which /healthz reports as
-            # drm.backend="none" rather than failing silently.
-            - {name: WRAPPER_URL, value: "http://applemusic-wrapper.applemusic-wrapper.svc.cluster.local:8080"}
+            # wrapper-lite, not wrapper-v2. The sibling project under the same author completed
+            # AuthenticateFlow where wrapper-v2 cannot (its token harvest calls an undefined
+            # symbol in Apple's shipped libraries), and its routed API is what amdl speaks. The
+            # two are NOT interchangeable: gamdl speaks wrapper-v2's /me plus a raw decrypt
+            # socket, and would fail on the first call it made here.
+            #
+            # The /applemusic page is served by this same container. Under wrapper-lite it shows
+            # the daemon's state and the one-off sign-in command instead of a password form,
+            # because wrapper-lite signs in through its own CLI rather than over HTTP.
+            - {name: LITE_SERVER, value: "http://applemusic-wrapper.applemusic-wrapper.svc.cluster.local:8080"}
           ports:
             - {name: http, containerPort: 8080}
           readinessProbe:
