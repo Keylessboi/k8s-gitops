@@ -90,6 +90,21 @@ spec:
             # Harvest the on-disk Apple session at startup, so a pod restart does not force
             # another interactive 2FA round.
             - {name: WRAPPER_RESTORE_SESSION, value: "1"}
+            # A UNIQUE DEVICE IDENTITY, and the last field is the one that matters.
+            #
+            # The upstream default is the 9-tuple
+            #   Music/4.9/Android/10/Samsung S9/7663313/en-US/en-US/dc28071e981c439e
+            # and that trailing AndroidID is a CONSTANT: every wrapper-v2 installation on earth
+            # presents the same device to Apple. wrapper-v2 issue #13 documents the consequence -
+            # Apple answers with a native dialog, "This device is linked to another Apple Account"
+            # - and the sibling wrapper-lite derives this field per account instead, as FNV-1a
+            # 64-bit of the username, persisting it in ANDROID_ID. Ours is that same derivation
+            # for this account, so it is reproducible rather than invented.
+            #
+            # The other eight fields are left at upstream's values deliberately. They describe the
+            # client the loaded Apple libraries actually are; changing them to look newer would
+            # make the claim and the code disagree, which is worse than an old-looking client.
+            - {name: WRAPPER_DEVICE_INFO, value: "Music/4.9/Android/10/Samsung S9/7663313/en-US/en-US/09e23db86b14ae99"}
           ports:
             - {name: http, containerPort: 8080}
             - {name: decrypt, containerPort: 10020}
