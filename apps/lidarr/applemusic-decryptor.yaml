@@ -84,6 +84,14 @@ spec:
             # the daemon's state and the one-off sign-in command instead of a password form,
             # because wrapper-lite signs in through its own CLI rather than over HTTP.
             - {name: LITE_SERVER, value: "http://applemusic-wrapper.applemusic-wrapper.svc.cluster.local:8080"}
+            # Explicitly empty, and that is not noise. The previous commit set WRAPPER_URL on this
+            # container, and ArgoCD applies with ServerSideApply, whose list merge keys env entries
+            # by name: a name that simply disappears from the manifest is NOT removed from the
+            # live object, so the old value survived the swap and the sidecar logged
+            # "both LITE_SERVER and WRAPPER_URL are set" on its first start. Declaring it empty
+            # is what actually turns the wrapper-v2 path off, and declaring it at all keeps the
+            # compatibility switch visible instead of leaving a stale value in the cluster.
+            - {name: WRAPPER_URL, value: ""}
           ports:
             - {name: http, containerPort: 8080}
           readinessProbe:

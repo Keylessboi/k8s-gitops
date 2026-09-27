@@ -144,13 +144,18 @@ spec:
             requests: {cpu: 100m, memory: 256Mi}
             limits: {cpu: "2", memory: 2Gi}
           securityContext:
-            # Root is required: a non-root process cannot chroot into a rootfs it does not own,
-            # and no fsGroup can fix the ownership of the staged AOSP tree inside the image.
+            # PRIVILEGED, not a capability list. The launcher needs a user+mount namespace AND a
+            # writable /proc inside it ("mount proc failed: Operation not permitted"), and the
+            # three capabilities this used to add are not enough for that: measured on the NAS,
+            # SYS_ADMIN+SYS_CHROOT+SYS_PTRACE with unconfined seccomp and AppArmor still fails at
+            # mount proc, while --privileged starts cleanly. Root is required for the same family
+            # of reasons - a non-root process cannot chroot into a rootfs it does not own, and no
+            # fsGroup can fix the ownership of the staged AOSP tree inside the image.
+            #
+            # This is why the workload is in its own namespace: this is exactly what the lidarr
+            # namespace enforces PSA baseline against. See namespace.yaml.
+            privileged: true
             runAsUser: 0
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-              add: ["SYS_ADMIN", "SYS_CHROOT", "SYS_PTRACE"]
           volumeMounts:
             # The mount is what carries the signed-in session across restarts, and its in-chroot
             # path is what --base-dir names. The launcher chroots at /app/rootfs, so the host
