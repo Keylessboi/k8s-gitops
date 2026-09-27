@@ -18,6 +18,19 @@ spec:
     ports:
     - port: 8089
       protocol: TCP
+  # Traefik to the Apple ID sign-in page, which applemusic-decryptor serves on 8080 and which the
+  # lidarr Ingress publishes at /applemusic behind Authentik forward-auth. Ingress from the
+  # kube-system namespace is already allowed, but only on 8089 and 8686 above - and an allow is
+  # per-port, so 8080 needs its own rule or the page 502s while the pod looks perfectly healthy.
+  # That route serves the sign-in form and nothing else: a request carrying the /applemusic prefix
+  # is refused the /v1 job API inside the sidecar itself.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 8080
+      protocol: TCP
   - from:
     - namespaceSelector:
         matchLabels:

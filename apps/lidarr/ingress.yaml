@@ -27,6 +27,22 @@ spec:
     - host: lidarr.sandstorm.chat
       http:
         paths:
+          # Longest prefix wins in Traefik, so this beats the / rule below and never reaches
+          # Lidarr. It is the Apple ID sign-in page for the FairPlay daemon - a small form that
+          # drives the daemon's /login and /login/2fa, including the 2FA code step, which cannot
+          # be expressed in Lidarr's declarative provider-settings schema at all.
+          #
+          # Deliberately on this hostname: it reuses the existing certificate and the existing
+          # Authentik forward-auth middleware rather than standing up a second public name for
+          # one form. The sidecar refuses its /v1 job API to anything arriving with this prefix,
+          # so the published route cannot drive downloads.
+          - path: /applemusic
+            pathType: Prefix
+            backend:
+              service:
+                name: applemusic-decryptor
+                port:
+                  number: 8080
           - path: /
             pathType: Prefix
             backend:

@@ -49,7 +49,9 @@ spec:
           # straight into the NAS node's containerd. This cluster has no registry, so the tag is
           # local and must never be pulled - a pull fails with ImagePullBackOff rather than
           # falling back. Rebuild steps are in the plugin README.
-          image: applemusic-decryptor:0.1.0
+          # 0.2.0 adds the wrapper-v2 backend (WRAPPER_URL below) and the Apple ID sign-in page
+          # the lidarr Ingress publishes at /applemusic. 0.1.0 had neither.
+          image: applemusic-decryptor:0.2.0
           imagePullPolicy: IfNotPresent
           command: ["python3", "/app/app.py"]
           env:
@@ -65,6 +67,17 @@ spec:
             # Deliberately off. A proxy changes which address appears in Apple's logs, not who
             # the logs are about; see the note in decryptor/app.py.
             - {name: REQUIRE_PROXY, value: "0"}
+            # Setting WRAPPER_URL switches gamdl onto the FairPlay Streaming backend: app.py
+            # picks its command template from this and passes --use-wrapper plus the two wrapper
+            # endpoints. The daemon's host is also where the raw decrypt socket lives, so
+            # WRAPPER_DECRYPT_HOST is left unset and derived from this URL - one value to keep in
+            # step instead of two.
+            #
+            # The sidecar also serves the Apple ID sign-in page from this process, so this URL is
+            # what the /applemusic route talks to. Unset, the sidecar falls back to the cookie
+            # path and can only fetch the DRM-free streams - which /healthz reports as
+            # drm.backend="none" rather than failing silently.
+            - {name: WRAPPER_URL, value: "http://applemusic-wrapper.applemusic-wrapper.svc.cluster.local:8080"}
           ports:
             - {name: http, containerPort: 8080}
           readinessProbe:
