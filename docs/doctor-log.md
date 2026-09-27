@@ -82,6 +82,7 @@ the literal string you are seeing, then read the entry.
 | Lidarr grabs nothing from a streaming plugin although every search returns releases, with no warnings | disabled delay-profile protocol — 2026-09-23 (applemusicarr) |
 | "No items are below cutoff" / the Wanted → Cutoff Unmet page is empty | profile `Cutoff` sitting at the bottom of the ladder — 2026-09-23 |
 | `POST /v1/download HTTP/1.1" 400` from applemusic-decryptor, or an *arr logging only an opaque HTTP 400 | chunked body at a Content-Length-only server — 2026-09-23 |
+| One endpoint on a service answers instantly and another never returns, same pod and port | use the liveness endpoint for liveness — wrapper /health vs /me, 2026-09-27 |
 
 ### The traps that have bitten more than once
 
@@ -122,6 +123,50 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-27 — the decrypt daemon answered /health in 10ms and never answered /me
+
+**Symptom.** The new Apple ID sign-in page reported "The wrapper daemon is unreachable" while
+`applemusic-wrapper` was `1/1 Running` on the nas node and its readiness probe was passing. From
+inside the decryptor pod, on the same Service: `/health` answered in **10 ms**, `/me` hung past
+**20 s** and never returned. The daemon's own log repeated, once per `/me`:
+
+    http: GET /me
+    auth: cached-session restore found Apple session files but token harvest failed
+
+**Root cause.** wrapper-v2 decides a cached Apple session exists by looking for
+`mpl_db/kvs.sqlitedb` with a non-zero size (`src/daemon/apple/auth.cpp`, `warm_session_present`).
+**Its own first boot creates that file** — a 4096-byte empty SQLite skeleton — so from the second
+start onward the daemon believes it has a warm session and enters the token-harvest path, which on
+a volume with no real session does not fail: it hangs. `/health` never touches that path, which is
+why liveness was clean and the one endpoint that reports account state was not.
+
+This matters beyond the page. gamdl's `WrapperApi.create()` calls `/me` before every album with an
+httpx timeout of **600 s**, so the same hang would have stalled downloads for ten minutes per track
+rather than failing them.
+
+**Fix.** Two parts, and the second is the one that generalises:
+
+1. Cleared `mpl_db` on the `applemusic-wrapper-state` PVC and restarted the daemon. `/me` then
+   returned `{"auth":{"state":"logged_out"}}` in **0.00 s**, and `/health` stayed instant.
+2. Stopped using `/me` as the reachability test. The sidecar now takes *reachable* from `/health`
+   and treats the account state as best effort: a `/me` that does not answer marks the account as
+   unknown, not the daemon as down. `/healthz` additionally serves a background sampler's cache,
+   because a readiness probe has a 1 s timeout and the first version blocked on the daemon there —
+   which left the pod permanently un-ready and printed a `BrokenPipeError` traceback per probe
+   that read like a crash.
+
+**Prevention.** When an upstream exposes a pure liveness endpoint and a second one that does work —
+account state, an upstream fetch, a licence check — **reachability must come from the liveness
+endpoint, and the stateful one must be bounded and treated as best effort.** Using a stateful
+endpoint as the liveness test conflates "the service is down" with "the service is slow", and here
+it did that on the one page whose entire job is to say which of the two is true. Corollary for any
+probe handler: a probe has a one-second timeout, so a handler on the probe path must make no network
+calls at all — sample in the background and serve the cache.
+
+**Confidence.** CONFIRMED. `/health` was 0.01 s and `/me` 20 s+ on the same pod and Service before
+the wipe; after it, `/health` 0.01 s and `/me` 0.00 s returning `logged_out`. The sidecar's
+`/healthz` now reports `reachable: true, authState: "logged_out", accountRead: true` in 12 ms.
 
 ## 2026-09-27 — a Deployment that could never create a pod, and nothing on the Deployment said so
 
