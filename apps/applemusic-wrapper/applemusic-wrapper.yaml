@@ -131,9 +131,39 @@ spec:
             # WRAPPER_BASE_DIR (/data/data/com.apple.android.music/files) resolves here. Mounting
             # at that exact path is what keeps the login session across pod restarts.
             - {name: state, mountPath: /app/rootfs/data/data/com.apple.android.music/files}
+            # A resolver INSIDE the chroot. See the initContainer below.
+            - {name: resolv, mountPath: /app/rootfs/etc/resolv.conf, subPath: resolv.conf}
+      # THE CHROOT HAS NO /etc/resolv.conf WITHOUT THIS.
+      #
+      # wrapper chroots into /app/rootfs and bind-mounts exactly two things inside it:
+      # /dev/urandom and /proc (src/launcher/wrapper.c). Upstream's Dockerfile copies only the CA
+      # bundle into that tree, so /app/rootfs/etc/ contains ssl and nothing else - no resolver.
+      # Apple's libraries then make every HTTPS call - the token harvest, the AuthenticateFlow
+      # exchange, the playback dispatch, the FairPlay licence request - with no nameserver
+      # configured inside the chroot. That is why /me answers in milliseconds about one time in
+      # four and blocks past 25 s the rest of the time.
+      #
+      # The copy is done from the main container's own /etc/resolv.conf, which the kubelet writes,
+      # rather than from a ConfigMap naming 10.43.0.10: the ClusterIP of kube-dns is not this
+      # manifest's business, and the search domains and ndots come along for free.
+      initContainers:
+        - name: seed-resolv
+          # The same local image, so nothing has to be pulled. Only the image's own userland is
+          # used here; the Apple libraries are irrelevant to a cp.
+          image: applemusic-wrapper:0.1.0
+          imagePullPolicy: IfNotPresent
+          command: ["cp", "/etc/resolv.conf", "/seed/resolv.conf"]
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: resolv, mountPath: /seed}
       volumes:
         - name: state
           persistentVolumeClaim: {claimName: applemusic-wrapper-state}
+        - name: resolv
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
