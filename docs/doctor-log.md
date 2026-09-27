@@ -84,6 +84,9 @@ the literal string you are seeing, then read the entry.
 | `POST /v1/download HTTP/1.1" 400` from applemusic-decryptor, or an *arr logging only an opaque HTTP 400 | chunked body at a Content-Length-only server — 2026-09-23 |
 | One endpoint on a service answers instantly and another never returns, same pod and port | use the liveness endpoint for liveness — wrapper /health vs /me, 2026-09-27 |
 | A binary that works on the build host and fails inside the image, complaining about a missing bundled library | compile-time path from `runtime.Caller` — 2026-09-27 (Temari cdylib) |
+| A pod resolves a name over HTTP but the app inside it cannot, and the app's own error mentions neither DNS nor the policy | two resolvers in one pod — a chroot with no `/etc/resolv.conf` — 2026-09-27 (applemusic-wrapper) |
+| Every FairPlay key request fails with `Invalid CKC error` and the daemon logs `devtoken: fetch music.apple.com failed` | two resolvers in one pod — 2026-09-27 (applemusic-wrapper) |
+| An edit to `apps/argocd/` is pushed and the cluster does not change | that path is applied by hand, not by ArgoCD — 2026-09-27 |
 | `no bundled cdylib for linux-amd64 (bundled: … linux x86_64 …)` — a listing that contains the platform it says is missing | compile-time path from `runtime.Caller` — 2026-09-27 (Temari cdylib) |
 
 ### The traps that have bitten more than once
@@ -125,6 +128,74 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-27 — a name the pod could reach, that the daemon could not resolve
+
+**Symptom.** The new wrapper-lite daemon refused to decrypt anything in the cluster. Its log at
+startup:
+
+    [WARN ] devtoken: fetch music.apple.com failed
+    [WARN ] missing music/dev token, run --login first
+
+and then, for every track:
+
+    [INFO ] request: GET /m3u8?adamId=...
+    [INFO ] request: GET /key?adamId=...&uri=skd%3A%2F%2Fitunes.apple.com%2F...
+    [ERROR] handler exception: Invalid CKC error.
+
+amdl fetched manifests and lyrics and produced no audio. The identical image, an identical copy of
+the state volume and the identical account session decrypted the same album on the NAS without a
+warning, so the account, the session and the certificates were all fine.
+
+**Root cause.** Apple’s libraries resolve names from **inside the chroot**, and the staged rootfs
+has no `/etc` at all — so there is no `/etc/resolv.conf` and nothing that reads one. They fall back
+to their own built-in public resolver, and this namespace’s egress policy opened UDP/TCP 53 **only
+to kube-system**, for CoreDNS.
+
+Measured, with a UDP DNS probe run from a pod in `applemusic-wrapper`:
+
+    10.43.0.10   OK       0.0s
+    8.8.8.8      TIMEOUT  6.0s
+    1.1.1.1      TIMEOUT  6.0s
+
+That is also why it read as anything but a DNS fault: a plain `https://music.apple.com` GET from
+the same namespace returned 200 in 0.5 s, because python used CoreDNS. **Two resolvers in one pod,
+and only one of them was in the policy.** Each failed lookup costs ~6 s, so the developer-token
+fetch failed after ~11 s and every FairPlay content-key request came back invalid.
+
+**Fix.** Opened UDP/TCP 53 to `0.0.0.0/0` with the RFC1918 ranges excluded, in
+`apps/applemusic-wrapper/networkpolicy.yaml`. The daemon now logs
+`This account supports offline channel` at startup and Lidarr completed real downloads
+(24-bit ALAC, verified with `ffprobe` and `volumedetect`).
+
+**Prevention.** A DNS egress rule that names kube-system covers every **glibc** consumer and no
+other one. Read the policy as "which resolver will this process actually use", not "does the pod
+have DNS", whenever the workload ships its own resolver stack — bionic/Android, a chroot without
+`/etc`, a DoH client. And prove name resolution with a **UDP query from inside the pod**, not with
+an HTTP fetch: a second client in the same pod can use a different resolver and report success.
+
+**Confidence:** CONFIRMED (the fix was verified by a completed Lidarr download, not by the banner).
+
+## 2026-09-27 — a git-tracked manifest that git does not deliver
+
+**Symptom.** `apps/argocd/root-applicationset.yaml` was edited, pushed, and had no effect: the
+ApplicationSet object still carried the previous render, so a `compare-options` change never
+reached any Application and one app stayed stuck at sync status `Unknown`.
+
+**Root cause.** `apps/argocd` is excluded from the ApplicationSet’s own git directory generator
+(`exclude: true`), and no Application manages that path — the ApplicationSet is applied by hand.
+It had also drifted in the other direction: the live template still listed `funkwhale` and
+`jellyfin`, both of which have since been removed from the repo.
+
+**Fix.** `kubectl apply -f apps/argocd/root-applicationset.yaml` from the cluster. Server-side
+apply first fails with a field-manager conflict; client-side `kubectl apply` is what updates it.
+
+**Prevention.** `apps/argocd` is the one directory where pushing to `main` is not a deploy. Any
+change there needs the manual `kubectl apply` in the same sitting, and the live object should be
+diffed against the file before trusting either — the drift here ran the opposite way from the
+edit and would have silently dropped two apps from the opt-out list.
+
+**Confidence:** CONFIRMED.
 
 ## 2026-09-27 — the same binary decrypted on the host and failed in the image
 
