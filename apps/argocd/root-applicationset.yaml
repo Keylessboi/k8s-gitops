@@ -49,11 +49,18 @@ spec:
         # but drift detection and therefore auto-sync stop, so pushes to git
         # silently stop reaching the cluster.
         #
+        # applemusic-wrapper joined 2026-09-27, on a change that only touched a
+        # Service port list and a container's securityContext. The error names
+        # .spec.template.spec.volumes and .spec.template.spec.containers on the
+        # Deployment and .spec.ports on the Service - all of them lists whose
+        # live copies this pod's privileged securityContext lets the API server
+        # default in ways the predicted object cannot reproduce.
+        #
         # Written as a quoted scalar, not a {{- if }} block: this file is a
         # CustomResource that kubectl must parse as YAML before ArgoCD ever
         # templates it, and a bare conditional makes it invalid. Every other app
         # renders an empty string here, which ArgoCD reads as no options.
-        argocd.argoproj.io/compare-options: '{{ if has .path.basename (list "downloads" "vaultwarden" "books" "ghost" "nfs-csi" "metallb" "remux" "prowlarr") }}ServerSideDiff=false{{ end }}'
+        argocd.argoproj.io/compare-options: '{{ if has .path.basename (list "downloads" "vaultwarden" "books" "ghost" "nfs-csi" "metallb" "remux" "prowlarr" "applemusic-wrapper") }}ServerSideDiff=false{{ end }}'
       finalizers:
         - resources-finalizer.argocd.argoproj.io
     spec:
