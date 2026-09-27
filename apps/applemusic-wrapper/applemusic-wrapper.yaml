@@ -104,7 +104,15 @@ spec:
             # The other eight fields are left at upstream's values deliberately. They describe the
             # client the loaded Apple libraries actually are; changing them to look newer would
             # make the claim and the code disagree, which is worse than an old-looking client.
-            - {name: WRAPPER_DEVICE_INFO, value: "Music/4.9/Android/10/Samsung S9/7663313/en-US/en-US/09e23db86b14ae99"}
+            # The first eight fields are the tuple wrapper-lite, the maintained sibling project,
+            # ships as its own example: Music/5.0.2, a Pixel 8, build 7663314. Upstream
+            # wrapper-v2's default still claims Music/4.9 on a Samsung S9, which is the 2020-era
+            # client, and the wrapper-v2 source tree it ships with is built from a 2021 APK - a
+            # stale claim about a client Apple may no longer accept on the auth endpoint.
+            #
+            # Only a claim, not a code change: these nine fields are what the daemon tells Apple
+            # it is, and Apple's servers never see the loaded libraries.
+            - {name: WRAPPER_DEVICE_INFO, value: "Music/5.0.2/Android/10/Pixel 8/7663314/en-US/en-US/09e23db86b14ae99"}
           ports:
             - {name: http, containerPort: 8080}
             - {name: decrypt, containerPort: 10020}
