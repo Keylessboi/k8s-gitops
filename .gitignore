@@ -51,3 +51,6 @@ desktop.ini
 *.bak
 *.orig
 *.rej
+
+# Claude Code per-session state (worktrees are nested git checkouts; never commit them).
+.claude/
