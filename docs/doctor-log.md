@@ -90,6 +90,7 @@ the literal string you are seeing, then read the entry.
 | `no bundled cdylib for linux-amd64 (bundled: … linux x86_64 …)` — a listing that contains the platform it says is missing | compile-time path from `runtime.Caller` — 2026-09-27 (Temari cdylib) |
 | `cp: can't open '/plugin/…': Permission denied` in an initContainer, or an `Init:Error` pod right after an image bump | a 0600 payload built from disk — 2026-09-28 (applemusicarr plugin) |
 | A rebuilt image at the tag you asked for, containing the previous build's files | the build script read a stale bundle; the upload filename did not match — 2026-09-28 |
+| A queue bulk-delete returns `404`/`500` and clears only some items | one stale id aborts the whole batch — 2026-09-28 (Lidarr) |
 
 ### The traps that have bitten more than once
 
@@ -130,6 +131,49 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-28 — the bulk delete that answered 404, deleted one item, and looked like it worked
+
+**Symptom.** Lidarr's queue held ~880 `importFailed` items (all Soulseek — "Has unmatched tracks",
+"Album match is not close enough"), and `DELETE /api/v1/queue/bulk` with 100 ids at a time did not
+clear them. The requests returned a mix of `404` and `500`, the queue fell from 2815 to 2516 while
+the `importFailed` count fell only 878 → 806, and the log was a wall of:
+
+    at Lidarr.Api.V1.Queue.QueueController.GetTrackedDownload(Int32 queueId) ... line 324
+    at Lidarr.Api.V1.Queue.QueueController.RemoveMany(QueueBulkResource resource, ...) ... line 106
+
+**Root cause.** `RemoveMany` resolves **every** id before removing anything, and
+`GetTrackedDownload` calls `_queueService.Find(id)`, which throws `NotFoundException` when the id is
+gone. One stale id in a batch therefore aborts the entire request — the ids gathered a minute
+earlier are stale because the queue mutates under you (`RefreshMonitoredDownloads` runs every
+minute and re-creates tracked downloads). Batches 4–12 were 404s taken in full; the three `500`s
+were the same class, and a single `200` in the middle removed whatever survived. The result is the
+worst shape a cleanup can have: partial success that reports as failure, so the numbers and the
+return codes disagree and neither is trustworthy.
+
+**Fix.** Deleted one id per request — `DELETE /api/v1/queue/{id}?removeFromClient=false&blocklist=false`
+— re-fetching the id list before every round of 200, and accepting that a `404` on one item means
+only that item was already gone.
+
+**What the three flags actually do** (read from `QueueController.Remove`, worth not guessing at,
+because the safe combination is not the intuitive one):
+
+- All false → `_ignoredDownloadService.IgnoreDownload(...)`: the download is recorded in the
+  **ignored** table and does not come back. Nothing is deleted, no client is touched.
+- `removeFromClient=true` (the API **default**) → `downloadClient.RemoveItem(...)` — it asks the
+  client to drop the item, and for Soulseek and torrent clients that path can take the data with it.
+- `blocklist=true` → writes a permanent failed-download record and stops Lidarr re-grabbing it.
+
+So a pure queue cleanup must pass **both** flags explicitly as false; the defaults are destructive.
+
+**Prevention.** Treat a bulk endpoint as all-or-nothing until its code says otherwise, and prefer
+per-item calls with a fresh id list whenever the collection is being written by something else at
+the same time. When a batch API returns `404`, do not re-send the same payload — re-derive the ids.
+And when clearing a queue, decide the three flags deliberately: "remove" and "remove from client"
+are different operations, and only one of them leaves the files alone.
+
+**Confidence:** CONFIRMED (per-item deletes removed the items and they stayed gone across
+`RefreshMonitoredDownloads` cycles).
 
 ## 2026-09-28 — the plugin image whose payload the initContainer was not allowed to read
 
