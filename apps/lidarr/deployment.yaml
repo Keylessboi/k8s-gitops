@@ -38,9 +38,14 @@ spec:
       #
       # The assembly and its plugin.json are copied with cp -f. A stale assembly left beside a new
       # one is loaded in glob order, and that failure looks like the fix not working.
+      # 0.1.2 = 0.1.0 plus `chmod -R a+rX /plugin` in the plugin image. scripts/build.sh writes
+      # plugin.json mode 0600, COPY preserves that, and this initContainer runs as uid 1000 - so on
+      # 0.1.0 `cp` died with "can't open '/plugin/plugin.json': Permission denied" and Lidarr sat
+      # at Init:Error on every restart. Verify any rebuild with
+      # `docker run --rm applemusicarr-plugin:<tag> ls -l /plugin`; plugin.json must not be 0600.
       initContainers:
         - name: install-plugin
-          image: applemusicarr-plugin:0.1.0
+          image: applemusicarr-plugin:0.1.2
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           args:
