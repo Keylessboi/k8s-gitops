@@ -28,6 +28,37 @@ spec:
         kubernetes.io/hostname: nas
       tolerations:
         - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      # THE PLUGIN IS INSTALLED FROM AN IMAGE, NOT BY HAND.
+      #
+      # /config/plugins is PVC state, so a plugin copied into it by hand is invisible to git and
+      # drifts silently from the build in the plugin repo - which is exactly what happened on
+      # 2026-09-27, when two fixes went in by scp and the only record of which build was running
+      # was an md5sum in a shell history. The initContainer copies a pinned plugin image over the
+      # directory on every pod start, so the tag in this file is the truth.
+      #
+      # The assembly and its plugin.json are copied with cp -f. A stale assembly left beside a new
+      # one is loaded in glob order, and that failure looks like the fix not working.
+      initContainers:
+        - name: install-plugin
+          image: applemusicarr-plugin:0.1.0
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - mkdir -p /config/plugins/travis/AppleMusicarr &&
+              cp -f /plugin/Lidarr.Plugin.AppleMusicarr.dll /plugin/plugin.json
+              /config/plugins/travis/AppleMusicarr/
+          securityContext:
+            # PUID/PGID for the main container are 1000:1000, and /config is written by that
+            # user. Root here would leave files the Lidarr process cannot replace on the next
+            # plugin update.
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /config
       containers:
         - name: lidarr
           # Lidarr's `plugins` branch, not master.

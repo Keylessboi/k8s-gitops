@@ -52,8 +52,10 @@ spec:
           # 0.2.0 added the wrapper-v2 backend (WRAPPER_URL) and the Apple ID sign-in page the
           # lidarr Ingress publishes at /applemusic. 0.3.0 replaces the backend with wrapper-lite:
           # it ships amdl (apple-music-dl), switches on LITE_SERVER below, and reports
-          # drm.backend="wrapper-lite (amdl)".
-          image: applemusic-decryptor:0.3.0
+          # drm.backend="wrapper-lite (amdl)". 0.3.1 adds per-tier retries for wrapper-lite's
+          # intermittent "Invalid CKC error" (roughly one key request in sixteen), which
+          # otherwise costs that track the tier.
+          image: applemusic-decryptor:0.3.1
           imagePullPolicy: IfNotPresent
           command: ["python3", "/app/app.py"]
           env:
@@ -64,7 +66,12 @@ spec:
             - {name: PORT, value: "8080"}
             # Pacing is the main behavioural signal Apple could notice, so it is on by default:
             # one album at a time, with a gap between tracks.
-            - {name: JOB_DELAY_SECONDS, value: "5"}
+            # One album at a time, ten seconds between tracks, and up to three attempts at a
+            # tier before the chain moves on (AMDL_ATTEMPTS_PER_TIER in decryptor/amdl_run.py).
+            # The delay is the point of the setting: a backlog draining overnight should look
+            # like a subscriber, not a scraper, and pacing is the main behavioural signal Apple
+            # could act on.
+            - {name: JOB_DELAY_SECONDS, value: "10"}
             - {name: MAX_CONCURRENT, value: "1"}
             # Deliberately off. A proxy changes which address appears in Apple's logs, not who
             # the logs are about; see the note in decryptor/app.py.

@@ -1,0 +1,53 @@
+---
+# Prune AppleMusicarr's replacement safety net.
+#
+# The recycle bin is what makes an Atmos import reversible: Lidarr moves the file it replaces
+# into /data/torrents/.recyclebin instead of deleting it. Lidarr's RecycleBinProvider does have a
+# Cleanup() driven by RecycleBinCleanupDays, but it runs through a command whose scheduling is
+# not visible in the API's task list - so this job exists to make the guarantee explicit rather
+# than dependent on a task that may or may not be registered.
+#
+# Seven days, matching RecycleBinCleanupDays, so the two agree if Lidarr's own cleanup ever does
+# fire. If both run, deleting from an already-empty directory is a no-op.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: recycle-bin-prune
+  namespace: lidarr
+spec:
+  schedule: "23 4 * * *"
+  # A prune that overlaps itself would fight over the same paths; and a stuck run should be
+  # visible rather than piled up.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+        # The bin lives on the media volume, which is the NAS node's local-path PV.
+          nodeSelector:
+            kubernetes.io/hostname: nas
+          tolerations:
+            - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+          restartPolicy: Never
+          containers:
+            - name: prune
+              # busybox is already on this node: the plugin image is built FROM it.
+              image: busybox:1.36
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "-c"]
+              args:
+                - >-
+                  find /data/torrents/.recyclebin -mindepth 1 -mtime +7 -exec rm -rf {} +
+              securityContext:
+                runAsUser: 1000
+                runAsGroup: 1000
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - {name: data, mountPath: /data}
+          volumes:
+            - name: data
+              persistentVolumeClaim: {claimName: media-data-nas}
