@@ -88,6 +88,8 @@ the literal string you are seeing, then read the entry.
 | Every FairPlay key request fails with `Invalid CKC error` and the daemon logs `devtoken: fetch music.apple.com failed` | two resolvers in one pod — 2026-09-27 (applemusic-wrapper) |
 | An edit to `apps/argocd/` is pushed and the cluster does not change | that path is applied by hand, not by ArgoCD — 2026-09-27 |
 | `no bundled cdylib for linux-amd64 (bundled: … linux x86_64 …)` — a listing that contains the platform it says is missing | compile-time path from `runtime.Caller` — 2026-09-27 (Temari cdylib) |
+| `cp: can't open '/plugin/…': Permission denied` in an initContainer, or an `Init:Error` pod right after an image bump | a 0600 payload built from disk — 2026-09-28 (applemusicarr plugin) |
+| A rebuilt image at the tag you asked for, containing the previous build's files | the build script read a stale bundle; the upload filename did not match — 2026-09-28 |
 
 ### The traps that have bitten more than once
 
@@ -128,6 +130,46 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-28 — the plugin image whose payload the initContainer was not allowed to read
+
+**Symptom.** Lidarr went down on a deploy. The Deployment was `Synced` and every other pod in the
+namespace was healthy, but the only Lidarr pod sat at `Init:Error` and backed off:
+
+    cp: can't open '/plugin/plugin.json': Permission denied
+
+The pod had been serving traffic minutes earlier; the commit that broke it added the
+`install-plugin` initContainer and bumped the plugin image.
+
+**Root cause.** `scripts/build.sh` writes `plugin.json` with mode **0600**, and `COPY` preserves
+that mode into the image. The initContainer runs as `runAsUser: 1000` so the files it installs are
+owned by the same uid as the Lidarr process (PUID 1000) — and uid 1000 cannot read a root-owned 0600
+file. `plugin.json` is not optional: the plugin host reads it to load the assembly, so `cp` failing
+is the whole install failing, and the initContainer failing means the pod never starts at all. The
+`.dll` beside it was 0644 and copied fine, which is why the error names only one of the two files.
+
+**Second failure, same incident.** The first rebuild of the image *appeared* to fix nothing: the new
+tag still contained a 0600 `plugin.json`. The upload had landed as `/var/tmp/pluginbundle.tgz`
+while the remote build script untarred `/var/tmp/bundle.tgz` — a **stale bundle from the previous
+build**, still on disk. The build reported success because it built the old context.
+
+**Fix.** Added `RUN chmod -R a+rX /plugin` to `deploy/Dockerfile` in the plugin repo, rebuilt as
+`applemusicarr-plugin:0.1.2`, and verified with
+`docker run --rm applemusicarr-plugin:0.1.2 ls -l /plugin` — `plugin.json` now 0644 — before
+bumping the tag in `apps/lidarr/deployment.yaml`. Lidarr returned to `1/1 Running`.
+
+**Prevention.** Two rules, both about checking the artifact rather than the exit code:
+
+- **An initContainer that copies files must be able to read them.** Any image whose payload is built
+  from files on disk ships whatever mode those files happen to have. When the consumer is a
+  non-root uid, assert the mode in the Dockerfile (`chmod`) *and* prove it by reading the image
+  back (`docker run … ls -l`), because a permission bug is invisible in `docker build` output.
+- **A remote build proves nothing until you see what it read.** When a script and an upload are
+  joined by a filename, a mismatch silently builds the previous context and exits 0. Print the
+  build context (file listing plus the `grep` that proves the fix is present) as the first thing
+  the remote script does, and make the filename the same on both ends with no default.
+
+**Confidence:** CONFIRMED (the rebuilt image was read back at 0644 and Lidarr reached `1/1 Running`).
 
 ## 2026-09-27 — a name the pod could reach, that the daemon could not resolve
 
