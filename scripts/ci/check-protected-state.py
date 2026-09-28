@@ -24,6 +24,17 @@ PROTECTED = {
 REQUIRED = {"Prune=false", "Delete=false"}
 
 
+class Loader(yaml.SafeLoader):
+    """SafeLoader that reads a bare `=` as the string it is.
+
+    YAML 1.1 tags an unquoted `=` as tag:yaml.org,2002:value, which SafeLoader
+    cannot construct, and at least one chart here renders one in its args.
+    """
+
+
+Loader.add_constructor("tag:yaml.org,2002:value", lambda loader, node: loader.construct_scalar(node))
+
+
 def group_of(api_version: str) -> str:
     return api_version.split("/")[0] if "/" in api_version else ""
 
@@ -31,7 +42,7 @@ def group_of(api_version: str) -> str:
 def main() -> int:
     app = sys.argv[1] if len(sys.argv) > 1 else "?"
     bad = 0
-    for doc in yaml.safe_load_all(sys.stdin):
+    for doc in yaml.load_all(sys.stdin, Loader=Loader):
         if not isinstance(doc, dict):
             continue
         key = (group_of(doc.get("apiVersion", "")), doc.get("kind", ""))
