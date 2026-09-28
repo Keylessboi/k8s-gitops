@@ -13,6 +13,14 @@ metadata:
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
+  # Deleting or renaming an apps/* directory removes its Application. Without
+  # this, the resources finalizer below then cascade-deletes everything the
+  # app owned, namespace and PVCs included. With it, the Application goes and
+  # the workload keeps running, orphaned, until a human removes it on purpose.
+  # One renamed directory in an agent's commit must not be a restore from
+  # backup. See ADR-0012.
+  syncPolicy:
+    preserveResourcesOnDeletion: true
   generators:
     - git:
         # Change to your fork of this repo.

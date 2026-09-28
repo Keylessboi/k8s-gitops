@@ -32,10 +32,42 @@ In short:
 - `ssh nas ...`: the storage node and the second k3s node. Its user is
   `travis`, with `doas` rather than `sudo`.
 
+## Secrets: never read a value
+
 Secrets come from Doppler through DopplerSecret objects
-(`apps/doppler/dopplersecrets.yaml`). Never print a secret's value: compare
-hashes or lengths, or work inside the pod, where the credential is already in
-the environment.
+(`apps/doppler/dopplersecrets.yaml`). No agent reads a secret's **value**,
+ever, including "just to check". A value that reaches your output is in a
+transcript on disk and has to be rotated.
+
+| Don't | Do instead |
+|---|---|
+| `kubectl get secret X -o yaml/json/jsonpath` | `secret-meta <ns> <name>` (keys, lengths, sha256 prefix) or `kubectl describe secret` |
+| `env`, `printenv`, `kubectl exec ... -- env` | `test -n "$VAR" && echo set`, or `echo ${#VAR}` for its length |
+| `echo $SOME_PASSWORD`, `base64 -d` | compare lengths or hashes |
+| `doppler secrets` | `doppler secrets --only-names` |
+| `cat` a kubeconfig, SSH key, k3s token or `.env` | use it without reading it (`--kubeconfig`, `ssh -i`) |
+
+Using a credential inside the pod is fine as long as it never gets printed:
+`psql "$DATABASE_URL" -c '...'` yes, `echo $DATABASE_URL` no. If the owner
+needs a value, they run the command themselves.
+
+On the owner's machine a Claude Code hook (`~/.claude/hooks/secret-guard.py`)
+blocks these command shapes. Other harnesses have no such hook, so this table
+is the rule.
+
+## Deleting state takes a human
+
+Every PVC, PV, Namespace and CNPG Cluster carries
+`Prune=false,Delete=false` through `components/protect-state`, and the root
+ApplicationSet preserves resources when an Application is deleted (ADR-0012).
+Removing one from git therefore leaves it running and OutOfSync. That is
+intended. Do not work around it:
+
+- Every `apps/*/kustomization.yaml` includes `../../components/protect-state`.
+  A new app includes it too; CI fails without it.
+- Never remove the annotation, strip the component, or `kubectl delete` a
+  PVC, PV, Namespace, database Cluster or Application yourself. Removing an
+  app from git is fine; the final `kubectl delete` is the owner's.
 
 ## Where things are
 

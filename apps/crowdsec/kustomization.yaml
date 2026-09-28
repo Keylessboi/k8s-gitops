@@ -248,3 +248,8 @@ helmCharts:
               label: "HTTP Bruteforce"
               service: http
               remediation: true
+
+# Prune/Delete protection for PVCs, PVs, Namespaces and CNPG Clusters, so a
+# manifest dropped from git never deletes live data. See ADR-0012.
+components:
+  - ../../components/protect-state
