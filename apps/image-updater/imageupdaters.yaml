@@ -63,7 +63,7 @@ spec:
           writeBackTarget: kustomization:/apps/downloads
       images:
         - alias: qbittorrent
-          imageName: lscr.io/linuxserver/qbittorrent:5.1.2
+          imageName: lscr.io/linuxserver/qbittorrent:5.2.4
           commonUpdateSettings:
             allowTags: 'regexp:^5\.\d+\.\d+$'
           manifestTargets:
@@ -83,14 +83,14 @@ spec:
         # It only began matching when gluetun moved from apps/vpn into this pod.
         - alias: slskd
           # 0.x: minor bumps may break, so this is pinned to the patch stream.
-          imageName: slskd/slskd:0.23.2
+          imageName: slskd/slskd:0.26.0
           commonUpdateSettings:
-            allowTags: 'regexp:^0\.23\.\d+$'
+            allowTags: 'regexp:^0\.26\.\d+$'
           manifestTargets:
             kustomize:
               name: slskd/slskd
         - alias: qui
-          imageName: ghcr.io/autobrr/qui:v1.26.0
+          imageName: ghcr.io/autobrr/qui:v1.30.0
           commonUpdateSettings:
             allowTags: 'regexp:^v1\.\d+\.\d+$'
           manifestTargets:

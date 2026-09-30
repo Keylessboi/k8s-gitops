@@ -59,7 +59,7 @@ spec:
             # simply fail that race. Caught by scripts/ci/check-invariants.py,
             # which exists because this cost three consecutive pg_dump runs.
             - name: wait-for-qbittorrent
-              image: busybox:1.37
+              image: busybox:1.38
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
@@ -81,7 +81,7 @@ spec:
                 limits: {cpu: 100m, memory: 64Mi}
           containers:
             - name: forcestart
-              image: python:3.12-alpine3.20
+              image: python:3.14-alpine3.24
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
