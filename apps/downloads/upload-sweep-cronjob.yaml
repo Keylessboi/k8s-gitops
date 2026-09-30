@@ -47,7 +47,7 @@ spec:
           containers:
             - name: sweep
               # curl + sh + coreutils; the hook needs curl, dd, stat and find.
-              image: alpine:3.20
+              image: alpine:3.24
               command: ["/bin/sh", "-c"]
               args:
                 - |

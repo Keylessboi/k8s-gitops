@@ -78,7 +78,7 @@ spec:
         # and doing it here keeps the secret in a Kubernetes Secret rather than
         # committed to git.
         - name: slskd-config-render
-          image: busybox:1.36
+          image: busybox:1.38
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -189,7 +189,7 @@ spec:
         # Configure qBittorrent's SOCKS5 proxy to route tracker/peer TCP
         # traffic through the shared VPN gateway's Shadowsocks proxy.
         - name: qbit-proxy-config
-          image: busybox:1.36
+          image: busybox:1.38
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -572,7 +572,7 @@ spec:
               memory: 512Mi
         # --- slskd (Soulseek), SOCKS5-routed through the VPN gateway. ---
         - name: slskd
-          image: slskd/slskd:0.23.2
+          image: slskd/slskd:0.26.0
           # slskd/slskd is NOT a linuxserver image, so PUID/PGID do nothing here
           # (that is why qBittorrent uses them and slskd cannot). Run the process
           # as 1000:1000 directly so every file it writes is owned by the same
@@ -629,7 +629,7 @@ spec:
             - name: data
               mountPath: /data
         - name: qbittorrent
-          image: lscr.io/linuxserver/qbittorrent:5.1.2
+          image: lscr.io/linuxserver/qbittorrent:5.2.4
           # The Service's targetPort references this named port. When the
           # gluetun sidecar was removed (4ad7387), the qbit-http port
           # declaration was removed with it, leaving the qbittorrent
