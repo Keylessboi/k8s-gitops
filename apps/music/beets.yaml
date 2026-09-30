@@ -42,7 +42,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: beets
-          image: lscr.io/linuxserver/beets:2.2.0
+          image: lscr.io/linuxserver/beets:2.14.1
           env:
             - name: PUID
               value: "1000"

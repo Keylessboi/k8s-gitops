@@ -94,6 +94,11 @@ data:
         # `beet mbsync` - re-pulls MusicBrainz metadata for items that
         # already have MBIDs. Manual; useful after MB corrections land.
         - mbsync
+        # The MusicBrainz autotagger itself. Since beets 2.4 it is a plugin,
+        # and a customised `plugins:` list (this one) must name it - without
+        # it every quiet import finds no candidates and is skipped, and
+        # mbsync/missing have no metadata source.
+        - musicbrainz
         # `beet missing` - lists incomplete albums. One network call per
         # album when run, none on import. Very relevant to Soulseek grabs,
         # which are routinely missing tracks.
@@ -203,12 +208,14 @@ data:
     musicbrainz:
         # Default is 5. autotag/mb.py match_album() issues one
         # search_releases() and then one album_for_id() per result, so
-        # searchlimit is literally "extra seconds per album": 5 costs 6
+        # search_limit is literally "extra seconds per album": 5 costs 6
         # requests, 3 costs 4. That is a 33% throughput gain on the only
         # resource that is actually scarce here. Raise it back to 5 if too
         # many albums come out unmatched - they are retried on the next run
         # either way.
-        searchlimit: 3
+        # `search_limit`, not the pre-2.4 `searchlimit` (still read, with a
+        # deprecation warning).
+        search_limit: 3
 
     # ------------------------------------------------------------ fetchart
     fetchart:
