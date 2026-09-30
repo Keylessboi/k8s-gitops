@@ -129,6 +129,37 @@ spec:
             - {name: WRAPPER_DEVICE_INFO, value: "Music/4.9/Android/10/Samsung S9/7663313/en-US/en-US/dc28071e981c439e"}
           ports:
             - {name: http, containerPort: 8080}
+          # LIVENESS IS NOT OPTIONAL FOR THIS DAEMON: IT CAN WEDGE WITHOUT DYING.
+          #
+          # 2026-09-29 00:46 -> 2026-09-30 11:05, 34 hours. The process stopped answering
+          # entirely - its last log line was "GET /m3u8?adamId=6771578759" and after that it
+          # logged nothing at all, not even the readiness probes - while the container stayed
+          # Running with RESTARTS 0. With a readinessProbe alone, Kubernetes marks the pod
+          # NotReady and then does *nothing*: no restart, no recovery, and the Service silently
+          # loses its endpoint. Every Apple Music download in that window died with
+          # "wrapper-lite ... is unreachable (URLError: [Errno 111] Connection refused)", which
+          # is what the sidecar reports when a Service has no endpoints at all. Nothing alerted,
+          # so it was found by noticing that no Atmos had landed for days.
+          #
+          # Liveness and readiness answer from the same cheap endpoint and differ only in what
+          # happens when it stops answering. /status is served from the daemon's own
+          # configuration and never consults Apple, so it cannot be slow because of a slow
+          # account call - the only way it fails is a process that is not running its loop.
+          livenessProbe:
+            httpGet: {path: /status, port: 8080}
+            # The Apple library load has to finish before /status answers at all, and the
+            # Deployment is Recreate over a ReadWriteOnce claim, so a restart is not instant.
+            # 90s + 5 x 30s = 240s before the kubelet kills it. That is deliberately longer
+            # than the readiness probe's own 10s + 6 x 20s = 130s grace, so a genuinely slow
+            # cold start fails *readiness* (which only removes it from the Service) well before
+            # it could fail liveness (which restarts it) - the two probes must never disagree
+            # about a pod that is merely still starting.
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            # The trade is one download lost to a mid-decrypt restart, which the sidecar retries,
+            # against every download lost to a permanent wedge: 34 hours, last time.
+            failureThreshold: 5
           readinessProbe:
             # /status, not /health: wrapper-lite has no /health. /status is served from the
             # daemon's own configuration and does not consult Apple, so it is a liveness answer
@@ -137,6 +168,11 @@ spec:
             httpGet: {path: /status, port: 8080}
             initialDelaySeconds: 10
             periodSeconds: 20
+            # 1s was tight enough to be worth widening: the failure that started this entry
+            # surfaced as "context deadline exceeded (Client.Timeout exceeded while awaiting
+            # headers)", i.e. the probe's own timeout, which reads identically whether the daemon
+            # is wedged or merely busy. Give the probe room to tell those apart.
+            timeoutSeconds: 5
             # The Apple library load has to complete before /status answers, and a cold start on
             # this CPU is not fast. The default 3 failures would restart a pod that is working.
             failureThreshold: 6
