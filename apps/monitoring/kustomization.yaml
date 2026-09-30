@@ -40,6 +40,7 @@ resources:
   - smartctl-alerts.yaml
   - temperature-alerts.yaml
   - backup-alerts.yaml
+  - applemusic-alerts.yaml
   - crowdsec-alerts.yaml
   - minio-probe.yaml
   # Probes every published URL, asserting the status code each SHOULD return.
@@ -522,6 +523,18 @@ helmCharts:
               - receiver: "smart-email"
                 matchers:
                   - alertname =~ "MinIO.*"
+                repeat_interval: 4h
+              # The Apple Music download pipeline (applemusic-alerts.yaml); both rules
+              # are named AppleMusic*. This is the "could not discover it yourself"
+              # test again: with the wrapper wedged, Lidarr stays up, the UI loads,
+              # every other indexer keeps working, and the only visible symptom is
+              # that a particular kind of new music never arrives - which is how it
+              # hid for 34 hours. repeat_interval 4h for the same reason as backups:
+              # nothing self-resolves, and every hour without the daemon is an hour
+              # of Apple Music downloads failing.
+              - receiver: "smart-email"
+                matchers:
+                  - alertname =~ "AppleMusic.*"
                 repeat_interval: 4h
 
               # --- Deliberately NOT routed, and why -------------------------

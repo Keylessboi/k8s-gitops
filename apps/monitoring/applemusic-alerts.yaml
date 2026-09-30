@@ -1,0 +1,89 @@
+# Apple Music pipeline alerts.
+#
+# WHY THIS FILE EXISTS. The applemusic-wrapper daemon serves every Apple Music
+# download in this cluster, and on 2026-09-29 00:46 it wedged: the process stayed
+# alive (container Running, RESTARTS 0) but stopped answering entirely, so the
+# Service lost its endpoint and every download failed with "wrapper-lite ...
+# unreachable (URLError: [Errno 111] Connection refused)". It stayed like that for
+# 34 hours. Nothing alerted. It was found because the owner noticed that no Atmos
+# had landed in his library for days - which is exactly the failure mode an alert
+# is supposed to prevent: a broken dependency that breaks nothing you look at.
+#
+# The liveness probe added in apps/applemusic-wrapper now restarts the daemon, so
+# the outage that this alert measures should be ~4 minutes instead of 34 hours. The
+# alert is the backstop for what the liveness probe cannot fix: the probe not
+# firing, the pod never starting, or a restart loop - and it is what tells a human
+# something is wrong when the answer is not "wait for the kubelet".
+#
+# THE METRIC LABEL IS exported_namespace, NOT namespace.
+#
+# This cost real time, so it is written down: on this cluster kube-state-metrics
+# reports the workload's own namespace as 'exported_namespace', while 'namespace'
+# is the namespace KSM itself runs in (monitoring). A query like
+# kube_deployment_status_replicas_ready{namespace="applemusic-wrapper"} returns an
+# EMPTY result and looks exactly like "the metric does not exist", which is how a
+# perfectly correct-looking alert rule ends up firing never. Verified live
+# 2026-09-30: kube_deployment_created carries 34 'exported_namespace' values and a
+# single 'namespace="monitoring"'.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: applemusic-wrapper
+  namespace: monitoring
+  labels:
+    # kube-prometheus-stack's Prometheus selects rules by this label.
+    release: kps
+spec:
+  groups:
+    - name: applemusic-wrapper
+      rules:
+        # The condition that actually happened: the pod is up but not Ready, so
+        # the Service has no endpoint. This is the 34-hour case.
+        #
+        # 10m rather than 5m on purpose. A restart takes about a minute (the pod is
+        # Recreate over a ReadWriteOnce claim and has to load Apple's native
+        # libraries), and the liveness probe only gives up after 240s, so the daemon
+        # is legitimately not-Ready for a few minutes after every recovery.
+        # Alerting on that would page the owner every time the system healed itself.
+        - alert: AppleMusicWrapperNotReady
+          expr: |
+            kube_deployment_status_replicas_ready{
+              exported_namespace="applemusic-wrapper",
+              deployment="applemusic-wrapper"
+            } == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Apple Music wrapper has had no ready replica for 10m - every Apple Music download is failing"
+            description: >-
+              applemusic-wrapper/applemusic-wrapper reports 0 ready replicas. Lidarr's
+              AppleMusicarr download client reaches this daemon at
+              http://applemusic-wrapper.applemusic-wrapper.svc.cluster.local:8080, and with no
+              ready endpoint every grab fails with "wrapper-lite ... unreachable (Connection
+              refused)". The sidecar's own /healthz reports reachable=false. If the container is
+              Running but not Ready it has probably wedged and is waiting for the liveness probe
+              to restart it - check 'kubectl -n applemusic-wrapper logs deploy/applemusic-wrapper'
+              for the last request it served. See docs/doctor-log.md 2026-09-30.
+
+        # The deployment gone entirely (deleted, or its ReplicaSet unable to create
+        # a pod at all - e.g. a PodSecurity rejection, which leaves NO pod object and
+        # therefore no pod-level alert). Without this, a deleted Deployment produces
+        # no series and every rule above silently stops evaluating, which is the
+        # classic way an alerting rule becomes a no-op.
+        - alert: AppleMusicWrapperMissing
+          expr: |
+            absent(kube_deployment_status_replicas_ready{
+              exported_namespace="applemusic-wrapper",
+              deployment="applemusic-wrapper"
+            })
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Apple Music wrapper deployment is missing from kube-state-metrics"
+            description: >-
+              No kube_deployment_status_replicas_ready series exists for
+              applemusic-wrapper/applemusic-wrapper. Either the Deployment is gone or the cluster
+              is not scraping it - both mean no Apple Music download can succeed and that the
+              other rule in this file cannot fire.

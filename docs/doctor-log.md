@@ -91,6 +91,9 @@ the literal string you are seeing, then read the entry.
 | `cp: can't open '/plugin/…': Permission denied` in an initContainer, or an `Init:Error` pod right after an image bump | a 0600 payload built from disk — 2026-09-28 (applemusicarr plugin) |
 | A rebuilt image at the tag you asked for, containing the previous build's files | the build script read a stale bundle; the upload filename did not match — 2026-09-28 |
 | A queue bulk-delete returns `404`/`500` and clears only some items | one stale id aborts the whole batch — 2026-09-28 (Lidarr) |
+| A dependency died and nothing noticed for hours; pod `Running`, `RESTARTS 0`, Service has no endpoints | readiness is not a liveness probe — 2026-09-30 (applemusic-wrapper) |
+| A release is offered, ranks top, and is never grabbed | its quality definition has a `maxSize` the others do not — 2026-09-30 (AAC-VBR/Atmos) |
+| A kube-state-metrics alert rule never fires, and the metric "does not exist" | the label is `exported_namespace`, not `namespace` — 2026-09-30 |
 
 ### The traps that have bitten more than once
 
@@ -132,6 +135,69 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
+## 2026-09-30 — the daemon that died standing up, and the 34 hours nobody noticed
+
+**Symptom.** No Dolby Atmos had arrived in the library for days. Lidarr itself was healthy: pods
+Running, ArgoCD `Synced`, the UI serving - nothing broken you would look at on purpose. The queue
+told the story instead: every Apple Music grab failed a second after it was made:
+
+    RuntimeError: wrapper-lite at http://applemusic-wrapper.applemusic-wrapper.svc.cluster.local:8080
+    is unreachable (URLError: <urlopen error [Errno 111] Connection refused>)
+
+**Root cause.** The `applemusic-wrapper` daemon had wedged at 2026-09-29 00:46 and never
+recovered. Its log's last line was `GET /m3u8?adamId=6771578759`; after that it logged nothing at
+all - not even the readiness probes - while the container stayed **Running with RESTARTS 0** for 34
+hours. The Service therefore had no endpoint, and `Connection refused` is what the sidecar reports
+when a Service has no endpoints.
+
+The Deployment had only a `readinessProbe`. That is the whole bug: readiness decides whether a pod
+receives traffic, and Kubernetes does **nothing else** when it fails. There was no liveness probe to
+restart the process, and no alert to tell anyone.
+
+**Fix.** Two independent things, because either alone leaves a hole:
+
+1. A `livenessProbe` on `/status` (90s initial delay, 30s period, 5 failures = 240s of silence
+   before a restart). `/status` was already the right endpoint for this - it is served from the
+   daemon's own configuration and never consults Apple, so the only way it can fail is a process
+   that has stopped answering. The 240s budget is deliberately longer than the readiness probe's
+   own 130s grace, so the two probes can never disagree about a pod that is merely still starting.
+2. `apps/monitoring/applemusic-alerts.yaml` - `AppleMusicWrapperNotReady` (0 ready replicas for
+   10m) and `AppleMusicWrapperMissing` (`absent()`), routed `AppleMusic.*` -> `smart-email`, which
+   already reaches both ntfy and an inbox.
+
+**Second bug, found while checking why the fix changed nothing.** Even with the daemon answering, an
+Atmos release was still never grabbed. `/api/v1/release?albumId=597` had the honest candidate ranked
+first - `HIT ME HARD AND SOFT [AAC] [VBR] [ATMOS]`, AAC-VBR, format score 30 - marked `rejected: true`:
+
+    263.7 MB is larger than maximum allowed 224.7 MB
+
+The quality definition for **AAC-VBR had `maxSize: 350`**, while **ALAC had `maxSize: null`**. Lidarr
+scales that cap by the album's runtime, so the Atmos tier was size-gated on every album under about
+45 minutes while ALAC could never fail the same check - which is why 1000 consecutive grabs came
+back `[ALAC] [LOSSLESS]` and not one came back `[ATMOS]`. Setting AAC-VBR's `maxSize` to `null`,
+matching ALAC, flips that same release to `rejected: false`.
+
+The reported size is inflated for the same class of reason: every Atmos release reports exactly
+276,480,000 bytes because the album duration always resolves to 2880s (12 x the 240s per-track
+fallback, since Apple's search response carries no track durations). That is a display wart now
+rather than a gate, and belongs fixed in the plugin rather than by loosening Lidarr further.
+
+**Prevention.** A daemon that can hang is a daemon that needs a liveness probe, and *readiness is
+not a substitute* - it moves traffic, it heals nothing, and a pod that is Running with RESTARTS 0
+looks healthy in every dashboard. Ask of each long-running service: if this stops answering without
+exiting, what restarts it, and who is told? If the answer to the first is "nothing", the second
+never happens either.
+
+There is also a gotcha worth carrying for any alert written here: kube-state-metrics on this cluster
+reports the workload's namespace as **`exported_namespace`**, while `namespace` is KSM's own
+namespace. A rule written with `{namespace="applemusic-wrapper"}` matches nothing and looks
+identical to a metric that does not exist. Verify the exact series with a live Prometheus query
+before committing a rule - an alert that can never fire is worse than no alert, because it reads as
+coverage.
+
+**Confidence:** CONFIRMED for the wedge and the liveness fix (the Deployment carries the probe and
+the wrapper is serving). CONFIRMED for the size gate (the release flipped from rejected to accepted
+on that change alone).
 ## 2026-09-28 — the bulk delete that answered 404, deleted one item, and looked like it worked
 
 **Symptom.** Lidarr's queue held ~880 `importFailed` items (all Soulseek — "Has unmatched tracks",
