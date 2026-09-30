@@ -45,7 +45,7 @@ spec:
         # before "fixing" it: rotating the key in Prowlarr's own UI will be
         # reverted on the next restart. Rotate it in Doppler instead.
         - name: seed-apikey
-          image: busybox:1.36.1
+          image: busybox:1.38.0
           command: ["/bin/sh", "-c"]
           env:
             - name: PROWLARR_API_KEY
@@ -105,7 +105,7 @@ spec:
               mountPath: /config
       containers:
         - name: prowlarr
-          image: lscr.io/linuxserver/prowlarr:2.5.2.5491-ls156
+          image: lscr.io/linuxserver/prowlarr:2.6.5.5623-ls162
           env:
             - name: PUID
               value: "1000"

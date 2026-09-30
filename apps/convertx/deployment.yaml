@@ -42,7 +42,7 @@ spec:
       containers:
         - name: convertx
           # Pinned: :latest gives no way to reason about what is running.
-          image: ghcr.io/c4illin/convertx:v0.18.0
+          image: ghcr.io/c4illin/convertx:v0.19.0
           # Deliberately NO runAsNonRoot/runAsUser here. The upstream image has
           # no USER directive: it installs the pipx-based markitdown converter
           # into /root/.local/bin (which is on the image's PATH) and creates

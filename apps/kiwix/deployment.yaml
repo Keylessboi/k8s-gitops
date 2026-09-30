@@ -46,7 +46,7 @@ spec:
       # share; this init container will then leave it alone.
       initContainers:
         - name: seed-zim
-          image: curlimages/curl:8.11.1
+          image: curlimages/curl:8.22.0
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -90,7 +90,7 @@ spec:
       containers:
         - name: kiwix
           # Pinned: :latest gives no way to reason about what is running.
-          image: ghcr.io/kiwix/kiwix-serve:3.7.0
+          image: ghcr.io/kiwix/kiwix-serve:3.8.2
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
