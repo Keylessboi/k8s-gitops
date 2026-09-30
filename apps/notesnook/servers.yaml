@@ -42,7 +42,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: identity-server
-          image: streetwriters/identity:latest@sha256:0441b8cabb7c15436e804458bc766fa3b138f2aaa611224762e813cfcfa87b98
+          image: streetwriters/identity:latest@sha256:e7f6cd9c23678722573617912412a968a66e7b6c8999f45834f15f66be66f6f1
           envFrom:
             - configMapRef:
                 name: notesnook-env
@@ -110,7 +110,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: notesnook-server
-          image: streetwriters/notesnook-sync:latest@sha256:6c0f5e0fc088ad64cf088935411e3494bcb000535d182a693dc2c63ea7bb13b6
+          image: streetwriters/notesnook-sync:latest@sha256:da8e45256dd2a1e2930f0ff347b637bc05b28136b3f2d2b050ffd9dc5e319db4
           envFrom:
             - configMapRef:
                 name: notesnook-env
@@ -192,7 +192,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: sse-server
-          image: streetwriters/sse:latest@sha256:0acdc4c1f1d417ea32411043481b8e98a46cd82690ef4e48280914936481c9ba
+          image: streetwriters/sse:latest@sha256:6e1b52f220107dead2b139503a86366cefb0003a76a975c7c032164b5434d5a4
           envFrom:
             - configMapRef:
                 name: notesnook-env

@@ -43,7 +43,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: mongo
-          image: mongo:7.0.12@sha256:ae1cf99fa7bfb007db8416ad4f3980c46054d949fa55d28e6d301a813fee6c06
+          image: mongo:7.0.43@sha256:9854f7139445d766a9523571d6f047530c45547460ffcf8259eb2bf4264632ca
           args: ["--replSet", "rs0", "--bind_ip_all"]
           ports:
             - name: mongo
