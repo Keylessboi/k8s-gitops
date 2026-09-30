@@ -77,6 +77,7 @@ the literal string you are seeing, then read the entry.
 | Pod stuck ContainerCreating, no events, `unmounted volumes=[…]: context deadline exceeded`, but the volume IS mounted | fsGroup chowning a huge NFS volume — 2026-09-09 (**check `fsGroupChangePolicy`**) |
 | A pod recreated every couple of minutes, Deployment revision in the dozens | ArgoCD vs image-updater — 2026-09-05 (gluetun), 2026-09-09 (navidrome) |
 | An alert that has been firing for days and never clears | scraping something k3s does not expose / probes for deleted apps — 2026-09-09 |
+| Lidarr pod 0/1, log loops `Error starting with plugins enabled` / `Could not load file or assembly` | Lidarr build dropped an assembly a plugin links against — 2026-09-30 (3.1.6) |
 | Lidarr's queue stuck at ~2,500 and never shrinking; qBittorrent at 0 B/s | stalled torrents holding every download slot — 2026-09-21 |
 | A nightly job reports success but the thing it manages never shrinks | truncated fetch window / unreachable rule — 2026-09-21 |
 | Lidarr grabs nothing from a streaming plugin although every search returns releases, with no warnings | disabled delay-profile protocol — 2026-09-23 (applemusicarr) |
@@ -135,6 +136,39 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-30 — Lidarr 3.1.6 would not start: a plugin links against an assembly the build dropped
+
+**Symptom.** Minutes after the image moved `testing-3.1.3.4987` -> `testing-3.1.6.5078` (PR #29, part of
+an "update everything" pass), the new Lidarr pod sat at 0/1 Ready. The log repeated, every few
+seconds, without ever getting further:
+
+    [Info] Bootstrap: Starting Lidarr - /app/bin/Lidarr - Version 3.1.6.5078
+    [Warn] Bootstrap: Error starting with plugins enabled
+    System.IO.FileNotFoundException: Could not load file or assembly
+      'System.Security.Cryptography.ProtectedData, Version=8.0.0.0, ...'
+
+The Deployment had already stopped the old pod, so Lidarr was down.
+
+**Root cause.** A plugin loaded from `/config/plugins` (Tubifarry, or the local applemusicarr
+plugin) is compiled against `System.Security.Cryptography.ProtectedData` 8.0, which the 3.1.3
+build shipped and 3.1.6 no longer does. Lidarr resolves plugin types at bootstrap, before it
+touches the database. A `ReflectionTypeLoadException` there aborts the start, and it retries
+forever. It never reached the DB, so no schema migration ran.
+
+**Fix.** The Lidarr image went back to `testing-3.1.3.4987` (PR #35). The other changes in #29
+stayed: bgutil 2.0.0 (an RCE fix) and the helper images. The image line now carries a comment
+saying why 3.1.6 was refused.
+
+**Prevention.** Lidarr on the plugins channel is plugin-bound: a patch bump of the host can break
+the plugins. Before bumping it, check that each installed plugin has a release built against the
+target Lidarr version, and watch the first boot for `Error starting with plugins enabled`. A Ready
+pod is not enough; plugins are why this deployment exists. The general rule: if an app loads
+third-party code into its own process, the host version is pinned by the plugins, not by the
+host's changelog.
+
+**Confidence:** CONFIRMED for the symptom and for the recovery path (the error comes before any
+DB access). PROBABLE for which plugin it was; the stack trace does not name it.
 
 ## 2026-09-30 — ArgoCD said Synced a third time, and lidarr had applied nothing for two days
 
