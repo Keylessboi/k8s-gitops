@@ -1,20 +1,96 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Renovate is the single updater for this repo (ADR-0013). It opens a PR per update and merges it itself once `validate` is green; ArgoCD then deploys main.",
+    "Before 2026-09-30 it only saw the Helm charts in kustomization.yaml, never merged anything and had majors disabled, so the cluster sat on whatever was pinned when each app was added."
+  ],
   "extends": ["config:recommended"],
   "timezone": "America/New_York",
   "labels": ["renovate"],
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 0,
+  "minimumReleaseAge": "3 days",
+  "internalChecksFilter": "strict",
+  "automerge": true,
+  "automergeType": "pr",
+  "platformAutomerge": false,
+  "automergeSchedule": ["* 0-5 * * *"],
+  "kubernetes": {
+    "managerFilePatterns": ["/^apps/.+\\.ya?ml$/"]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Tags Renovate cannot find on its own (image tags inside Helm valuesInline). Put `# renovate: datasource=docker depName=<image>` on the line above the `tag:`.",
+      "managerFilePatterns": ["/^apps/.+\\.ya?ml$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+versioning=(?<versioning>\\S+))?\\s*\\n\\s*(?:-\\s*)?(?:tag|version|image):\\s*[\"']?(?<currentValue>[^\"'\\s@]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?[\"']?"
+      ]
+    }
+  ],
   "packageRules": [
     {
-      "description": "Major bumps are never automated - the drift audit reviews majors by hand (Nextcloud/kps/Traefik/Authentik class)",
-      "matchUpdateTypes": ["major"],
+      "description": "Built locally or from the owner's own forks - no upstream registry to track",
+      "matchPackageNames": [
+        "applemusic-decryptor",
+        "applemusicarr-plugin",
+        "spatial-sidecar",
+        "wrapper-lite-src",
+        "ghcr.io/keylessboi/**"
+      ],
       "enabled": false
     },
     {
-      "description": "0.x images stay on their minor stream (0.23.2 -> 0.23.x only; minors in 0.x can break)",
-      "matchDatasources": ["docker"],
-      "matchCurrentVersion": "/^v?0\\./",
-      "matchUpdateTypes": ["minor"],
-      "enabled": false
+      "description": "Majors that cannot be applied blindly: one-way data migrations that must step through each version (Nextcloud, Immich) or data-format changes (databases, Mongo, Redis, MinIO). These still get PRs, a human merges them.",
+      "matchUpdateTypes": ["major"],
+      "matchPackageNames": [
+        "nextcloud",
+        "/immich/",
+        "ghcr.io/tensorchord/**",
+        "mongo",
+        "redis",
+        "/minio/"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Postgres image: the PG major is the compatibility prefix and is never changed by Renovate (a PG major is a CNPG upgrade, not a tag bump). Only the VectorChord part moves, and it needs ALTER EXTENSION, so never automerged.",
+      "matchPackageNames": ["ghcr.io/tensorchord/cloudnative-vectorchord"],
+      "versioning": "regex:^(?<compatibility>\\d+)-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
+      "automerge": false
+    },
+    {
+      "matchPackageNames": ["ghcr.io/hotio/lidarr"],
+      "versioning": "regex:^(?<compatibility>testing)-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)\\.(?<build>\\d+)$"
+    },
+    {
+      "matchPackageNames": ["lscr.io/linuxserver/prowlarr"],
+      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)\\.(?<build>\\d+)-ls(?<revision>\\d+)$"
+    },
+    {
+      "matchPackageNames": ["crocodilestick/calibre-web-automated"],
+      "versioning": "regex:^V(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+    },
+    {
+      "matchPackageNames": ["ghcr.io/timshel/oidcwarden"],
+      "versioning": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>\\d+)-(?<compatibility>alpine)$"
+    },
+    {
+      "matchPackageNames": ["/minio/"],
+      "versioning": "regex:^RELEASE\\.(?<major>\\d{4})-(?<minor>\\d{2})-(?<patch>\\d{2})T(?<build>\\d{2})-\\d{2}-\\d{2}Z$"
+    },
+    {
+      "description": "linuxserver still publishes an ancient 20.04.1 tag that sorts above every real release",
+      "matchPackageNames": ["lscr.io/linuxserver/qbittorrent"],
+      "allowedVersions": "<20"
+    },
+    {
+      "matchPackageNames": ["ghcr.io/pelican/panel"],
+      "versioning": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)(?:-(?<prerelease>beta\\d+))?$"
+    },
+    {
+      "matchPackageNames": ["myanonamouse/seedboxapi"],
+      "versioning": "regex:^(?<major>\\d{8})-(?<minor>\\d{4})$"
     }
   ]
 }

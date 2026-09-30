@@ -23,3 +23,4 @@ The **Consequences** section matters most. Particularly the negative ones and th
 | [0007](0007-freeze-the-platform-layer.md) | Freeze the platform layer; spend effort on headroom and checks | Accepted |
 | [0009](0009-databases-on-local-path-not-nfs.md) | Postgres first, local-path if unsupported; NFS never for databases | Accepted |
 | [0011](0011-wings-on-the-nas.md) | Wings runs on the NAS, not the k3s-server node | Accepted |
+| [0013](0013-renovate-owns-updates.md) | Renovate owns every update and merges its own PRs | Accepted |
