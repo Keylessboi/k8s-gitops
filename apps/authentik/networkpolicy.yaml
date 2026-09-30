@@ -109,14 +109,6 @@ spec:
     ports:
     - port: 5432
       protocol: TCP
-  # Single shared Redis.
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: redis
-    ports:
-    - port: 6379
-      protocol: TCP
   - to:
     - namespaceSelector:
         matchLabels:
