@@ -56,7 +56,7 @@ spec:
         # (apps/books/pvc-bookdl-local.yaml) - node-local storage is the kind
         # that can plausibly disappear.
         - name: seed-settings
-          image: busybox:1.36.1
+          image: busybox:1.38.0
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -80,14 +80,12 @@ spec:
               readOnly: true
       containers:
         - name: downloader
-          # v1.3.12, not :latest. A floating tag means the running version
-          # depends on when a node last pulled, so this pod and a
-          # freshly-scheduled replacement can silently differ, git no longer
+          # An explicit release tag, not :latest. A floating tag means the
+          # running version depends on when a node last pulled, so this pod and
+          # a freshly-scheduled replacement can silently differ, git no longer
           # records what is deployed, and a rollback has nothing to roll back
-          # to. v1.3.12 is the tag the running pod was already on - both
-          # :latest and v1.3.12 resolve to
-          # sha256:e22413551ab647388f0279f1d7b7db3ff4a6fe1151337b5b234d3747cc09f5a3
-          # today - so this pins the current behaviour rather than changing it.
+          # to. (v1.3.12 -> v1.4.0 on 2026-09-30; upstream is now "shelfmark"
+          # but still publishes under this image name.)
           #
           # The tag, not the bare digest: this repository publishes both, and
           # a tag is the form ArgoCD Image Updater's semver strategy can read
@@ -96,7 +94,7 @@ spec:
           # readarr is on a nightly channel and calibre's tags are
           # V-prefixed), so nothing is fighting this pin - and a bare digest
           # would have foreclosed that option.
-          image: ghcr.io/calibrain/calibre-web-automated-book-downloader:v1.3.12
+          image: ghcr.io/calibrain/calibre-web-automated-book-downloader:v1.4.0
           env:
             - name: FLASK_PORT
               value: "8084"

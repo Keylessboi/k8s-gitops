@@ -1,7 +1,7 @@
 ---
 # bitmagnet, published behind Authentik.
 #
-# Forward-auth is not optional here: bitmagnet v0.10.0 has NO authentication
+# Forward-auth is not optional here: bitmagnet (v0.10.x) has NO authentication
 # of its own — "Authentication, API keys, access levels" is on upstream's
 # not-yet-implemented list (bitmagnet.io home page), and the Torznab endpoint
 # ignores the apikey parameter entirely. The Authentik gate is the ONLY thing

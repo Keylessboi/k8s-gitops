@@ -133,7 +133,7 @@ spec:
           writeBackTarget: kustomization:/apps/flaresolverr
       images:
         - alias: flaresolverr
-          imageName: ghcr.io/flaresolverr/flaresolverr:v3.5.0
+          imageName: ghcr.io/flaresolverr/flaresolverr:v3.5.2
           commonUpdateSettings:
             allowTags: 'regexp:^v3\.\d+\.\d+$'
           manifestTargets:
@@ -146,7 +146,7 @@ spec:
           writeBackTarget: kustomization:/apps/kiwix
       images:
         - alias: kiwix-serve
-          imageName: ghcr.io/kiwix/kiwix-serve:3.7.0
+          imageName: ghcr.io/kiwix/kiwix-serve:3.8.2
           commonUpdateSettings:
             allowTags: 'regexp:^3\.\d+\.\d+$'
           manifestTargets:
@@ -173,9 +173,9 @@ spec:
       images:
         - alias: convertx
           # 0.x: minor bumps may break, so this is pinned to the patch stream.
-          imageName: ghcr.io/c4illin/convertx:v0.18.0
+          imageName: ghcr.io/c4illin/convertx:v0.19.0
           commonUpdateSettings:
-            allowTags: 'regexp:^v0\.18\.\d+$'
+            allowTags: 'regexp:^v0\.19\.\d+$'
           manifestTargets:
             kustomize:
               name: ghcr.io/c4illin/convertx
