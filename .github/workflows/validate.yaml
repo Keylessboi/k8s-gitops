@@ -300,12 +300,16 @@ jobs:
         run: |
           set -uo pipefail
           rc=0
+          mkdir -p /tmp/rendered
           for dir in apps/*/; do
             name="$(basename "$dir")"
             [ -f "${dir}kustomization.yaml" ] || continue
             # Rendering failures are the kustomize-build job's business; skip
             # quietly here so one root cause does not paint two jobs red.
             out="$(kustomize build --enable-helm "$dir" 2>/dev/null)" || continue
+            # Kept for the protected-state step below, so the charts are
+            # rendered once.
+            printf '%s\n' "$out" > "/tmp/rendered/$name.yaml"
             if ! printf '%s' "$out" \
                  | kubeconform -strict -ignore-missing-schemas \
                      -kubernetes-version "${K8S_VERSION}" \
@@ -313,6 +317,29 @@ jobs:
               echo "::error file=${dir}kustomization.yaml::kubeconform rejected $name"
               rc=1
             fi
+          done
+          exit "$rc"
+
+      # prune: true means a manifest dropped from git deletes the live object.
+      # For PVCs, PVs, Namespaces and CNPG Clusters that is data loss, so each
+      # must carry Prune=false,Delete=false (components/protect-state adds it).
+      # Checked on the rendered output, not the source, because Helm charts
+      # create PVCs the source never names. See ADR-0012.
+      - uses: actions/setup-python@v5
+        if: always()
+        with:
+          python-version: "3.14"
+
+      - name: Stateful objects are protected from prune
+        if: always()
+        run: |
+          set -uo pipefail
+          pip install --disable-pip-version-check -q "PyYAML==6.0.2"
+          rc=0
+          for f in /tmp/rendered/*.yaml; do
+            name="$(basename "$f" .yaml)"
+            [ "$name" = "argocd" ] && continue
+            python3 scripts/ci/check-protected-state.py "$name" < "$f" || rc=1
           done
           exit "$rc"
 
@@ -399,3 +426,49 @@ jobs:
           instead.
           MSG
           exit 1
+
+  # ---------------------------------------------------------------------------
+  # 7. No credential lands in this public repository.
+  #
+  # Agents write most commits here, and an agent that has just been looking at
+  # a failing pod will happily paste the connection string it found into a
+  # manifest or a doctor-log entry. Once pushed, it is public and indexed, and
+  # the only fix is rotation.
+  #
+  # Scans only the commits in this push or PR, so history that predates the
+  # check cannot turn it red from day one. --redact keeps the finding itself
+  # out of the public Actions log.
+  # ---------------------------------------------------------------------------
+  gitleaks:
+    name: no secrets committed
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: "8.21.2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pinned gitleaks
+        run: |
+          set -euo pipefail
+          curl -sSfL -o /tmp/gitleaks.tgz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Scan the new commits
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            range="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            case "$base" in
+              0000000000000000000000000000000000000000|"") range="-1" ;;
+              *) range="$base..${{ github.sha }}" ;;
+            esac
+          fi
+          echo "scanning $range"
+          gitleaks git --redact --no-banner --verbose --log-opts="$range" .

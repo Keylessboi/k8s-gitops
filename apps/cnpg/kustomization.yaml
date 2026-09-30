@@ -61,3 +61,8 @@ helmCharts:
         # "could not find monitoring.coreos.com/PodMonitor". Re-enable once the
         # monitoring stack is up if CNPG metrics are wanted.
         podMonitorEnabled: false
+
+# Prune/Delete protection for PVCs, PVs, Namespaces and CNPG Clusters, so a
+# manifest dropped from git never deletes live data. See ADR-0012.
+components:
+  - ../../components/protect-state
