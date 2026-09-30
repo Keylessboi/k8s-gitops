@@ -24,6 +24,12 @@ spec:
   jobTemplate:
     spec:
       template:
+        metadata:
+          annotations:
+            # This pod makes no network call of any kind - no DNS, no HTTP, no client. It is
+            # busybox find/rm over the mounted media volume, so there is no kube-router race to
+            # lose and a wait-* initContainer would only delay it.
+            homelab/no-wait-init: "find/rm over a local volume; no network call exists to race"
         spec:
         # The bin lives on the media volume, which is the NAS node's local-path PV.
           nodeSelector:

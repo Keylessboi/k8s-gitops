@@ -101,6 +101,24 @@ spec:
             - {name: WRAPPER_URL, value: ""}
           ports:
             - {name: http, containerPort: 8080}
+          # LIVENESS, for the same reason the wrapper has one - see its manifest and
+          # docs/doctor-log.md 2026-09-30. This sidecar is a Python HTTP server that shells out to
+          # amdl, so it can wedge without exiting, and with readiness alone the kubelet would
+          # leave it Running-but-NotReady forever while every Apple Music job stalled.
+          #
+          # /healthz is safe to probe with liveness specifically because it always answers 200:
+          # the wrapper's reachability is reported as DATA (body.drm.wrapper, served from the
+          # sampler's cache) and never as a probe failure. So this probe can only fail for the one
+          # reason a liveness probe should fire - the process has stopped serving its loop - and
+          # not because the wrapper is down, which restarting this pod would not fix.
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            # 30s + 4 x 30s = 150s, comfortably past readiness' own 5s + 3 x 20s = 65s grace, so
+            # the two probes cannot disagree about a pod that is merely still starting.
+            failureThreshold: 4
           readinessProbe:
             httpGet: {path: /healthz, port: 8080}
             initialDelaySeconds: 5

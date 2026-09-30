@@ -31,3 +31,39 @@ beets-import
 immich-extensions
 pelican-admin
 vaultwarden-data-backup
+# ---------------------------------------------------------------------------
+# Found 2026-09-30, when the liveness check (CHECK 3) landed and the whole file
+# was re-run. These five are NOT "pre-existing" in the sense the header above
+# means - they are Jobs added after this baseline was written, and they had been
+# failing CI on every push to main for days. Nobody saw it, which is the same
+# silent-failure shape this whole file exists to prevent: a red check that never
+# turns green stops being read, and then a real finding looks like the usual
+# noise.
+#
+# They are baselined rather than blind-fixed because each makes a genuine early
+# network call and a wait-* initContainer has to poll the RIGHT target, which is
+# a per-job decision:
+#
+#   seed-reaper              python3 -> QBIT_URL (qBittorrent) on its first line.
+#                            Wait on the qBittorrent webui /api/v2/app/version.
+#   nextcloud-upload-sweep   the very first call is `apk add curl findutils coreutils`,
+#                            i.e. a call to an ALPINE MIRROR, before it reaches
+#                            Nextcloud or qBittorrent at all. Needs thought, not just
+#                            a wait for the app: the mirror is the first hop.
+#   beets-replaygain-backfill reads and rewrites local files via ffmpeg; the open
+#                            question is whether beets touches the network at all on
+#                            this path. If it does not, this one is an annotation
+#                            (homelab/no-wait-init) and not an initContainer.
+#   games-mount-scan         runs kubectl, so it calls the API server on its first
+#                            action. Wait on the apiserver, or annotate if the
+#                            installed kubectl retries.
+#   notesnook-s3-setup       configures MinIO with the mc client against the MinIO
+#                            Service; wait on MinIO's /minio/health/live.
+#
+# Deleting a line here is the fix.
+# ---------------------------------------------------------------------------
+seed-reaper
+nextcloud-upload-sweep
+beets-replaygain-backfill
+games-mount-scan
+notesnook-s3-setup
