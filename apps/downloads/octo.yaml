@@ -85,7 +85,7 @@ spec:
         # empty directory so it stays cheap and never becomes the full-library
         # chown that fsGroup would cause.
         - name: config-perms
-          image: busybox:1.36
+          image: busybox:1.38
           command: ["/bin/sh", "-c"]
           args:
             - |
