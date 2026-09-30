@@ -94,6 +94,7 @@ the literal string you are seeing, then read the entry.
 | A dependency died and nothing noticed for hours; pod `Running`, `RESTARTS 0`, Service has no endpoints | readiness is not a liveness probe — 2026-09-30 (applemusic-wrapper) |
 | A release is offered, ranks top, and is never grabbed | its quality definition has a `maxSize` the others do not — 2026-09-30 (AAC-VBR/Atmos) |
 | A kube-state-metrics alert rule never fires, and the metric "does not exist" | the label is `exported_namespace`, not `namespace` — 2026-09-30 |
+| ArgoCD `Synced`, deployed change not live, nothing red, third time | ServerSideDiff silent no-op — check `sync.revision` vs `operationState.finishedAt`; 2026-09-11, 2026-09-30 (lidarr) |
 
 ### The traps that have bitten more than once
 
@@ -134,6 +135,73 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-30 — ArgoCD said Synced a third time, and lidarr had applied nothing for two days
+
+**Symptom.** None. That is the whole point. The `lidarr` Application read `Synced / Healthy` with
+automated `selfHeal` on, and commits pushed to `apps/lidarr` during the day had not reached the
+cluster. Found sideways while checking something else: a `livenessProbe` added to the
+`applemusic-decryptor` Deployment was in the rendered manifest, in the committed file, and absent
+from the live object.
+
+**How it was caught** — the audit 2026-09-11 prescribes, and the reason that entry exists:
+
+    .status.sync.revision            bb5c07de   <- what ArgoCD last COMPARED
+    .status.operationState.finishedAt 2026-09-28T02:26:25Z   <- what it last APPLIED
+
+Two days apart, on an app whose files had changed several times since. A stale `finishedAt` is
+normal on an app nobody touched; it is only a signal when the app's files did change.
+
+**Root cause.** The ServerSideDiff bug class (2026-08-31, 2026-09-11), silent variant. ArgoCD
+cannot build the predicted live object for some Deployments, so the diff fails to see an ADDED
+probe, concludes the app is in sync, and `selfHeal` therefore never fires. The 2026-09-11 entry
+named the fix - add the app to the `ServerSideDiff=false` list in
+`apps/argocd/root-applicationset.yaml` - and `prowlarr` was added then. `lidarr` was not, and
+nothing makes an app join that list except somebody hitting the bug on it.
+
+This is the third occurrence, so per this file's own rule the prevention has to be read as having
+failed rather than as having been forgotten. A per-app opt-out list is not a prevention; it is a
+toll booth that each app pays once.
+
+**Fix.** `lidarr` added to the opt-out list, the ApplicationSet applied by hand (that path is not
+git-deployed - see 2026-09-27), and because a hard refresh is NOT enough here - it re-compares and
+advances `.status.sync.revision` while still applying nothing, which is what made this look
+handled - an explicit sync operation:
+
+    kubectl patch app -n argocd lidarr --type merge \\
+      -p '{"operation":{"initiatedBy":{"username":"agent"},"sync":{"revision":"HEAD","prune":true}}}'
+
+`finishedAt` moved to 2026-09-30T11:53:09Z, the decryptor picked up its probe and rolled, and both
+CronJob annotations landed.
+
+**Prevention, revisited — and a correction to the 2026-09-11 entry.** The 2026-09-11 prevention was
+"verify the OBJECT, not the Application status, after pushing". That is correct, and it is what
+found this - but it depends on somebody remembering, and it failed for two days because nothing was
+watching.
+
+The obvious automation is WRONG, and that is worth writing down before somebody ships it. Comparing
+`sync.revision` against `operationState.syncResult.revision` looks like the audit, but `sync.revision` advances
+to HEAD on every comparison, so it differs from the applied revision for **every app whose files
+were not in the most recent commit**. Checked live: `monitoring` read compared=`b2c2b96` / applied=`7d72ce3` while
+being perfectly healthy, because the commit that moved HEAD touched `apps/argocd` and nothing else. A
+cluster-wide check on that pair would fire on most of the fleet and be ignored within a day, which
+is the failure this file keeps warning about.
+
+The signal that actually means "this app did not apply its own change" needs the app PATH, so it
+needs the checkout - compare what was applied against the last commit that touched that path:
+
+    for app in $(kubectl -n argocd get app -o name); do
+      path=$(kubectl -n argocd get "$app" -o jsonpath='{.spec.source.path}')
+      applied=$(kubectl -n argocd get "$app" -o jsonpath='{.status.operationState.syncResult.revision}')
+      want=$(git log -1 --format=%H -- "$path")
+      [ "$applied" != "$want" ] && echo "$(basename "$app"): applied=${applied:0:7} expected=${want:0:7}"
+    done
+
+An empty `applied` means the app has never synced. Running that across the fleet is the next
+check worth automating; the field pair alone does not give it to you.
+
+**Confidence:** CONFIRMED (the live object changed on the explicit sync and not before; the
+`compare-options` annotation is now `ServerSideDiff=false` on the app).
 
 ## 2026-09-30 — the daemon that died standing up, and the 34 hours nobody noticed
 
