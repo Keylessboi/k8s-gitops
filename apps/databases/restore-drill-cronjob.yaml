@@ -114,7 +114,7 @@ spec:
             # verify step below discover the database list from the dumps
             # themselves instead of carrying a hardcoded copy that drifts.
             - name: fetch
-              image: restic/restic:0.17.3
+              image: restic/restic:0.19.1
               env:
                 - name: RESTIC_REPOSITORY
                   value: s3:http://192.168.1.67:9000/cnpg-backups/restic

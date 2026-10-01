@@ -34,7 +34,12 @@ resources:
   - namespace.yaml
   - monitoring-pvc.yaml
   - networkpolicy.yaml
-  - ingress.yaml
+  # NO GRAFANA INGRESS while grafana.enabled is false. The Ingress outlived
+  # Grafana: it routed grafana.sandstorm.chat to a kps-grafana Service that
+  # no longer existed, so the published URL answered 404 instead of not
+  # existing at all. Restore ingress.yaml from git history (removed
+  # 2026-10-01) in the same commit that sets grafana.enabled back to true,
+  # and re-add the URL to edge-probes.yaml then too.
   - alertmanager-ingress.yaml
   - dashboard-homelab.yaml
   - smartctl-alerts.yaml
@@ -58,9 +63,30 @@ resources:
 
 helmCharts:
   # Stack: Prometheus, Grafana, Alertmanager, node-exporter.
+  #
+  # 75.18.1 -> 91.8.2 on 2026-10-01 (operator v0.83.0 -> v0.94.1, Prometheus
+  # 3.5.0 -> 3.15.0, Alertmanager 0.28.1 -> 0.34.1), read against every
+  # major in the chart's UPGRADE.md. What that took:
+  #
+  #   * CRDs. Nearly every major bumps the operator CRDs. They are applied
+  #     from this render (includeCRDs: true) and land only because the
+  #     ApplicationSet syncs with ServerSideApply=true: prometheuses alone is
+  #     ~840 KiB, far past the 256 KiB last-applied annotation a client-side
+  #     apply would need. Do not turn SSA off for this app.
+  #   * 89 -> 90: the kubelet, apiserver and coredns ServiceMonitors stopped
+  #     reading the pod's own token file. They now authenticate with a
+  #     long-lived service-account-token Secret the chart creates
+  #     (kps-kube-prometheus-stack-prometheus-token) and trust the CA in the
+  #     kube-root-ca.crt ConfigMap - the same CA as the old file.
+  #   * 84 -> 85: Prometheus and node-exporter run the -distroless images.
+  #     There is no shell or wget inside the Prometheus pod any more; query
+  #     it from another pod in this namespace.
+  #   * 90 -> 91: the operator's ClusterRole lost its wildcard verbs.
+  #   * The Grafana-only majors (79, 84, 89) change nothing while
+  #     grafana.enabled is false.
   - name: kube-prometheus-stack
     repo: https://prometheus-community.github.io/helm-charts
-    version: 75.18.1
+    version: 91.8.2
     releaseName: kps
     namespace: monitoring
     includeCRDs: true
@@ -631,16 +657,45 @@ helmCharts:
               cpu: 200m
               memory: 256Mi
   # Loki: log storage. Small single-binary mode.
+  #
+  # THE REPO CHANGED, NOT JUST THE VERSION. On 2026-03-16 the OSS Loki chart
+  # moved out of grafana/helm-charts into grafana-community/helm-charts,
+  # forked at 6.55.0 - the version that was pinned here. `grafana/loki` 7.x
+  # is the Grafana Enterprise Logs chart now and is the wrong successor for
+  # this cluster; anything that offers it as an upgrade is offering GEL.
+  #
+  # 6.55.0 -> 18.13.7 (Loki 3.6.7 -> 3.7.8) on 2026-10-01, through every
+  # major's notes in the chart README. What applied here: SingleBinary is
+  # now spelled Monolithic (12.0), and monitoring.selfMonitoring was removed
+  # (9.0). The StatefulSet's immutable fields - serviceName loki-headless,
+  # selector, the `storage` claim template (local-path, 5Gi) - render
+  # identically, so the live StatefulSet is patched in place, not replaced.
+  # The schema below and the bucket are untouched, so every log written
+  # before the switch stays readable.
+  #
+  # One default changed underfoot: since 18.3.0 the StatefulSet no longer
+  # sets persistentVolumeClaimRetentionPolicy Delete/Delete, so the WAL
+  # claim now survives the StatefulSet being deleted. That is the safer
+  # behaviour and is left at the new default.
   - name: loki
-    repo: https://grafana.github.io/helm-charts
-    version: 6.55.0
+    repo: https://grafana-community.github.io/helm-charts
+    version: 18.13.7
     releaseName: loki
     namespace: monitoring
     includeCRDs: true
     valuesInline:
-      deploymentMode: SingleBinary
+      deploymentMode: Monolithic
       loki:
         auth_enabled: false
+        # The community chart adds abort_if_cluster_join_fails: true to the
+        # memberlist config. With one replica there is no cluster to join -
+        # the only peer loki-memberlist can resolve to is this pod, and that
+        # headless Service publishes no address until the pod is Ready - so
+        # the setting can only add a way for a restart to fail. Kept at the
+        # value 6.55.0 ran with. The rest of the chart's memberlist block is
+        # deep-merged in unchanged.
+        extraMemberlistConfig:
+          abort_if_cluster_join_fails: false
         commonConfig:
           replication_factor: 1
         # Chunks live in MinIO, not on a volume. Loki speaks S3 natively, so
@@ -713,11 +768,6 @@ helmCharts:
       gateway:
         enabled: false
         replicas: 0
-      monitoring:
-        selfMonitoring:
-          enabled: false
-          grafanaAgent:
-            installOperator: false
       lokiCanary:
         enabled: true
         # Point at Loki itself, NOT the gateway. The canary defaults to
@@ -825,9 +875,15 @@ helmCharts:
           cpu: 100m
           memory: 64Mi
   # Alloy: collector agent on every node. Ships to Prometheus and Loki.
+  #
+  # 0.12.6 -> 1.13.0 (Alloy v1.7.5 -> v1.20.0) on 2026-10-01. Chart 1.0.0 was
+  # a version-number change only (backward-compatibility policy from then
+  # on); none of these values were renamed. The River config below was run
+  # through `alloy validate` with the v1.20.0 binary before merging, and no
+  # breaking change between v1.7.5 and v1.20.0 touches a component it uses.
   - name: alloy
     repo: https://grafana.github.io/helm-charts
-    version: 0.12.6
+    version: 1.13.0
     releaseName: alloy
     namespace: monitoring
     includeCRDs: true
@@ -916,6 +972,13 @@ helmCharts:
             }
             logging { level = "warn" }
         # DaemonSet by default. Runs on Pis with tight limits.
+        #
+        # INERT: the chart reads tolerations from controller.tolerations, not
+        # alloy.tolerations, so this list has never reached the pod - which is
+        # why Alloy runs on k3s-server only and not on the NAS (tainted
+        # storage=true:NoSchedule). Moving it would put a second Alloy on the
+        # NAS and ship every Kubernetes Event twice (see the
+        # loki.source.kubernetes_events note above), so it is left as is.
         tolerations:
           - operator: Exists
         resources:
