@@ -90,7 +90,12 @@ helmCharts:
                 # (vchord 0.4.1, pgvecto.rs drop is a no-op), node CPU meets
                 # x86-64-v2, none of the removed env vars are set here, OAuth
                 # issuer is a valid https URL.
-                tag: v3.1.0
+                # v3.2.x checked (3.1.0 -> 3.2.4 in one step, patch releases
+                # within a minor are cumulative): no breaking changes listed,
+                # supported VectorChord range unchanged (>=0.3 <2), no env var
+                # removals. v3.2.3 was never released. The remote ML container
+                # on the backup host must be moved to the same tag.
+                tag: v3.2.4
               env:
                 # Central Postgres, not a per-app cluster.
                 DB_HOSTNAME: app-databases-rw.databases.svc.cluster.local
@@ -183,7 +188,7 @@ helmCharts:
                 image:
                   # Kept in lockstep with the server tag above: Immich requires
                   # server and ML to run the exact same version.
-                  tag: v3.1.0
+                  tag: v3.2.4
                 resources:
                   requests:
                     cpu: 250m
