@@ -42,7 +42,11 @@ spec:
           type: RuntimeDefault
       containers:
         - name: redis
-          image: redis:7.4-alpine
+          # 8.x (2026-10-01). Redis 8's breaking changes are ACL category
+          # membership and built-in modules; this instance uses requirepass
+          # only, no ACL users and no modules. 7.4 cannot read what 8 writes,
+          # so a rollback means restoring /data from the copy taken first.
+          image: redis:8.10.2-alpine
           # requirepass is read from the mounted secret at startup so the
           # password never appears in the pod spec or in `kubectl describe`.
           command:
