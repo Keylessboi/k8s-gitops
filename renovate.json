@@ -82,6 +82,13 @@
       "versioning": "regex:^RELEASE\\.(?<major>\\d{4})-(?<minor>\\d{2})-(?<patch>\\d{2})T(?<build>\\d{2})-\\d{2}-\\d{2}Z$"
     },
     {
+      "description": "grafana/loki 7.x is the Grafana Enterprise Logs chart; the free chart moved to grafana-community/loki (18.x) on 2026-03-16. Moving repos is a hand-made change (PR #49 notes), never a version bump.",
+      "matchDatasources": ["helm"],
+      "matchPackageNames": ["loki"],
+      "matchRegistryUrls": ["https://grafana.github.io/helm-charts"],
+      "allowedVersions": "<7"
+    },
+    {
       "description": "linuxserver still publishes an ancient 20.04.1 tag that sorts above every real release",
       "matchPackageNames": ["lscr.io/linuxserver/qbittorrent"],
       "allowedVersions": "<20"
