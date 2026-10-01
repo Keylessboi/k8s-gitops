@@ -41,6 +41,7 @@ the literal string you are seeing, then read the entry.
 | `many-to-many matching not allowed` on a temperature rule | node-exporter rollout overlap, join without `instance` — 2026-10-01 |
 | `qbittorrent login failed` right after "qbittorrent reachable" | qBittorrent 5.2 login body — 2026-09-30 |
 | `must be owner of function …` during an app migration | DB objects owned by `postgres` after a restore — 2026-09-30 (immich) |
+| Apps months behind upstream, no errors anywhere, Renovate PRs piling up | updates never landing — 2026-09-30 (ADR-0013) |
 | Everything on NFS slow, but disks and network test fine | pool IOPS saturated by seeding — 2026-09-12 |
 | A task or commit says a DNS leak is closed / DoT is on | DoT never landed — 2026-09-14 |
 | CoreDNS config or image did not change after a k3s upgrade | coredns.yaml.skip — 2026-09-14 |
@@ -272,8 +273,8 @@ by a human-readable body string. Bodies are the first thing a major or minor ver
 When bumping qBittorrent, run each of its CronJobs once by hand (`kubectl create job --from=cronjob/…`)
 before calling the bump done.
 
-**Confidence:** PROBABLE. A bad login returning 401 was probed directly. The empty success
-body is inferred: the scripts got a non-error response without `Ok`.
+**Confidence:** CONFIRMED. A bad login returns 401 (probed), and after the fix a hand-run
+`qbit-stalled-reaper` logged in, listed 2,328 torrents and completed.
 ## 2026-09-30 — Immich v3.2.4 crash-looped: its own trigger functions belonged to `postgres`
 
 **Symptom.** After #23 (v3.1.0 → v3.2.4) the new immich-server pod restarted 58 times in 4.5
@@ -376,6 +377,40 @@ host's changelog.
 
 **Confidence:** CONFIRMED for the symptom and for the recovery path (the error comes before any
 DB access). PROBABLE for which plugin it was; the stack trace does not name it.
+## 2026-09-30 — nothing had updated in months, and both updaters reported success
+
+**Symptom.** The owner noticed Immich, Authentik and the rest were not getting updates. Every
+Application was `Synced / Healthy`. Authentik ran 2025.12.4 with 2026.8.3 out, ArgoCD v2.12.3,
+Traefik chart 33 against 41, and most plain-manifest images were on the tag they were added with.
+The Renovate Dependency Dashboard listed six open PRs, the oldest a month old. The Image Updater
+logged `images_considered=8 images_updated=0 errors=0` every ~2 minutes.
+
+**Root cause.** No single fault. Three gaps added up to "nothing moves":
+
+1. Renovate's `kubernetes` manager has no default file patterns, so it never saw the ~60 images in
+   plain Deployments and CronJobs. Tags inside Helm `valuesInline` (Immich, Nextcloud) are invisible
+   to every manager. It only ever tracked the 12 Helm charts in `kustomization.yaml`.
+2. `renovate.json` disabled every major, and Authentik's calendar versioning makes each new year a
+   major, so Authentik was frozen at 2025.x. The PRs Renovate did open had no automerge and nobody
+   merged them.
+3. Image Updater was narrowed, one incident at a time, to 8 images in 6 apps, within their current
+   major, excluding every Helm app. It was working correctly and had nothing it was allowed to do.
+
+**Fix.** Renovate is the single updater (ADR-0013): it scans `apps/**/*.yaml`, reads
+`# renovate:` comments for tags inside Helm values, allows majors, and automerges overnight after
+`validate` passes. It holds back majors only for data-migrating apps (Nextcloud, Immich,
+Postgres, Mongo, Redis, MinIO). The ImageUpdater CR is removed. The catch-up to latest was done by
+hand the same day, one app per PR.
+
+**Prevention.** An updater that reports success is not evidence that anything is current. Judge an
+updater by what it has landed, not by its health: `gh pr list --label renovate --state merged`
+should show merges every week. A dashboard full of open PRs means the pipeline is stalled, not
+working. Any image whose tag Renovate cannot see (the Dependency Dashboard's "Detected
+Dependencies" is the list) is an image that will rot.
+
+**Confidence:** CONFIRMED — the gaps are visible in the old `renovate.json` and the Dependency
+Dashboard, and a local `renovate --platform=local --dry-run=lookup` with the new config detects the
+plain-manifest images and proposes their updates.
 
 ## 2026-09-30 — ArgoCD said Synced a third time, and lidarr had applied nothing for two days
 

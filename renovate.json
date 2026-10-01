@@ -1,30 +1,126 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Renovate is the single updater for this repo (ADR-0013). It opens a PR per update and merges it itself once `validate` is green; ArgoCD then deploys main.",
+    "Before 2026-09-30 it only saw the Helm charts in kustomization.yaml, never merged anything and had majors disabled, so the cluster sat on whatever was pinned when each app was added."
+  ],
   "extends": ["config:recommended"],
   "timezone": "America/New_York",
   "labels": ["renovate"],
-  "packageRules": [
-    {
-      "description": "Major bumps are never automated - the drift audit reviews majors by hand (Nextcloud/kps/Traefik/Authentik class)",
-      "matchUpdateTypes": ["major"],
-      "enabled": false
-    },
-    {
-      "description": "0.x images stay on their minor stream (0.23.2 -> 0.23.x only; minors in 0.x can break)",
-      "matchDatasources": ["docker"],
-      "matchCurrentVersion": "/^v?0\\./",
-      "matchUpdateTypes": ["minor"],
-      "enabled": false
-    }
-  ],
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 0,
+  "minimumReleaseAge": "3 days",
+  "internalChecksFilter": "strict",
+  "automerge": true,
+  "automergeType": "pr",
+  "platformAutomerge": false,
+  "automergeSchedule": ["* 0-5 * * *"],
+  "kubernetes": {
+    "managerFilePatterns": ["/^apps/.+\\.ya?ml$/"]
+  },
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Image tags inside kustomize helmCharts valuesInline, which no built-in manager reads. Opt-in per tag with a `# renovate: datasource=docker depName=<image>` comment on the line directly above `tag:`",
-      "fileMatch": ["^apps/.+\\.ya?ml$"],
+      "description": "Tags Renovate cannot find on its own (image tags inside Helm valuesInline). Put `# renovate: datasource=docker depName=<image>` on the line above the `tag:`.",
+      "managerFilePatterns": ["/^apps/.+\\.ya?ml$/"],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s*\\n\\s*tag:\\s*[\"']?(?<currentValue>[^\"'\\s@]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?[\"']?"
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+versioning=(?<versioning>\\S+))?\\s*\\n\\s*(?:-\\s*)?(?:tag|version|image):\\s*[\"']?(?<currentValue>[^\"'\\s@]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?[\"']?"
       ]
+    },
+    {
+      "customType": "regex",
+      "description": "ArgoCD itself, pinned in the bootstrap script. Merging the PR deploys nothing: someone runs scripts/bootstrap-argocd.sh, and bumps the CI kustomize/helm pins to match.",
+      "managerFilePatterns": ["/^scripts/bootstrap-argocd\\.sh$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s*\\nARGOCD_VERSION=(?<currentValue>v[^\\s\"']+)"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Built locally or from the owner's own forks - no upstream registry to track",
+      "matchPackageNames": [
+        "applemusic-decryptor",
+        "applemusicarr-plugin",
+        "spatial-sidecar",
+        "wrapper-lite-src",
+        "ghcr.io/keylessboi/**"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Majors that cannot be applied blindly: one-way data migrations that must step through each version (Nextcloud, Immich) or data-format changes (databases, Mongo, Redis, MinIO). These still get PRs, a human merges them.",
+      "matchUpdateTypes": ["major"],
+      "matchPackageNames": [
+        "nextcloud",
+        "/immich/",
+        "ghcr.io/tensorchord/**",
+        "mongo",
+        "redis",
+        "/minio/"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Postgres image: the PG major is the compatibility prefix and is never changed by Renovate (a PG major is a CNPG upgrade, not a tag bump). Only the VectorChord part moves, and it needs ALTER EXTENSION, so never automerged.",
+      "matchPackageNames": ["ghcr.io/tensorchord/cloudnative-vectorchord"],
+      "versioning": "regex:^(?<compatibility>\\d+)-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
+      "automerge": false
+    },
+    {
+      "description": "Never automerged: Lidarr's plugins (applemusicarr-plugin, Tubifarry) are built against the .NET runtime a given Lidarr build ships. testing-3.1.6.5078 dropped ProtectedData 8.0.0.0 and crash-looped at startup (doctor-log 2026-09-30). Bump Lidarr together with rebuilt plugins.",
+      "matchPackageNames": ["ghcr.io/hotio/lidarr"],
+      "versioning": "regex:^(?<compatibility>testing)-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)\\.(?<build>\\d+)$",
+      "automerge": false
+    },
+    {
+      "matchPackageNames": ["lscr.io/linuxserver/prowlarr"],
+      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)\\.(?<build>\\d+)-ls(?<revision>\\d+)$"
+    },
+    {
+      "matchPackageNames": ["crocodilestick/calibre-web-automated"],
+      "versioning": "regex:^V(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+    },
+    {
+      "matchPackageNames": ["ghcr.io/timshel/oidcwarden"],
+      "versioning": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>\\d+)-(?<compatibility>alpine)$"
+    },
+    {
+      "matchPackageNames": ["/minio/"],
+      "versioning": "regex:^RELEASE\\.(?<major>\\d{4})-(?<minor>\\d{2})-(?<patch>\\d{2})T(?<build>\\d{2})-\\d{2}-\\d{2}Z$"
+    },
+    {
+      "description": "ArgoCD bumps are never automerged: merging deploys nothing (bootstrap-argocd.sh does), and the CI kustomize/helm pins must move in the same PR.",
+      "matchPackageNames": ["argoproj/argo-cd"],
+      "automerge": false
+    },
+    {
+      "description": "linuxserver still publishes ancient 14.x and 20.04.1 tags that sort above every real qBittorrent release",
+      "matchPackageNames": ["lscr.io/linuxserver/qbittorrent"],
+      "allowedVersions": "<10"
+    },
+    {
+      "description": "kubectl client: stay within the version skew of the cluster (k3s v1.31). Raise this together with a k3s upgrade.",
+      "matchPackageNames": ["alpine/k8s"],
+      "allowedVersions": "<1.32"
+    },
+    {
+      "description": "Mongo changes its on-disk data and feature-compatibility version even on minors (8.0 -> 8.x needs setFeatureCompatibilityVersion); a human merges these.",
+      "matchPackageNames": ["mongo"],
+      "automerge": false
+    },
+    {
+      "description": "Suspended one-shot Jobs. A Job's pod template is immutable, so bumping an image here makes the app's sync fail. Recreate the Job by hand when it is next needed.",
+      "matchFileNames": ["apps/lidarr/mass-search-job.yaml", "apps/music/replaygain-backfill-job.yaml"],
+      "enabled": false
+    },
+    {
+      "matchPackageNames": ["ghcr.io/pelican/panel"],
+      "versioning": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)(?:-(?<prerelease>beta\\d+))?$"
+    },
+    {
+      "matchPackageNames": ["myanonamouse/seedboxapi"],
+      "versioning": "regex:^(?<major>\\d{8})-(?<minor>\\d{4})$"
     }
   ]
 }
