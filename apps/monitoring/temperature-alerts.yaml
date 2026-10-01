@@ -77,7 +77,7 @@ spec:
           expr: >-
             (
               node_hwmon_temp_celsius
-              * on(chip, sensor) group_left(label)
+              * on(instance, chip, sensor) group_left(label)
               node_hwmon_sensor_label{label="Package id 0"}
             ) >= 82 < 90
           for: 15m
@@ -93,7 +93,7 @@ spec:
           expr: >-
             (
               node_hwmon_temp_celsius
-              * on(chip, sensor) group_left(label)
+              * on(instance, chip, sensor) group_left(label)
               node_hwmon_sensor_label{label="Package id 0"}
             ) >= 90
           for: 15m

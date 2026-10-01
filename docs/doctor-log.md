@@ -38,6 +38,7 @@ the literal string you are seeing, then read the entry.
 | ArgoCD says Synced but the object is stale | ServerSideDiff bug — 2026-08-31 |
 | Immich slow to browse, database is fine | thumbnails on NFS — 2026-09-12 |
 | Immich CrashLoopBackOff, `Failed to read .../.immich` | missing marker file after a volume move — 2026-09-12 |
+| `many-to-many matching not allowed` on a temperature rule | node-exporter rollout overlap, join without `instance` — 2026-10-01 |
 | `qbittorrent login failed` right after "qbittorrent reachable" | qBittorrent 5.2 login body — 2026-09-30 |
 | `must be owner of function …` during an app migration | DB objects owned by `postgres` after a restore — 2026-09-30 (immich) |
 | Everything on NFS slow, but disks and network test fine | pool IOPS saturated by seeding — 2026-09-12 |
@@ -143,6 +144,31 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-10-01 — temperature alerts failed to evaluate during a node-exporter rollout
+
+**Symptom.** For about 5 minutes after the kube-prometheus-stack 91.8.2 rollout (#56),
+`TempHostCpuHigh` and `TempHostCpuCritical` were unhealthy rules with
+`many-to-many matching not allowed: matching labels must be unique on one side`.
+
+**Root cause.** Both rules join `node_hwmon_temp_celsius` to `node_hwmon_sensor_label` with
+`on(chip, sensor)`, which leaves `instance` out. When node-exporter rolls, the old and new pods
+both have series inside Prometheus's 5-minute lookback, so each `(chip, sensor)` pair appears
+twice on the label side and the join is ambiguous. The second node would cause the same
+collision if it ever exposed the same chip names.
+
+**Fix.** Join `on(instance, chip, sensor)`, so each exporter's temperatures only match its own
+sensor labels.
+
+**Prevention.** A vector-matching `on(...)` must include every label that identifies the source
+(`instance`, and `job` where several jobs scrape the same thing), not just the labels the two
+metrics happen to share today. Rollouts are now routine (Renovate merges node-exporter bumps
+unattended), so a rule that only works while exactly one copy of each exporter exists will
+break on every update.
+
+**Confidence:** CONFIRMED for the symptom and the cause (the error text names the many-to-many
+join, and it stopped once the old pod's series aged out of the lookback). The fix follows from
+the PromQL matching rules; it hasn't been re-tested against a live rollout.
 
 ## 2026-10-01 — grafana.sandstorm.chat answered 404 after Grafana was turned off
 
