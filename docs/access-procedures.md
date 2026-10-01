@@ -15,7 +15,7 @@
 | Kiwix | https://kiwix.sandstorm.chat | Offline Content |
 | Calibre-Web Automated | https://books.sandstorm.chat | Ebooks (Authentik forward-auth) |
 | qui | https://qui.sandstorm.chat | Torrent management (Authentik forward-auth) |
-| Grafana | https://grafana.sandstorm.chat | Monitoring Dashboards |
+| Grafana | https://grafana.sandstorm.chat (not published while `grafana.enabled: false`) | Monitoring Dashboards |
 
 **Alternative Access**: If DNS is not configured, use kubectl port-forward:
 ```bash
