@@ -22,6 +22,12 @@ metadata:
     app.kubernetes.io/name: argocd-cm
     app.kubernetes.io/part-of: argocd
 data:
+  # ArgoCD 3.0 changed the default from label to annotation tracking, and in
+  # annotation mode an object without the annotation is simply not managed
+  # (no fallback to the label). Pinned so the version upgrade and the tracking
+  # migration are separate, observable changes. Migrate later: set this to
+  # annotation, run the bootstrap, then sync each app once with prune off.
+  application.resourceTrackingMethod: label
   # Long-running Jobs must not gate a sync.
   #
   # ArgoCD's default Job health is "Progressing until it completes". The lidarr
