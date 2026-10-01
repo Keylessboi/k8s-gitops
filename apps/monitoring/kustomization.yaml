@@ -63,9 +63,30 @@ resources:
 
 helmCharts:
   # Stack: Prometheus, Grafana, Alertmanager, node-exporter.
+  #
+  # 75.18.1 -> 91.8.2 on 2026-10-01 (operator v0.83.0 -> v0.94.1, Prometheus
+  # 3.5.0 -> 3.15.0, Alertmanager 0.28.1 -> 0.34.1), read against every
+  # major in the chart's UPGRADE.md. What that took:
+  #
+  #   * CRDs. Nearly every major bumps the operator CRDs. They are applied
+  #     from this render (includeCRDs: true) and land only because the
+  #     ApplicationSet syncs with ServerSideApply=true: prometheuses alone is
+  #     ~840 KiB, far past the 256 KiB last-applied annotation a client-side
+  #     apply would need. Do not turn SSA off for this app.
+  #   * 89 -> 90: the kubelet, apiserver and coredns ServiceMonitors stopped
+  #     reading the pod's own token file. They now authenticate with a
+  #     long-lived service-account-token Secret the chart creates
+  #     (kps-kube-prometheus-stack-prometheus-token) and trust the CA in the
+  #     kube-root-ca.crt ConfigMap - the same CA as the old file.
+  #   * 84 -> 85: Prometheus and node-exporter run the -distroless images.
+  #     There is no shell or wget inside the Prometheus pod any more; query
+  #     it from another pod in this namespace.
+  #   * 90 -> 91: the operator's ClusterRole lost its wildcard verbs.
+  #   * The Grafana-only majors (79, 84, 89) change nothing while
+  #     grafana.enabled is false.
   - name: kube-prometheus-stack
     repo: https://prometheus-community.github.io/helm-charts
-    version: 75.18.1
+    version: 91.8.2
     releaseName: kps
     namespace: monitoring
     includeCRDs: true
