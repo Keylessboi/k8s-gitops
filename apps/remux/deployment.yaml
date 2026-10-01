@@ -64,7 +64,7 @@ spec:
           # moving tags). The ghcr tag drops the "v" prefix. Index digest at
           # pin time:
           #   sha256:f2de64aa9f5601c4bbe94ae2bdf15d49bd99bbb2aed0503d60ac29f33d56622a
-          image: ghcr.io/lostb1t/remux:0.27.0
+          image: ghcr.io/lostb1t/remux:0.35.1
           securityContext:
             # The image has no USER directive (defaults to root); run it as the
             # same arbitrary non-root uid the Jellyfin container uses. It only

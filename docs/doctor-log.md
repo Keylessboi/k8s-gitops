@@ -28,6 +28,7 @@ the literal string you are seeing, then read the entry.
 | `[Unknown Album]` / `[Unknown Artist]` | Navidrome tags — 2026-08-29 |
 | Backups "succeeding" with nothing stored | MinIO zero drives — 2026-08-29 |
 | Everything on the host slow, API server 503 | swap thrash — 2026-08-31 |
+| `connection refused` on 127.0.0.1:6443, k3s restarting, `slow fdatasync` / `leaderelection lost` in its journal | etcd starved of disk I/O by parallel rollouts and pg_dumps — 2026-09-30 |
 | Downloads at ~300 kB/s from anything backed by NFS | NFS readahead — 2026-09-12 |
 | Sequential reads fast locally on the NAS but slow from a pod | NFS readahead — 2026-09-12 |
 | Disk full, or pods evicted for ephemeral storage | disk-pressure churn — 2026-08-31; ganesha.log 26 GB — 2026-08-31; Wings pulls — 2026-08-29 |
@@ -37,6 +38,8 @@ the literal string you are seeing, then read the entry.
 | ArgoCD says Synced but the object is stale | ServerSideDiff bug — 2026-08-31 |
 | Immich slow to browse, database is fine | thumbnails on NFS — 2026-09-12 |
 | Immich CrashLoopBackOff, `Failed to read .../.immich` | missing marker file after a volume move — 2026-09-12 |
+| `qbittorrent login failed` right after "qbittorrent reachable" | qBittorrent 5.2 login body — 2026-09-30 |
+| `must be owner of function …` during an app migration | DB objects owned by `postgres` after a restore — 2026-09-30 (immich) |
 | Apps months behind upstream, no errors anywhere, Renovate PRs piling up | updates never landing — 2026-09-30 (ADR-0013) |
 | Everything on NFS slow, but disks and network test fine | pool IOPS saturated by seeding — 2026-09-12 |
 | A task or commit says a DNS leak is closed / DoT is on | DoT never landed — 2026-09-14 |
@@ -78,6 +81,9 @@ the literal string you are seeing, then read the entry.
 | Pod stuck ContainerCreating, no events, `unmounted volumes=[…]: context deadline exceeded`, but the volume IS mounted | fsGroup chowning a huge NFS volume — 2026-09-09 (**check `fsGroupChangePolicy`**) |
 | A pod recreated every couple of minutes, Deployment revision in the dozens | ArgoCD vs image-updater — 2026-09-05 (gluetun), 2026-09-09 (navidrome) |
 | An alert that has been firing for days and never clears | scraping something k3s does not expose / probes for deleted apps — 2026-09-09 |
+| `ImagePullBackOff` on minio/mc or quay.io/minio/* (`404` / `UNAUTHORIZED`) | MinIO stopped publishing images; the pin lived only in the node cache — 2026-09-30 |
+| k3s restarts with `leaderelection lost`, etcd `apply request took too long`, high iowait during a rollout | concurrent image pulls on k3s-server's disk — 2026-09-30 |
+| Lidarr pod 0/1, log loops `Error starting with plugins enabled` / `Could not load file or assembly` | Lidarr build dropped an assembly a plugin links against — 2026-09-30 (3.1.6) |
 | Lidarr's queue stuck at ~2,500 and never shrinking; qBittorrent at 0 B/s | stalled torrents holding every download slot — 2026-09-21 |
 | A nightly job reports success but the thing it manages never shrinks | truncated fetch window / unreachable rule — 2026-09-21 |
 | Lidarr grabs nothing from a streaming plugin although every search returns releases, with no warnings | disabled delay-profile protocol — 2026-09-23 (applemusicarr) |
@@ -96,6 +102,7 @@ the literal string you are seeing, then read the entry.
 | A release is offered, ranks top, and is never grabbed | its quality definition has a `maxSize` the others do not — 2026-09-30 (AAC-VBR/Atmos) |
 | A kube-state-metrics alert rule never fires, and the metric "does not exist" | the label is `exported_namespace`, not `namespace` — 2026-09-30 |
 | ArgoCD `Synced`, deployed change not live, nothing red, third time | ServerSideDiff silent no-op — check `sync.revision` vs `operationState.finishedAt`; 2026-09-11, 2026-09-30 (lidarr) |
+| A CronJob whose fixed template never runs; `ACTIVE 1`, `LAST SCHEDULE` days ago, an old Job still `Running` in `ImagePullBackOff` | `concurrencyPolicy: Forbid` held by a Job created before the fix — 2026-09-30 (games-mount-scan) |
 
 ### The traps that have bitten more than once
 
@@ -137,6 +144,185 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
+## 2026-09-30 — games-mount-scan never ran for 19 days, after its image had been fixed
+
+**Symptom.** `games-mount-scan` pods in `ImagePullBackOff` on `bitnami/kubectl:1.31.5`,
+although the CronJob in the repo (and in the cluster) had used `alpine/k8s` since 4b79b25 /
+715b4ba. `kubectl get cronjob` showed `ACTIVE 1` and `LAST SCHEDULE 19d`; the Job
+`games-mount-scan-29819520` was 19 days old and still `Running 0/1`.
+
+**Root cause.** That Job was created from the CronJob template *before* the image fix. Fixing a
+CronJob's template does not touch Jobs that already exist, and a Job whose pod can never pull
+its image never fails: it had no `activeDeadlineSeconds`, `backoffLimit` only counts pod
+failures, and a pod in `ImagePullBackOff` has not failed. With `concurrencyPolicy: Forbid`, the
+one stuck Job blocked every later tick, so the corrected template never ran once.
+
+**Fix.** Deleted the stale Job (it is CronJob-owned, not declared anywhere). Added
+`activeDeadlineSeconds: 600` to the job template, moved the image to `alpine/k8s:1.31.13`
+pinned by digest, and the `scratch-perms` initContainer from `busybox:1.36` to
+`busybox:1.38.0` pinned by digest.
+
+**Prevention.** Every CronJob with `concurrencyPolicy: Forbid` needs `activeDeadlineSeconds`
+in its job template, otherwise one unstartable pod disables the CronJob forever. After fixing a
+CronJob's image, delete its existing Jobs and run it once by hand
+(`kubectl create job --from=cronjob/…`); a correct template proves nothing until a Job built
+from it has completed.
+
+**Confidence:** CONFIRMED. The stuck Job's own spec carried the bitnami image and a creation
+time of 2026-09-12, before the fix; the CronJob status showed it as the one active Job.
+
+## 2026-09-30 — k3s restarted itself three times: etcd starved of disk I/O
+
+- **Symptom:** between 19:48 and 19:50 UTC every `kubectl` returned
+  `The connection to the server 127.0.0.1:6443 was refused`, then
+  `ServiceUnavailable: apiserver not ready`. `systemctl show k3s` on CT 200
+  reported `NRestarts=3`; pods across namespaces were recreated afterwards.
+  Workloads already running (authentik, mid-upgrade) kept serving throughout.
+- **Root cause:** etcd could not get its WAL to disk. The k3s journal shows
+  `slow fdatasync took 4.47s` (expected 1s) and `apply request took too long`
+  up to 5s, then the embedded controller-manager's lease renewal timed out,
+  `"leaderelection lost"`, and k3s exits 1; systemd restarts it. Host
+  `/proc/pressure/io` was `full avg60=26` at the time. Several agents were
+  working in parallel: two full pg_dumps of every database (one is a 2.3 GB
+  bitmagnet dump) plus image pulls for several upgrades at once, with
+  containerd writing ~55 MB/s. Each restart recreated pods, which pulled and
+  wrote more, so it repeated until the dumps finished; after that IO pressure
+  fell to single digits and k3s has not restarted since.
+- **Fix:** none applied; it recovered once the concurrent I/O stopped.
+- **Prevention:** etcd shares one disk with Postgres, containerd and Loki, so
+  the cluster's write budget is shared too. Serialise heavy I/O: one
+  `pgdump` Job at a time (check
+  `kubectl -n databases get pods | grep pgdump` first), and do not merge
+  image-bumping PRs while a dump or another rollout is in progress. Check
+  `/proc/pressure/io` on pve before a deploy; above ~10 avg60, wait. Same
+  class as the 2026-08-31 swap thrash and 2026-09-03 lease-renewal restarts.
+- **Confidence:** PROBABLE. The fdatasync latency and the lease loss are in the
+  journal; which writer contributed most was sampled once, not traced.
+
+## 2026-09-30 — every qBittorrent CronJob said "login failed" after the 5.2 bump
+
+**Symptom.** After #28 (qBittorrent 5.1.2 → 5.2.4), `qbit-protected-forcestart`,
+`qbit-stalled-reaper` and `seed-reaper` failed on every run with `qbittorrent login failed`,
+right after `qbittorrent reachable after 1 attempt(s)`. qBittorrent itself, qui and Lidarr were
+fine.
+
+**Root cause.** The scripts treated a login as successful only if the body contained `"Ok"`.
+qBittorrent 5.1 answered `200 Ok.` / `200 Fails.`. 5.2 answers a good login with an empty body
+and a bad one with `401 Unauthorized`, which urllib raises. So a correct password produced an
+empty string, and the scripts exited.
+
+**Fix.** #38: fail only on an explicit `Fails.` (5.1's bad-login body). A 401 still raises, so a
+wrong password still fails loudly.
+
+**Prevention.** Judge an API call by its status and the session it produced (the SID cookie), not
+by a human-readable body string. Bodies are the first thing a major or minor version reshapes.
+When bumping qBittorrent, run each of its CronJobs once by hand (`kubectl create job --from=cronjob/…`)
+before calling the bump done.
+
+**Confidence:** CONFIRMED. A bad login returns 401 (probed), and after the fix a hand-run
+`qbit-stalled-reaper` logged in, listed 2,328 torrents and completed.
+## 2026-09-30 — Immich v3.2.4 crash-looped: its own trigger functions belonged to `postgres`
+
+**Symptom.** After #23 (v3.1.0 → v3.2.4) the new immich-server pod restarted 58 times in 4.5
+hours. The Application went `Degraded`, but Immich stayed up because the rolling update never
+finished and the v3.1.0 pod kept serving. The log, on every start:
+
+    Migration "1787148183729-ClusterGroups" failed
+    PostgresError: must be owner of function person_delete_audit   (code 42501)
+    microservices worker exited with code 1
+
+**Root cause.** In the immich database, 22 of Immich's own functions (`*_delete_audit`,
+`updated_at`, `immich_uuid_v7`, `f_unaccent`, …) and 6 enum types are owned by `postgres`, not
+`immich`. Tables and indexes are correctly owned by `immich`. The most likely origin is the
+2026-09-04 library restore, which replayed the dump as the superuser. v3.1.0's migrations never
+had to `CREATE OR REPLACE` those functions, so it went unnoticed. `ClusterGroups` does, and only
+an owner may replace a function. Kysely runs the batch in one transaction, so it rolled back
+(`kysely_migrations` still 88) and the schema is intact.
+
+**Fix.** Held the image at v3.1.0 (#39) to stop the crash loop. Still to do, pending the owner's
+OK because it writes to the shared Postgres: reassign the non-extension functions (`pg_depend`
+`deptype <> 'e'`) and the enum types in `public` to `immich`, then re-apply v3.2.4. Leave
+extension-owned objects (vector, vchord, cube, earthdistance, and the `sphere_*` composites) on
+`postgres`.
+
+**Prevention.** A restore has to leave ownership exactly as the app created it: restore with
+`--role=<app>` or `--no-owner` as the app user, then check that `pg_proc` / `pg_type` ownership in
+`public` matches the app role for everything outside an extension. An app whose own objects are
+owned by someone else will run fine until the first migration that rewrites one of them.
+
+**Confidence:** CONFIRMED (the error, the ownership query and the unchanged migration count were
+all observed). The restore as the origin is PROBABLE.
+
+## 2026-09-30 — an image wave took k3s down for a minute, and image GC deleted an image nobody can pull again
+
+**Symptom.** Two things happened during an "update everything" pass (PRs #27 and #28). First, at
+19:48-19:50 UTC the API server stopped answering (`connection refused` on :6443). The k3s journal
+showed etcd `apply request took too long` (2-5 s reads of `/registry/health`), `Failed to update
+lock`, then `"leaderelection lost"`, and the k3s process exited and was restarted by systemd. The
+node showed load ~15 and 65% iowait, with `unpigz` near the top of `top`. Second, between 19:51 and
+19:58 the node went to `DiskPressure` (root at 83-84%), and kubelet image GC removed images
+("Removing image to free bytes"). New pods (qBittorrent, qui) sat Pending on the
+disk-pressure taint until GC freed enough.
+
+**Root cause.** Eight Deployments were merged together, plus other agents' upgrades running at the
+same time. All their image pulls and layer extractions hit k3s-server's single disk, which is also
+etcd's disk. Etcd latency rose past leader-election timeouts. The extra layers then pushed the root
+filesystem over the kubelet threshold, and GC evicted unused images.
+
+One of the evicted images could not come back: `minio/mc:RELEASE.2025-04-16T18-13-26Z`, used by
+`vaultwarden-data-backup`. MinIO stopped publishing images: `minio/mc` and `minio/minio` are 404 on
+Docker Hub, and `quay.io/minio/*` refuses anonymous pulls. The pin had been working only from the
+node cache. The 00:20 run on 2026-10-01 sat in `ImagePullBackOff`, and with `concurrencyPolicy:
+Forbid` that also blocked every later run.
+
+**Fix.** The backup moved to `rclone/rclone` with the same secret, bucket and object keys (PR #33).
+Remaining merges were spaced out, one rollout at a time.
+
+**Prevention.**
+- An image that can no longer be pulled is a time bomb, whatever the pin says. When bumping images,
+  check that the CURRENT pin still resolves (`crane digest <ref>`), not only that a newer one
+  exists. Notesnook's `quay.io/minio/minio` and `quay.io/minio/mc` pins are in the same state and
+  live only in the NAS node's cache.
+- k3s-server's disk is etcd's disk. Do not merge several image-changing PRs back to back: wait for
+  each rollout to settle and the load to drop before the next.
+
+**Confidence:** CONFIRMED for the GC eviction (the image is gone from `crictl images` and the
+CronJob pod is in ImagePullBackOff) and for MinIO's registries (404/401 from three registries).
+PROBABLE for the cause of the leader-election loss (iowait and etcd latency at the same moment;
+not reproduced).
+
+## 2026-09-30 — Lidarr 3.1.6 would not start: a plugin links against an assembly the build dropped
+
+**Symptom.** Minutes after the image moved `testing-3.1.3.4987` -> `testing-3.1.6.5078` (PR #29, part of
+an "update everything" pass), the new Lidarr pod sat at 0/1 Ready. The log repeated, every few
+seconds, without ever getting further:
+
+    [Info] Bootstrap: Starting Lidarr - /app/bin/Lidarr - Version 3.1.6.5078
+    [Warn] Bootstrap: Error starting with plugins enabled
+    System.IO.FileNotFoundException: Could not load file or assembly
+      'System.Security.Cryptography.ProtectedData, Version=8.0.0.0, ...'
+
+The Deployment had already stopped the old pod, so Lidarr was down.
+
+**Root cause.** A plugin loaded from `/config/plugins` (Tubifarry, or the local applemusicarr
+plugin) is compiled against `System.Security.Cryptography.ProtectedData` 8.0, which the 3.1.3
+build shipped and 3.1.6 no longer does. Lidarr resolves plugin types at bootstrap, before it
+touches the database. A `ReflectionTypeLoadException` there aborts the start, and it retries
+forever. It never reached the DB, so no schema migration ran.
+
+**Fix.** The Lidarr image went back to `testing-3.1.3.4987` (PR #35). The other changes in #29
+stayed: bgutil 2.0.0 (an RCE fix) and the helper images. The image line now carries a comment
+saying why 3.1.6 was refused.
+
+**Prevention.** Lidarr on the plugins channel is plugin-bound: a patch bump of the host can break
+the plugins. Before bumping it, check that each installed plugin has a release built against the
+target Lidarr version, and watch the first boot for `Error starting with plugins enabled`. A Ready
+pod is not enough; plugins are why this deployment exists. The general rule: if an app loads
+third-party code into its own process, the host version is pinned by the plugins, not by the
+host's changelog.
+
+**Confidence:** CONFIRMED for the symptom and for the recovery path (the error comes before any
+DB access). PROBABLE for which plugin it was; the stack trace does not name it.
 ## 2026-09-30 — nothing had updated in months, and both updaters reported success
 
 **Symptom.** The owner noticed Immich, Authentik and the rest were not getting updates. Every

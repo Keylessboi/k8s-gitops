@@ -90,6 +90,14 @@ helmCharts:
                 # (vchord 0.4.1, pgvecto.rs drop is a no-op), node CPU meets
                 # x86-64-v2, none of the removed env vars are set here, OAuth
                 # issuer is a valid https URL.
+                # HELD at v3.1.0 (2026-09-30). v3.2.4 crash-looped: its
+                # ClusterGroups migration rewrites trigger functions that are
+                # owned by `postgres`, not `immich` (left that way by the
+                # 2026-09-04 restore), and fails with "must be owner of function
+                # person_delete_audit". The migration transaction rolled back,
+                # so the DB is still at v3.1.0's schema. Reassign the immich
+                # DB's non-extension functions and enum types to `immich`, then
+                # re-apply v3.2.4 (see doctor-log 2026-09-30).
                 tag: v3.1.0
               env:
                 # Central Postgres, not a per-app cluster.
