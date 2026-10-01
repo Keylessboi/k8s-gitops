@@ -825,9 +825,15 @@ helmCharts:
           cpu: 100m
           memory: 64Mi
   # Alloy: collector agent on every node. Ships to Prometheus and Loki.
+  #
+  # 0.12.6 -> 1.13.0 (Alloy v1.7.5 -> v1.20.0) on 2026-10-01. Chart 1.0.0 was
+  # a version-number change only (backward-compatibility policy from then
+  # on); none of these values were renamed. The River config below was run
+  # through `alloy validate` with the v1.20.0 binary before merging, and no
+  # breaking change between v1.7.5 and v1.20.0 touches a component it uses.
   - name: alloy
     repo: https://grafana.github.io/helm-charts
-    version: 0.12.6
+    version: 1.13.0
     releaseName: alloy
     namespace: monitoring
     includeCRDs: true
@@ -916,6 +922,13 @@ helmCharts:
             }
             logging { level = "warn" }
         # DaemonSet by default. Runs on Pis with tight limits.
+        #
+        # INERT: the chart reads tolerations from controller.tolerations, not
+        # alloy.tolerations, so this list has never reached the pod - which is
+        # why Alloy runs on k3s-server only and not on the NAS (tainted
+        # storage=true:NoSchedule). Moving it would put a second Alloy on the
+        # NAS and ship every Kubernetes Event twice (see the
+        # loki.source.kubernetes_events note above), so it is left as is.
         tolerations:
           - operator: Exists
         resources:
