@@ -38,6 +38,7 @@ the literal string you are seeing, then read the entry.
 | Immich slow to browse, database is fine | thumbnails on NFS — 2026-09-12 |
 | Immich CrashLoopBackOff, `Failed to read .../.immich` | missing marker file after a volume move — 2026-09-12 |
 | `qbittorrent login failed` right after "qbittorrent reachable" | qBittorrent 5.2 login body — 2026-09-30 |
+| `must be owner of function …` during an app migration | DB objects owned by `postgres` after a restore — 2026-09-30 (immich) |
 | Everything on NFS slow, but disks and network test fine | pool IOPS saturated by seeding — 2026-09-12 |
 | A task or commit says a DNS leak is closed / DoT is on | DoT never landed — 2026-09-14 |
 | CoreDNS config or image did not change after a k3s upgrade | coredns.yaml.skip — 2026-09-14 |
@@ -160,6 +161,37 @@ before calling the bump done.
 
 **Confidence:** PROBABLE. A bad login returning 401 was probed directly. The empty success
 body is inferred: the scripts got a non-error response without `Ok`.
+## 2026-09-30 — Immich v3.2.4 crash-looped: its own trigger functions belonged to `postgres`
+
+**Symptom.** After #23 (v3.1.0 → v3.2.4) the new immich-server pod restarted 58 times in 4.5
+hours. The Application went `Degraded`, but Immich stayed up because the rolling update never
+finished and the v3.1.0 pod kept serving. The log, on every start:
+
+    Migration "1787148183729-ClusterGroups" failed
+    PostgresError: must be owner of function person_delete_audit   (code 42501)
+    microservices worker exited with code 1
+
+**Root cause.** In the immich database, 22 of Immich's own functions (`*_delete_audit`,
+`updated_at`, `immich_uuid_v7`, `f_unaccent`, …) and 6 enum types are owned by `postgres`, not
+`immich`. Tables and indexes are correctly owned by `immich`. The most likely origin is the
+2026-09-04 library restore, which replayed the dump as the superuser. v3.1.0's migrations never
+had to `CREATE OR REPLACE` those functions, so it went unnoticed. `ClusterGroups` does, and only
+an owner may replace a function. Kysely runs the batch in one transaction, so it rolled back
+(`kysely_migrations` still 88) and the schema is intact.
+
+**Fix.** Held the image at v3.1.0 (#39) to stop the crash loop. Still to do, pending the owner's
+OK because it writes to the shared Postgres: reassign the non-extension functions (`pg_depend`
+`deptype <> 'e'`) and the enum types in `public` to `immich`, then re-apply v3.2.4. Leave
+extension-owned objects (vector, vchord, cube, earthdistance, and the `sphere_*` composites) on
+`postgres`.
+
+**Prevention.** A restore has to leave ownership exactly as the app created it: restore with
+`--role=<app>` or `--no-owner` as the app user, then check that `pg_proc` / `pg_type` ownership in
+`public` matches the app role for everything outside an extension. An app whose own objects are
+owned by someone else will run fine until the first migration that rewrites one of them.
+
+**Confidence:** CONFIRMED (the error, the ownership query and the unchanged migration count were
+all observed). The restore as the origin is PROBABLE.
 
 ## 2026-09-30 — Lidarr 3.1.6 would not start: a plugin links against an assembly the build dropped
 
