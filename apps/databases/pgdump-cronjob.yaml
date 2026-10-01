@@ -139,7 +139,7 @@ spec:
               # image has no awk, so the pruning step failed silently with
               # "awk: command not found" while the upload itself succeeded -
               # backups would have accumulated forever.
-              image: restic/restic:0.17.3
+              image: restic/restic:0.19.1
               env:
                 - name: RESTIC_REPOSITORY
                   value: s3:http://192.168.1.67:9000/cnpg-backups/restic
