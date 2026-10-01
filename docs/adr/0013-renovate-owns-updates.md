@@ -42,6 +42,20 @@ Renovate is the only updater, configured in `renovate.json`:
   PRs, and a person merges them.
 - The Postgres image keeps its PG major as a fixed prefix. A PG major is a CNPG
   major upgrade, never a tag bump.
+- Never automerged at all, and merged by a person:
+  - **Lidarr:** its plugins are built against the .NET runtime each build
+    ships, and testing-3.1.6 crash-looped on that.
+  - **Mongo:** even its minors change the feature-compatibility version.
+  - **ArgoCD:** pinned in `scripts/bootstrap-argocd.sh`. Merging deploys
+    nothing until the script runs, and the CI kustomize/helm pins must move
+    with it.
+- Version caps:
+  - `alpine/k8s` (kubectl) stays below the cluster's minor + 1. Raise it with
+    a k3s upgrade.
+  - qBittorrent ignores linuxserver's ancient 14.x and 20.04.1 tags.
+- The suspended one-shot Jobs (lidarr mass-search, beets replaygain-backfill)
+  are excluded. A Job's pod template is immutable, so a bump would fail the
+  app's sync.
 - Locally built images and the owner's `ghcr.io/keylessboi/*` fork builds are
   ignored.
 
