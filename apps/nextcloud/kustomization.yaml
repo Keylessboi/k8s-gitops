@@ -42,7 +42,7 @@ resources:
 helmCharts:
   - name: nextcloud
     repo: https://nextcloud.github.io/helm/
-    version: 9.3.0
+    version: 9.4.0
     releaseName: nextcloud
     namespace: nextcloud
     valuesInline:
@@ -59,7 +59,7 @@ helmCharts:
         # two upstream majors would leave the instance unable to upgrade.
         # Step majors one at a time (N -> N+1), each verified before the next.
         # renovate: datasource=docker depName=nextcloud
-        tag: 34.0.4-apache
+        tag: 35.0.1-apache
       nextcloud:
         host: nextcloud.sandstorm.chat
         # TLS terminates at Traefik, so Nextcloud only ever sees plain HTTP and
