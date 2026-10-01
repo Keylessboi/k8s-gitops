@@ -96,7 +96,7 @@ spec:
             fsGroupChangePolicy: OnRootMismatch
           containers:
             - name: import
-              image: lscr.io/linuxserver/beets:2.2.0
+              image: lscr.io/linuxserver/beets:2.14.1
               command:
                 - /lsiopy/bin/beet
                 - import
