@@ -15,7 +15,7 @@ All of these sit behind Traefik with a Let's Encrypt certificate, and every one 
 | `navidrome.sandstorm.chat` | Music streaming | Navidrome account |
 | `remux.sandstorm.chat` | Remux — Jellyfin-compatible media server (Stremio addons + local files + built-in torrent streaming), deployed in parallel with Jellyfin during owner validation; all egress tunnels through AirVPN | Authentik, then Remux (`admin`, password in Doppler `REMUX_ADMIN_PASSWORD`) |
 | `kiwix.sandstorm.chat` | Offline Wikipedia and other archives | none |
-| `grafana.sandstorm.chat` | Dashboards and metrics | Grafana account |
+| `grafana.sandstorm.chat` | Dashboards and metrics. **Not published while Grafana is disabled** (`grafana.enabled: false` in apps/monitoring; Ingress removed 2026-10-01) | Grafana account |
 | `books.sandstorm.chat` | Calibre-Web Automated — read and manage the library | Authentik, then CWA |
 | `bookdl.sandstorm.chat` | Anna's Archive downloader — the non-P2P book path | Authentik |
 | `lidarr.sandstorm.chat` | Music acquisition | Authentik, then Lidarr |

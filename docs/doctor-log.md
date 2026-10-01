@@ -102,6 +102,7 @@ the literal string you are seeing, then read the entry.
 | A kube-state-metrics alert rule never fires, and the metric "does not exist" | the label is `exported_namespace`, not `namespace` — 2026-09-30 |
 | ArgoCD `Synced`, deployed change not live, nothing red, third time | ServerSideDiff silent no-op — check `sync.revision` vs `operationState.finishedAt`; 2026-09-11, 2026-09-30 (lidarr) |
 | A CronJob whose fixed template never runs; `ACTIVE 1`, `LAST SCHEDULE` days ago, an old Job still `Running` in `ImagePullBackOff` | `concurrencyPolicy: Forbid` held by a Job created before the fix — 2026-09-30 (games-mount-scan) |
+| A published host answers `404` from Traefik; its Ingress is there but the backend Service is `NotFound` | component disabled, hand-written Ingress left behind — 2026-10-01 (grafana) |
 
 ### The traps that have bitten more than once
 
@@ -142,6 +143,33 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-10-01 — grafana.sandstorm.chat answered 404 after Grafana was turned off
+
+**Symptom.** `https://grafana.sandstorm.chat` returned Traefik's `404 page not found`. The
+`grafana` Ingress in `monitoring` was present and admitted, and its `grafana-tls` certificate was
+Ready. `kubectl -n monitoring get svc kps-grafana` returned `NotFound`.
+
+**Root cause.** `grafana.enabled: false` in the kube-prometheus-stack values (set on purpose, to
+reclaim memory) removed the chart's Deployment and Service. `ingress.yaml` is a hand-written
+resource outside the chart, so it stayed, routing the host to a Service that no longer existed.
+Traefik answers a route with no backend with a 404, which looks like a broken app rather than
+an app that was turned off. `edge-probes.yaml` had already dropped the URL with a note, so no
+probe alerted on it.
+
+**Fix.** Removed `apps/monitoring/ingress.yaml` and its `resources:` entry, leaving a comment on how
+to restore it. ArgoCD prunes the Ingress, and cert-manager's owner reference removes the
+Certificate with it. Marked the URL as unpublished in `docs/RUNDOWN.md` and
+`docs/access-procedures.md`. The `grafana.sandstorm.chat` line in `apps/coredns/coredns-custom.yaml`
+is left alone; it only resolves the name.
+
+**Prevention.** Turning a chart component off does not remove the resources written by hand that
+point at it: Ingresses, probes, DNS entries, NetworkPolicy rules. Grep the repo for the
+component's Service and host name, and disable those in the same commit. They are restored
+together when the component is turned back on.
+
+**Confidence:** CONFIRMED. The Ingress backend `kps-grafana` was `NotFound` live, and no other
+Ingress or IngressRoute claims the host.
 
 ## 2026-09-30 — games-mount-scan never ran for 19 days, after its image had been fixed
 

@@ -34,7 +34,12 @@ resources:
   - namespace.yaml
   - monitoring-pvc.yaml
   - networkpolicy.yaml
-  - ingress.yaml
+  # NO GRAFANA INGRESS while grafana.enabled is false. The Ingress outlived
+  # Grafana: it routed grafana.sandstorm.chat to a kps-grafana Service that
+  # no longer existed, so the published URL answered 404 instead of not
+  # existing at all. Restore ingress.yaml from git history (removed
+  # 2026-10-01) in the same commit that sets grafana.enabled back to true,
+  # and re-add the URL to edge-probes.yaml then too.
   - alertmanager-ingress.yaml
   - dashboard-homelab.yaml
   - smartctl-alerts.yaml
