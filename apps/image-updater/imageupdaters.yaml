@@ -159,7 +159,7 @@ spec:
           writeBackTarget: kustomization:/apps/music
       images:
         - alias: beets
-          imageName: lscr.io/linuxserver/beets:2.2.0
+          imageName: lscr.io/linuxserver/beets:2.14.1
           commonUpdateSettings:
             allowTags: 'regexp:^2\.\d+\.\d+$'
           manifestTargets:
