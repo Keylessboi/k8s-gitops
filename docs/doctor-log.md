@@ -80,6 +80,8 @@ the literal string you are seeing, then read the entry.
 | Pod stuck ContainerCreating, no events, `unmounted volumes=[…]: context deadline exceeded`, but the volume IS mounted | fsGroup chowning a huge NFS volume — 2026-09-09 (**check `fsGroupChangePolicy`**) |
 | A pod recreated every couple of minutes, Deployment revision in the dozens | ArgoCD vs image-updater — 2026-09-05 (gluetun), 2026-09-09 (navidrome) |
 | An alert that has been firing for days and never clears | scraping something k3s does not expose / probes for deleted apps — 2026-09-09 |
+| `ImagePullBackOff` on minio/mc or quay.io/minio/* (`404` / `UNAUTHORIZED`) | MinIO stopped publishing images; the pin lived only in the node cache — 2026-09-30 |
+| k3s restarts with `leaderelection lost`, etcd `apply request took too long`, high iowait during a rollout | concurrent image pulls on k3s-server's disk — 2026-09-30 |
 | Lidarr pod 0/1, log loops `Error starting with plugins enabled` / `Could not load file or assembly` | Lidarr build dropped an assembly a plugin links against — 2026-09-30 (3.1.6) |
 | Lidarr's queue stuck at ~2,500 and never shrinking; qBittorrent at 0 B/s | stalled torrents holding every download slot — 2026-09-21 |
 | A nightly job reports success but the thing it manages never shrinks | truncated fetch window / unreachable rule — 2026-09-21 |
@@ -221,6 +223,44 @@ owned by someone else will run fine until the first migration that rewrites one 
 
 **Confidence:** CONFIRMED (the error, the ownership query and the unchanged migration count were
 all observed). The restore as the origin is PROBABLE.
+
+## 2026-09-30 — an image wave took k3s down for a minute, and image GC deleted an image nobody can pull again
+
+**Symptom.** Two things happened during an "update everything" pass (PRs #27 and #28). First, at
+19:48-19:50 UTC the API server stopped answering (`connection refused` on :6443). The k3s journal
+showed etcd `apply request took too long` (2-5 s reads of `/registry/health`), `Failed to update
+lock`, then `"leaderelection lost"`, and the k3s process exited and was restarted by systemd. The
+node showed load ~15 and 65% iowait, with `unpigz` near the top of `top`. Second, between 19:51 and
+19:58 the node went to `DiskPressure` (root at 83-84%), and kubelet image GC removed images
+("Removing image to free bytes"). New pods (qBittorrent, qui) sat Pending on the
+disk-pressure taint until GC freed enough.
+
+**Root cause.** Eight Deployments were merged together, plus other agents' upgrades running at the
+same time. All their image pulls and layer extractions hit k3s-server's single disk, which is also
+etcd's disk. Etcd latency rose past leader-election timeouts. The extra layers then pushed the root
+filesystem over the kubelet threshold, and GC evicted unused images.
+
+One of the evicted images could not come back: `minio/mc:RELEASE.2025-04-16T18-13-26Z`, used by
+`vaultwarden-data-backup`. MinIO stopped publishing images: `minio/mc` and `minio/minio` are 404 on
+Docker Hub, and `quay.io/minio/*` refuses anonymous pulls. The pin had been working only from the
+node cache. The 00:20 run on 2026-10-01 sat in `ImagePullBackOff`, and with `concurrencyPolicy:
+Forbid` that also blocked every later run.
+
+**Fix.** The backup moved to `rclone/rclone` with the same secret, bucket and object keys (PR #33).
+Remaining merges were spaced out, one rollout at a time.
+
+**Prevention.**
+- An image that can no longer be pulled is a time bomb, whatever the pin says. When bumping images,
+  check that the CURRENT pin still resolves (`crane digest <ref>`), not only that a newer one
+  exists. Notesnook's `quay.io/minio/minio` and `quay.io/minio/mc` pins are in the same state and
+  live only in the NAS node's cache.
+- k3s-server's disk is etcd's disk. Do not merge several image-changing PRs back to back: wait for
+  each rollout to settle and the load to drop before the next.
+
+**Confidence:** CONFIRMED for the GC eviction (the image is gone from `crictl images` and the
+CronJob pod is in ImagePullBackOff) and for MinIO's registries (404/401 from three registries).
+PROBABLE for the cause of the leader-election loss (iowait and etcd latency at the same moment;
+not reproduced).
 
 ## 2026-09-30 — Lidarr 3.1.6 would not start: a plugin links against an assembly the build dropped
 
