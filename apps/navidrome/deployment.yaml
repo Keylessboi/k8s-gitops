@@ -64,7 +64,7 @@ spec:
           # /data/navidrome.db.pre-0.63-upgrade (taken 2026-09-03, 79.5 MB) over
           # /data/navidrome.db. Navidrome is SQLite-only, so it is the one
           # documented exception to the Postgres rule in CONTRIBUTING.md.
-          image: deluan/navidrome:0.63.2
+          image: deluan/navidrome:0.64.2
           env:
             - name: ND_LOGLEVEL
               value: info
