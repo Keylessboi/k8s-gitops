@@ -101,6 +101,7 @@ the literal string you are seeing, then read the entry.
 | A release is offered, ranks top, and is never grabbed | its quality definition has a `maxSize` the others do not — 2026-09-30 (AAC-VBR/Atmos) |
 | A kube-state-metrics alert rule never fires, and the metric "does not exist" | the label is `exported_namespace`, not `namespace` — 2026-09-30 |
 | ArgoCD `Synced`, deployed change not live, nothing red, third time | ServerSideDiff silent no-op — check `sync.revision` vs `operationState.finishedAt`; 2026-09-11, 2026-09-30 (lidarr) |
+| A CronJob whose fixed template never runs; `ACTIVE 1`, `LAST SCHEDULE` days ago, an old Job still `Running` in `ImagePullBackOff` | `concurrencyPolicy: Forbid` held by a Job created before the fix — 2026-09-30 (games-mount-scan) |
 
 ### The traps that have bitten more than once
 
@@ -141,6 +142,33 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-30 — games-mount-scan never ran for 19 days, after its image had been fixed
+
+**Symptom.** `games-mount-scan` pods in `ImagePullBackOff` on `bitnami/kubectl:1.31.5`,
+although the CronJob in the repo (and in the cluster) had used `alpine/k8s` since 4b79b25 /
+715b4ba. `kubectl get cronjob` showed `ACTIVE 1` and `LAST SCHEDULE 19d`; the Job
+`games-mount-scan-29819520` was 19 days old and still `Running 0/1`.
+
+**Root cause.** That Job was created from the CronJob template *before* the image fix. Fixing a
+CronJob's template does not touch Jobs that already exist, and a Job whose pod can never pull
+its image never fails: it had no `activeDeadlineSeconds`, `backoffLimit` only counts pod
+failures, and a pod in `ImagePullBackOff` has not failed. With `concurrencyPolicy: Forbid`, the
+one stuck Job blocked every later tick, so the corrected template never ran once.
+
+**Fix.** Deleted the stale Job (it is CronJob-owned, not declared anywhere). Added
+`activeDeadlineSeconds: 600` to the job template, moved the image to `alpine/k8s:1.31.13`
+pinned by digest, and the `scratch-perms` initContainer from `busybox:1.36` to
+`busybox:1.38.0` pinned by digest.
+
+**Prevention.** Every CronJob with `concurrencyPolicy: Forbid` needs `activeDeadlineSeconds`
+in its job template, otherwise one unstartable pod disables the CronJob forever. After fixing a
+CronJob's image, delete its existing Jobs and run it once by hand
+(`kubectl create job --from=cronjob/…`); a correct template proves nothing until a Job built
+from it has completed.
+
+**Confidence:** CONFIRMED. The stuck Job's own spec carried the bitnami image and a creation
+time of 2026-09-12, before the fix; the CronJob status showed it as the one active Job.
 
 ## 2026-09-30 — k3s restarted itself three times: etcd starved of disk I/O
 

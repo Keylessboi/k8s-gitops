@@ -16,5 +16,15 @@
       "matchUpdateTypes": ["minor"],
       "enabled": false
     }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Image tags inside kustomize helmCharts valuesInline, which no built-in manager reads. Opt-in per tag with a `# renovate: datasource=docker depName=<image>` comment on the line directly above `tag:`",
+      "fileMatch": ["^apps/.+\\.ya?ml$"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s*\\n\\s*tag:\\s*[\"']?(?<currentValue>[^\"'\\s@]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?[\"']?"
+      ]
+    }
   ]
 }
