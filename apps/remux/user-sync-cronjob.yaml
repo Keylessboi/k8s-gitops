@@ -55,7 +55,7 @@ spec:
             # REJECTed, which reads as "connection refused" rather than a
             # timeout. Both endpoints are in other namespaces.
             - name: wait-for-deps
-              image: busybox:1.37
+              image: busybox:1.38
               # The namespace enforces PodSecurity "restricted", which applies
               # to init containers too - without this the pod is admitted with
               # a warning today and would be rejected outright the moment the
@@ -85,7 +85,7 @@ spec:
                 limits: {cpu: 200m, memory: 64Mi}
           containers:
             - name: sync
-              image: python:3.12-alpine3.20
+              image: python:3.14-alpine3.24
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true

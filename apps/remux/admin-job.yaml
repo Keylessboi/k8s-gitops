@@ -41,7 +41,7 @@ spec:
         # pg_dump runs. Also genuinely waits for Remux to be serving, since a
         # PostSync hook can fire while the container is still opening its port.
         - name: wait-for-remux
-          image: busybox:1.37
+          image: busybox:1.38
           command:
             - sh
             - -c
@@ -60,7 +60,7 @@ spec:
             limits: {cpu: 200m, memory: 64Mi}
       containers:
         - name: seed
-          image: curlimages/curl:8.11.1
+          image: curlimages/curl:8.22.0
           env:
             - name: REMUX
               value: http://remux.remux.svc.cluster.local:3000

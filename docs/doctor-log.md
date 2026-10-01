@@ -37,6 +37,7 @@ the literal string you are seeing, then read the entry.
 | ArgoCD says Synced but the object is stale | ServerSideDiff bug — 2026-08-31 |
 | Immich slow to browse, database is fine | thumbnails on NFS — 2026-09-12 |
 | Immich CrashLoopBackOff, `Failed to read .../.immich` | missing marker file after a volume move — 2026-09-12 |
+| `qbittorrent login failed` right after "qbittorrent reachable" | qBittorrent 5.2 login body — 2026-09-30 |
 | `must be owner of function …` during an app migration | DB objects owned by `postgres` after a restore — 2026-09-30 (immich) |
 | Everything on NFS slow, but disks and network test fine | pool IOPS saturated by seeding — 2026-09-12 |
 | A task or commit says a DNS leak is closed / DoT is on | DoT never landed — 2026-09-14 |
@@ -138,6 +139,28 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
+## 2026-09-30 — every qBittorrent CronJob said "login failed" after the 5.2 bump
+
+**Symptom.** After #28 (qBittorrent 5.1.2 → 5.2.4), `qbit-protected-forcestart`,
+`qbit-stalled-reaper` and `seed-reaper` failed on every run with `qbittorrent login failed`,
+right after `qbittorrent reachable after 1 attempt(s)`. qBittorrent itself, qui and Lidarr were
+fine.
+
+**Root cause.** The scripts treated a login as successful only if the body contained `"Ok"`.
+qBittorrent 5.1 answered `200 Ok.` / `200 Fails.`. 5.2 answers a good login with an empty body
+and a bad one with `401 Unauthorized`, which urllib raises. So a correct password produced an
+empty string, and the scripts exited.
+
+**Fix.** #38: fail only on an explicit `Fails.` (5.1's bad-login body). A 401 still raises, so a
+wrong password still fails loudly.
+
+**Prevention.** Judge an API call by its status and the session it produced (the SID cookie), not
+by a human-readable body string. Bodies are the first thing a major or minor version reshapes.
+When bumping qBittorrent, run each of its CronJobs once by hand (`kubectl create job --from=cronjob/…`)
+before calling the bump done.
+
+**Confidence:** PROBABLE. A bad login returning 401 was probed directly. The empty success
+body is inferred: the scripts got a non-error response without `Ok`.
 ## 2026-09-30 — Immich v3.2.4 crash-looped: its own trigger functions belonged to `postgres`
 
 **Symptom.** After #23 (v3.1.0 → v3.2.4) the new immich-server pod restarted 58 times in 4.5

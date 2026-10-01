@@ -51,7 +51,7 @@ spec:
           # v2.33.2, not v1.x: Gelato resolves search through search-capable
           # CATALOGS in the addon manifest, and the v1.x manifest hardcodes
           # `catalogs: []`. v2 aggregates catalogs from the tmdb preset.
-          image: ghcr.io/viren070/aiostreams:v2.33.2
+          image: ghcr.io/viren070/aiostreams:v2.35.5
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
