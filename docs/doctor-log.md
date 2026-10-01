@@ -28,6 +28,7 @@ the literal string you are seeing, then read the entry.
 | `[Unknown Album]` / `[Unknown Artist]` | Navidrome tags — 2026-08-29 |
 | Backups "succeeding" with nothing stored | MinIO zero drives — 2026-08-29 |
 | Everything on the host slow, API server 503 | swap thrash — 2026-08-31 |
+| `connection refused` on 127.0.0.1:6443, k3s restarting, `slow fdatasync` / `leaderelection lost` in its journal | etcd starved of disk I/O by parallel rollouts and pg_dumps — 2026-09-30 |
 | Downloads at ~300 kB/s from anything backed by NFS | NFS readahead — 2026-09-12 |
 | Sequential reads fast locally on the NAS but slow from a pod | NFS readahead — 2026-09-12 |
 | Disk full, or pods evicted for ephemeral storage | disk-pressure churn — 2026-08-31; ganesha.log 26 GB — 2026-08-31; Wings pulls — 2026-08-29 |
@@ -138,6 +139,34 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-09-30 — k3s restarted itself three times: etcd starved of disk I/O
+
+- **Symptom:** between 19:48 and 19:50 UTC every `kubectl` returned
+  `The connection to the server 127.0.0.1:6443 was refused`, then
+  `ServiceUnavailable: apiserver not ready`. `systemctl show k3s` on CT 200
+  reported `NRestarts=3`; pods across namespaces were recreated afterwards.
+  Workloads already running (authentik, mid-upgrade) kept serving throughout.
+- **Root cause:** etcd could not get its WAL to disk. The k3s journal shows
+  `slow fdatasync took 4.47s` (expected 1s) and `apply request took too long`
+  up to 5s, then the embedded controller-manager's lease renewal timed out,
+  `"leaderelection lost"`, and k3s exits 1; systemd restarts it. Host
+  `/proc/pressure/io` was `full avg60=26` at the time. Several agents were
+  working in parallel: two full pg_dumps of every database (one is a 2.3 GB
+  bitmagnet dump) plus image pulls for several upgrades at once, with
+  containerd writing ~55 MB/s. Each restart recreated pods, which pulled and
+  wrote more, so it repeated until the dumps finished; after that IO pressure
+  fell to single digits and k3s has not restarted since.
+- **Fix:** none applied; it recovered once the concurrent I/O stopped.
+- **Prevention:** etcd shares one disk with Postgres, containerd and Loki, so
+  the cluster's write budget is shared too. Serialise heavy I/O: one
+  `pgdump` Job at a time (check
+  `kubectl -n databases get pods | grep pgdump` first), and do not merge
+  image-bumping PRs while a dump or another rollout is in progress. Check
+  `/proc/pressure/io` on pve before a deploy; above ~10 avg60, wait. Same
+  class as the 2026-08-31 swap thrash and 2026-09-03 lease-renewal restarts.
+- **Confidence:** PROBABLE. The fdatasync latency and the lease loss are in the
+  journal; which writer contributed most was sampled once, not traced.
 
 ## 2026-09-30 — every qBittorrent CronJob said "login failed" after the 5.2 bump
 
