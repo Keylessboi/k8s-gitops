@@ -26,6 +26,14 @@
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+versioning=(?<versioning>\\S+))?\\s*\\n\\s*(?:-\\s*)?(?:tag|version|image):\\s*[\"']?(?<currentValue>[^\"'\\s@]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?[\"']?"
       ]
+    },
+    {
+      "customType": "regex",
+      "description": "ArgoCD itself, pinned in the bootstrap script. Merging the PR deploys nothing: someone runs scripts/bootstrap-argocd.sh, and bumps the CI kustomize/helm pins to match.",
+      "managerFilePatterns": ["/^scripts/bootstrap-argocd\\.sh$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s*\\nARGOCD_VERSION=(?<currentValue>v[^\\s\"']+)"
+      ]
     }
   ],
   "packageRules": [
@@ -80,6 +88,11 @@
     {
       "matchPackageNames": ["/minio/"],
       "versioning": "regex:^RELEASE\\.(?<major>\\d{4})-(?<minor>\\d{2})-(?<patch>\\d{2})T(?<build>\\d{2})-\\d{2}-\\d{2}Z$"
+    },
+    {
+      "description": "ArgoCD bumps are never automerged: merging deploys nothing (bootstrap-argocd.sh does), and the CI kustomize/helm pins must move in the same PR.",
+      "matchPackageNames": ["argoproj/argo-cd"],
+      "automerge": false
     },
     {
       "description": "grafana/loki 7.x is the Grafana Enterprise Logs chart; the free chart moved to grafana-community/loki (18.x) on 2026-03-16. Moving repos is a hand-made change (PR #49 notes), never a version bump.",
