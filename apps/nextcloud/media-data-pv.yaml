@@ -77,6 +77,13 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
+      # A hard ceiling on each run. Without it, a Job whose pod can never
+      # start (ImagePullBackOff) stays "Running" forever, and because
+      # concurrencyPolicy is Forbid that one stuck Job blocks EVERY later run.
+      # That is exactly what happened: a Job created before the image fix kept
+      # pulling the withdrawn bitnami image for 19 days, so the fixed template
+      # never got to run once. The scan itself takes about a second.
+      activeDeadlineSeconds: 600
       template:
         spec:
           restartPolicy: Never
@@ -99,7 +106,8 @@ spec:
               # alpine/k8s carries kubectl on top of Alpine, so /bin/sh exists.
               # Pinned by digest: a withdrawn or re-pushed tag is exactly how
               # this broke, and it broke silently.
-              image: alpine/k8s:1.31.5@sha256:0c132d5bc912d29c8baea41c83da1963bd8227c2c1bab489cb0ce88c3a3a4c35
+              # 1.31.x to match the cluster's k3s v1.31 (kubectl skew is +/-1 minor).
+              image: alpine/k8s:1.31.13@sha256:7a319b15cfc99c9aaa27ec9891d6b4ca24632b795908591c7b0ba89b03549e0a
               command: ["/bin/sh", "-c"]
               args:
                 - |
