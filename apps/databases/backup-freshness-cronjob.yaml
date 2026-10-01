@@ -58,7 +58,7 @@ spec:
             # busybox rather than the restic image: this only needs a TCP
             # connect, and it is ~4 MB against restic's ~60 MB.
             - name: wait-for-minio
-              image: busybox:1.37
+              image: busybox:1.38
               command:
                 - sh
                 - -c
@@ -80,7 +80,7 @@ spec:
                 limits: {cpu: 200m, memory: 64Mi}
           containers:
             - name: check
-              image: restic/restic:0.17.3
+              image: restic/restic:0.19.1
               env:
                 - name: RESTIC_REPOSITORY
                   value: s3:http://192.168.1.67:9000/cnpg-backups/restic
