@@ -224,7 +224,15 @@ data:
         # albumart`. amazon and albumart.org are scrapers of long-dead
         # endpoints; every album that reaches them pays two dead HTTP
         # round-trips before giving up.
-        sources: filesystem coverart itunes
+        #
+        # A YAML list, not the space-separated string 2.2.0 accepted: beets
+        # 2.14 reads the string as ONE source named "filesystem coverart
+        # itunes", raises UnknownPairError, and the whole fetchart plugin
+        # fails to load.
+        sources:
+            - filesystem
+            - coverart
+            - itunes
         # Cover Art Archive happily serves 3000px, multi-megabyte scans.
         # Navidrome caches its own thumbnails, so full resolution on NFS
         # buys nothing. ImageMagick and Pillow are both in the image, so
