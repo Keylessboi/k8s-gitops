@@ -126,8 +126,16 @@ spec:
                   # log line must never fail the job: on 2026-09-10 `mc du`
                   # exiting 1 after a successful mirror failed three runs in a
                   # row and fired KubeJobFailed each time. Best-effort only.
+                  #
+                  # Bounded: the first rclone run (2026-10-01) copied in 3 s
+                  # and then spent 11 minutes in `rclone size` retrying a
+                  # refused ListObjectsV2 (rclone's defaults are 10 low-level
+                  # retries x 5 min idle timeout). A log line may not hold the
+                  # job open for that long.
                   echo "backup complete:"
-                  rclone size backup:app-data-backups/vaultwarden || \
+                  timeout 90 rclone size --retries 1 --low-level-retries 2 \
+                    --contimeout 10s --timeout 30s \
+                    backup:app-data-backups/vaultwarden || \
                     echo "  (size report unavailable - the copy above is what matters)"
               volumeMounts:
                 - name: data
