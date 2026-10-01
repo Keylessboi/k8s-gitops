@@ -134,7 +134,10 @@ data:
         with op.open(URL + path, d, timeout=timeout) as r:
             return r.read().decode()
 
-    if "Ok" not in call("/api/v2/auth/login",
+    # qBittorrent 5.2 answers a good login with an empty body (5.1 said
+    # "Ok.") and a bad one with HTTP 401, which raises. Only 5.1's explicit
+    # "Fails." is left to catch here.
+    if "Fails" in call("/api/v2/auth/login",
                         {"username": os.environ["QBIT_USER"],
                          "password": os.environ["QBIT_PASS"]}):
         sys.exit("qbittorrent login failed")
