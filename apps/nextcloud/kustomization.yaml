@@ -162,6 +162,14 @@ helmCharts:
             $CONFIG = array (
               'allow_local_remote_servers' => true,
             );
+          # Heavy background jobs (trash/version expiry, preview cleanup) run
+          # only in the 4 hours from this UTC hour: 06 UTC = 02:00 New York.
+          # Clears the MaintenanceWindowStart setup warning (#48).
+          maintenance-window.config.php: |
+            <?php
+            $CONFIG = array (
+              'maintenance_window_start' => 6,
+            );
         # S3 as PRIMARY storage, which is what the plan asks for: MinIO
         # primary, NFS only as a media-streaming fallback. Nextcloud speaks S3
         # natively, so this needs no filesystem gateway - which is what sank
@@ -314,6 +322,24 @@ helmCharts:
         timeoutSeconds: 5
         failureThreshold: 90
         successThreshold: 1
+      # Background jobs (#48). With no cron, Nextcloud fell back to AJAX mode
+      # and ran jobs only while someone had the web UI open - nothing ran
+      # 2026-09-12 -> 2026-10-02: no trash/version expiry, lock cleanup,
+      # activity mail or app update checks. The sidecar runs the image's
+      # /cron.sh (cron.php every 5 min as www-data) in the same pod, with the
+      # same env and volumes. The first CLI run of cron.php switches
+      # backgroundjobs_mode from ajax to cron by itself, so no occ step.
+      # /scratch and /media are added to it in the patch below.
+      cronjob:
+        enabled: true
+        type: sidecar
+        sidecar:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 128Mi
+            limits:
+              memory: 1Gi
       # Use the ONE shared Redis instead of standing up a second one here.
       redis:
         enabled: false
@@ -391,6 +417,14 @@ patches:
                   # readOnly at BOTH the PV and the mount. qBittorrent is
                   # actively seeding these files; Nextcloud showing them must
                   # never risk altering them.
+                  - name: media-data
+                    mountPath: /media
+                    readOnly: true
+              # Background jobs touch the same files as web requests.
+              - name: nextcloud-cron
+                volumeMounts:
+                  - name: nextcloud-scratch
+                    mountPath: /scratch
                   - name: media-data
                     mountPath: /media
                     readOnly: true
