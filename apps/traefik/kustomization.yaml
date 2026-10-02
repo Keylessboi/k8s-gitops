@@ -115,12 +115,25 @@ helmCharts:
                 scheme: https
                 permanent: true
                 priority: 10
+            aliasHeadersStrategy: delete
         websecure:
           port: 8443
           exposedPort: 443
           http:
             tls:
               enabled: true
+            # Drop request headers whose names contain anything other than
+            # letters, digits and dashes (Traefik >= 3.7.12).
+            #
+            # Go treats X-Authentik-Username and X_Authentik_Username as two
+            # different headers, but CGI/WSGI/PHP backends map both to
+            # HTTP_X_AUTHENTIK_USERNAME. ForwardAuth only overwrites the dash
+            # form, so a client could smuggle the underscore form past it to
+            # a backend that trusts the header. Calibre-Web (books) is WSGI;
+            # its reverse-proxy header login is off today (checked 2026-10-01),
+            # and this keeps it safe if anyone turns it on. The default `keep`
+            # forwards such headers untouched.
+            aliasHeadersStrategy: delete
           # Traefik v3 defaults respondingTimeouts.readTimeout to 60s (v2 was
           # unlimited). A multi-GB video upload at the measured ~25 MB/s needs
           # minutes in flight, so every 2.6-3.2 GB file died with a 504 at
@@ -134,6 +147,15 @@ helmCharts:
           transport:
             respondingTimeouts:
               readTimeout: 20m
+        # Internal entrypoints: set too, so no entrypoint runs with the
+        # unsafe default and Traefik's per-entrypoint startup warning stays
+        # meaningful if a new one is ever added.
+        metrics:
+          http:
+            aliasHeadersStrategy: delete
+        traefik:
+          http:
+            aliasHeadersStrategy: delete
       log:
         level: INFO
       # CrowdSec parses these (apps/crowdsec acquires traefik-* pod logs with
