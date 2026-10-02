@@ -27,7 +27,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: psql
-          image: ghcr.io/tensorchord/cloudnative-vectorchord:16-0.4.1
+          image: ghcr.io/tensorchord/cloudnative-vectorchord:16.15-1.1.1
           env:
             - name: PGHOST
               value: app-databases-rw.databases.svc.cluster.local
@@ -58,7 +58,39 @@ spec:
               CREATE EXTENSION IF NOT EXISTS "pg_trgm";
               CREATE EXTENSION IF NOT EXISTS "unaccent";
               SQL
-              # Immich's migrations also ALTER these, so hand it ownership.
-              psql -d immich -v ON_ERROR_STOP=1 -c 'ALTER EXTENSION "vector" OWNER TO immich;' || true
-              psql -d immich -v ON_ERROR_STOP=1 -c 'ALTER EXTENSION "vchord" OWNER TO immich;' || true
+              # Bring the extensions up to the version this image ships, as
+              # superuser. Immich tries this itself at startup, but the
+              # extensions are owned by postgres (PostgreSQL has no ALTER
+              # EXTENSION ... OWNER; the two `OWNER TO immich` lines that were
+              # here always failed behind `|| true`), so Immich's attempt fails
+              # and it refuses to start: "Please run 'ALTER EXTENSION vchord
+              # UPDATE' manually as a superuser".
+              #
+              # When Immich updates vchord itself it then rebuilds both vector
+              # indexes; doing the update here means it never sees a version
+              # change, so the rebuild is done here too - only when the vchord
+              # version actually moved, never on an ordinary sync. The indexes
+              # are small (tens of MB); REINDEX takes seconds.
+              psql -d immich -v ON_ERROR_STOP=1 <<'SQL'
+              ALTER EXTENSION "vector" UPDATE;
+              DO $$
+              DECLARE
+                before text;
+                after text;
+              BEGIN
+                SELECT extversion INTO before FROM pg_extension WHERE extname = 'vchord';
+                ALTER EXTENSION vchord UPDATE;
+                SELECT extversion INTO after FROM pg_extension WHERE extname = 'vchord';
+                IF before IS DISTINCT FROM after THEN
+                  RAISE NOTICE 'vchord % -> %: rebuilding vector indexes', before, after;
+                  IF to_regclass('public.clip_index') IS NOT NULL THEN
+                    REINDEX INDEX public.clip_index;
+                  END IF;
+                  IF to_regclass('public.face_index') IS NOT NULL THEN
+                    REINDEX INDEX public.face_index;
+                  END IF;
+                END IF;
+              END $$;
+              SQL
+              psql -d immich -At -c "SELECT extname || ' ' || extversion FROM pg_extension WHERE extname IN ('vector', 'vchord')"
               echo "immich extensions ready"

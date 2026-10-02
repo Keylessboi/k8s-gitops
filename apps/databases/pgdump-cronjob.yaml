@@ -53,7 +53,7 @@ spec:
             # exhaust backoffLimit and the whole backup run fails. Same root
             # cause and same remedy as lidarr's maintenance CronJob.
             - name: wait-for-postgres
-              image: ghcr.io/tensorchord/cloudnative-vectorchord:16-0.4.1
+              image: ghcr.io/tensorchord/cloudnative-vectorchord:16.15-1.1.1
               env:
                 - name: PGHOST
                   value: app-databases-rw.databases.svc.cluster.local
@@ -83,7 +83,7 @@ spec:
             - name: dump
               # Same image as the cluster, so pg_dump matches the server
               # version exactly.
-              image: ghcr.io/tensorchord/cloudnative-vectorchord:16-0.4.1
+              image: ghcr.io/tensorchord/cloudnative-vectorchord:16.15-1.1.1
               env:
                 - name: PGHOST
                   value: app-databases-rw.databases.svc.cluster.local
