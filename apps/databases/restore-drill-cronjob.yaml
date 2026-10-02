@@ -247,8 +247,11 @@ spec:
                     # In --list output the tag is field 4, and the field after
                     # it is the schema for TABLE and the literal DATA for
                     # TABLE DATA, which separates them unambiguously.
+                    # A partition gets a second entry, TABLE ATTACH, that is
+                    # not a table of its own: counting it made blinko (pg-boss's
+                    # partitioned pgboss.job) "restore 29 of 30" on 2026-10-01.
                     toc_tables=$(pg_restore --list "$dump" 2>/dev/null \
-                      | awk '/^[0-9]+;/ && $4=="TABLE" && $5!="DATA" {n++} END {print n+0}')
+                      | awk '/^[0-9]+;/ && $4=="TABLE" && $5!="DATA" && $5!="ATTACH" {n++} END {print n+0}')
                     toc_tables=${toc_tables:-0}
 
                     # STAGE 2, conditionally: materialise it. Skipped for large
