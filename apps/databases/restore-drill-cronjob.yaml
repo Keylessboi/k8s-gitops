@@ -162,12 +162,6 @@ spec:
                   # Dumps larger than this are integrity-checked but NOT
                   # materialised into a scratch database. See the header.
                   MAX_RESTORE_BYTES=$((300 * 1024 * 1024))
-                  # Databases of decommissioned apps the owner no longer needs
-                  # restorable. Still integrity-checked (stage 1); not
-                  # materialised, so their table count cannot fail the drill.
-                  # blinko: 29/30 tables on 2026-10-01 (#54); owner: "I don't
-                  # care about blinko".
-                  READ_ONLY_DBS=" blinko "
                   # Refuse to materialise anything if the data volume is
                   # already this full. The drill must never be the reason
                   # Postgres runs out of disk.
@@ -253,8 +247,11 @@ spec:
                     # In --list output the tag is field 4, and the field after
                     # it is the schema for TABLE and the literal DATA for
                     # TABLE DATA, which separates them unambiguously.
+                    # A partition gets a second entry, TABLE ATTACH, that is
+                    # not a table of its own: counting it made blinko (pg-boss's
+                    # partitioned pgboss.job) "restore 29 of 30" on 2026-10-01.
                     toc_tables=$(pg_restore --list "$dump" 2>/dev/null \
-                      | awk '/^[0-9]+;/ && $4=="TABLE" && $5!="DATA" {n++} END {print n+0}')
+                      | awk '/^[0-9]+;/ && $4=="TABLE" && $5!="DATA" && $5!="ATTACH" {n++} END {print n+0}')
                     toc_tables=${toc_tables:-0}
 
                     # STAGE 2, conditionally: materialise it. Skipped for large
@@ -265,8 +262,6 @@ spec:
                     avail=$(free_mb)
                     if [ "$bytes" -gt "$MAX_RESTORE_BYTES" ]; then
                       mode=read; readonly_only=$((readonly_only + 1))
-                    elif [[ "$READ_ONLY_DBS" == *" $db "* ]]; then
-                      mode=read-skip; readonly_only=$((readonly_only + 1))
                     elif [ "$avail" -lt "$MIN_FREE_MB" ]; then
                       mode=read-lowdisk; readonly_only=$((readonly_only + 1))
                       echo "    NOTE: only ${avail} MB free, below ${MIN_FREE_MB} MB floor - not materialising"

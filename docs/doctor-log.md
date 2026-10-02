@@ -38,7 +38,7 @@ the literal string you are seeing, then read the entry.
 | ArgoCD says Synced but the object is stale | ServerSideDiff bug — 2026-08-31 |
 | Immich slow to browse, database is fine | thumbnails on NFS — 2026-09-12 |
 | Immich CrashLoopBackOff, `Failed to read .../.immich` | missing marker file after a volume move — 2026-09-12 |
-| `RESTORE_DRILL_FAILED` / `BackupRestoreDrillFailed` | blinko 29/30 tables, a database nobody owns — 2026-10-01 |
+| `RESTORE_DRILL_FAILED` / `BackupRestoreDrillFailed` | drill counted a partition's `TABLE ATTACH` entry as a table (blinko 30 vs 29) — 2026-10-01 |
 | `many-to-many matching not allowed` on a temperature rule | node-exporter rollout overlap, join without `instance` — 2026-10-01 |
 | `qbittorrent login failed` right after "qbittorrent reachable" | qBittorrent 5.2 login body — 2026-09-30 |
 | `must be owner of function …` during an app migration | DB objects owned by `postgres` after a restore — 2026-09-30 (immich) |
@@ -147,28 +147,31 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
-## 2026-10-01 — the restore drill failed on a database nobody uses
+## 2026-10-01 — the restore drill failed on a partitioned table it miscounted
 
 **Symptom.** `BackupRestoreDrillFailed` fired (email) after the 2026-10-01 03:20 drill:
 `checked: 20  fully restored: 19  read-only verified: 1  failures: 1`, the one failure being
 `blinko  119KB  30  29  full FAIL`.
 
-**Root cause.** blinko's dump restores 29 of its 30 tables into a scratch database. The drill's
-summary does not say which table or why. blinko has no app in `apps/` any more; its database
-survives only because databases are prune-protected (ADR-0012). Every database that matters
-restored fully, and the snapshot itself restored cleanly from restic.
+**Root cause.** Nothing was missing; the drill miscounted. blinko is the only database with a
+partitioned table (pg-boss's `pgboss.job`, partition `pgboss.job_common`). `pg_dump` writes the
+partition's attachment as its own TOC entry, `TABLE ATTACH pgboss job_common`, and the drill's
+awk (`$4=="TABLE" && $5!="DATA"`) counted it as a table. Checked against the live schema: the
+drill-style count is 30, the extra line is that ATTACH entry, and the database has 29 tables
+(28 regular, 1 partitioned), exactly what the restore produced.
 
-**Fix.** The owner doesn't need blinko restorable, so the drill now lists it in `READ_ONLY_DBS`:
-still integrity-checked (the archive must decompress end to end), not materialised. Issue #54
-stays open for whether to drop the database.
+**Fix.** The awk also excludes `$5=="ATTACH"`. blinko stays fully restored in the drill. (An
+earlier draft of this fix skipped blinko's restore instead; that hid the bug and would have let
+it fail the drill again on the next database that gains a partition.) Issue #54 stays open for
+whether to drop the database.
 
-**Prevention.** When an app is decommissioned, decide its database's fate in the same change:
-keep it restorable (and keep it passing the drill), mark it read-only in the drill, or archive
-and drop it. A database nobody owns stays in the drill until it eventually fails, and then
-trains everyone to ignore the alert.
+**Prevention.** When a check counts things in a dump or listing, enumerate every TOC/entry kind
+that shares the tag it matches on (`TABLE`, `TABLE DATA`, `TABLE ATTACH`) before trusting the
+count, and before excluding a "failing" object, prove the failure is real by diffing the
+object lists, not just comparing totals.
 
-**Confidence:** CONFIRMED for the symptom and the scope (only blinko failed). The cause of the
-one missing table was not investigated, at the owner's request.
+**Confidence:** CONFIRMED. The drill-style count on the live blinko schema reproduces 30, and
+the one extra entry is the ATTACH line.
 
 ## 2026-10-01 — temperature alerts failed to evaluate during a node-exporter rollout
 
