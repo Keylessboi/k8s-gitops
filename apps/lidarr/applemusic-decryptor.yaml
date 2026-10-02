@@ -54,8 +54,13 @@ spec:
           # it ships amdl (apple-music-dl), switches on LITE_SERVER below, and reports
           # drm.backend="wrapper-lite (amdl)". 0.3.1 adds per-tier retries for wrapper-lite's
           # intermittent "Invalid CKC error" (roughly one key request in sixteen), which
-          # otherwise costs that track the tier.
-          image: applemusic-decryptor:0.3.1
+          # otherwise costs that track the tier. 0.3.2 rewrites the album-artist tag (aART) of each
+          # downloaded file to the artist Lidarr actually asked for: Apple writes the collaboration
+          # credit there ("SOFI TUKKER & Bomba Estéreo" where Lidarr has "Sofi Tukker"), and Lidarr
+          # scores the artist component of an import from exactly that tag, so those downloads landed
+          # just under its 80% album-match bar and were not imported on arrival. The track artist tag
+          # keeps its featured credits and no country tag is written. See docs/doctor-log.md 2026-10-02.
+          image: applemusic-decryptor:0.3.2
           imagePullPolicy: IfNotPresent
           command: ["python3", "/app/app.py"]
           env:
