@@ -106,6 +106,7 @@ the literal string you are seeing, then read the entry.
 | ArgoCD `Synced`, deployed change not live, nothing red, third time | ServerSideDiff silent no-op — check `sync.revision` vs `operationState.finishedAt`; 2026-09-11, 2026-09-30 (lidarr) |
 | A CronJob whose fixed template never runs; `ACTIVE 1`, `LAST SCHEDULE` days ago, an old Job still `Running` in `ImagePullBackOff` | `concurrencyPolicy: Forbid` held by a Job created before the fix — 2026-09-30 (games-mount-scan) |
 | A published host answers `404` from Traefik; its Ingress is there but the backend Service is `NotFound` | component disabled, hand-written Ingress left behind — 2026-10-01 (grafana) |
+| An album is downloaded over and over, `Import failed: Item removed by Queue Cleaner`, library never changes | a nightly importer racing a minutes-fast queue cleaner — 2026-10-02 (AppleMusicarr) |
 
 ### The traps that have bitten more than once
 
@@ -506,6 +507,76 @@ check worth automating; the field pair alone does not give it to you.
 **Confidence:** CONFIRMED (the live object changed on the explicit sync and not before; the
 `compare-options` annotation is now `ServerSideDiff=false` on the app).
 
+## 2026-10-02 — the re-download loop that two correct mechanisms made between them
+
+**Symptom.** Apple Music downloads were deleted and re-downloaded, forever. About 500 grabs
+in 7.4 hours, and 293 of the last 300 download failures read the same line:
+
+    Import failed: Item removed by Queue Cleaner.
+
+Individual albums were grabbed 15-17 times in a few hours and never landed - Ice Spice
+*Big Guy*, Troye Sivan *Got Me Started*, Juice WRLD *Wandered To LA*, and others. Nothing was
+red: Lidarr Healthy, the wrapper serving, and every download genuinely succeeding. The library
+simply never changed.
+
+**Root cause.** Two mechanisms that are each individually correct, raced against each other:
+
+1. Tubifarry's Queue Cleaner removes failed downloads from the queue within minutes. That is
+   what it is for.
+2. The nightly `lidarr-maintenance` CronJob (02:00) is what force-imports borderline album
+   matches: `import_if_match_keywords: ["Album match"]` with `match_import_min: 30`.
+
+By 02:00 there was nothing left to import. Measured, not inferred: the 2026-10-02 run logged
+**zero** Apple Music records out of a 2007-record queue (`grep -ciE "atmos|AppleMusicarr"` on
+the job log -> 0). With the import never happening the album stayed missing, and Lidarr core's
+`RedownloadFailedDownloadService` (`autoRedownloadFailed: true`) pushed a fresh
+`AlbumSearchCommand` for it. That is the re-grab.
+
+Why those imports fail at all, and why a force-import is the right answer: Lidarr's album-match
+bar is 80%, and Apple's metadata for these releases scores 45-79%. Apple credits the single to
+"Juice WRLD & Justin Bieber" where the album is by "Juice WRLD", and titles it "Wandered To LA
+- Single" where Lidarr has "Wandered to LA". Auto-import will never accept those; a manual
+import will.
+
+**Fix.** Excluded AppleMusicarr from the Queue Cleaner's Indexers list (Lidarr database state,
+2026-10-02 19:53 UTC) so Apple Music failures stay in the queue.
+
+Verified: the newest "Item removed by Queue Cleaner" in history is 19:52 and there has been
+none since; seven Apple Music records now sit in the queue as `completed`/`importFailed`
+instead of disappearing. Running the deployed maintenance script's own rules against the 28
+Apple Music downloads waiting there imported **22** immediately (album matches 45-79%, including
+Dr. Dre *Gospel*, Sofi Tukker *COOK* and Ice Spice *Big Guy* - albums the loop had destroyed
+dozens of times) and left **6** refused by the album guard, because those files belong to a
+different album than the one grabbed. The six are remix and version singles: "Playa Grande
+(Uproot Andy remix)" matched album 64631 while Lidarr had grabbed 64630. The guard refusing them
+is correct - without it they would have been written onto the wrong release. They stay queued,
+appear in the script's review list, and fire no further searches.
+
+Undo: empty the Queue Cleaner's Indexers list in Lidarr.
+
+**Prevention.** This is a race between two remediations running on different cadences, and it is
+worth generalising because *neither* was misconfigured:
+
+- A scheduled repair is silently defeated by anything that consumes its input faster than the
+  schedule runs. The failure then surfaces as a **third** symptom - here a re-download loop - so
+  neither mechanism looks broken and nothing points at either one. When scheduling a job, ask
+  what else touches the same records, and how often.
+- The evidence sat in history for two days before anyone looked: 500 failed imports, 293 of them
+  the cleaner's own message. A loop is visible in history long before it is visible anywhere else.
+- The two thresholds are deliberately different numbers - 30% for the script's force-import, 80%
+  for Lidarr's auto-import - and Apple's metadata for collaborations and "- Single" titles sits
+  in the band between them. The fix is to keep the cleaner away from a client whose failures need
+  that band, not to widen either threshold.
+
+**Still open.** The plugin-side cause is unfixed: `ToReleaseInfos` builds the release *title* from
+Apple's artist and album while `AppleMusicarrDownloadClient` builds the download *folder* from
+Lidarr's - `/data/torrents/apple/41/Trick/` versus `41 & Kyle Richh - Trick - Single` - so the
+title is what drags the match under 80%. Changing it needs care: Apple's search returns unrelated
+albums too, and labelling those with the searched album's name is how the wrong album gets grabbed.
+
+**Confidence:** CONFIRMED. The loop stopped at the config change (last cleaner removal 19:52, none
+since), 22 of 28 queued failures imported, and Ice Spice *Big Guy* now holds 1/1 files at custom
+format score 30 (Dolby Atmos).
 ## 2026-09-30 — the daemon that died standing up, and the 34 hours nobody noticed
 
 **Symptom.** No Dolby Atmos had arrived in the library for days. Lidarr itself was healthy: pods
