@@ -62,9 +62,9 @@
       "automerge": false
     },
     {
-      "description": "Postgres image: the PG major is the compatibility prefix and is never changed by Renovate (a PG major is a CNPG upgrade, not a tag bump). Only the VectorChord part moves, and it needs ALTER EXTENSION, so never automerged.",
+      "description": "Postgres image, tagged <pg major>.<pg minor>-<vchord version> (e.g. 16.15-1.1.1). The PG major is the compatibility prefix and is never changed by Renovate (a PG major is a CNPG upgrade, not a tag bump). The PG minor is the build part, so 16.15 -> 16.16 is offered. A VectorChord bump is applied by the immich-extensions PostSync job (ALTER EXTENSION UPDATE plus reindex); never automerged.",
       "matchPackageNames": ["ghcr.io/tensorchord/cloudnative-vectorchord"],
-      "versioning": "regex:^(?<compatibility>\\d+)-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
+      "versioning": "regex:^(?<compatibility>\\d+)\\.(?<build>\\d+)-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
       "automerge": false
     },
     {
