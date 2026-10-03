@@ -104,7 +104,7 @@ review has happened yet.
 - `AGENTS.md`; `docs/accounts.md`; `docs/access-procedures.md`; `docs/RUNDOWN.md`
 
 **Gaps.**
-- **G-AC-01.** The policy is unapproved, and the AC procedures are scattered and partly stale. Policy §9.3 still tells the owner to remove a leaver from Invidious, which was decommissioned on 2026-09-05 (`apps/accounts/app.py:12-14`). `docs/RUNDOWN.md` "Adding a Person" omits the `accounts` tool. `docs/access-procedures.md` "k3s Down" and "Kubeconfig" use LAN paths (`ssh root@192.168.1.172`, `scp root@192.168.1.172:…`) that cannot work from the laptop. "Maintenance Windows" is template text. *Risk:* an agent follows a procedure literally and does the wrong thing. *Remedy:* the owner approves the policy, and one AC runbook (joiner, mover, leaver, review, break-glass) is consolidated into `docs/accounts.md`, with the others linking to it. **Target 2026-11-30.**
+- **G-AC-01.** The policy is unapproved, and the AC procedures are scattered and partly stale. Policy §9.3 still tells the owner to remove a leaver from Invidious, which was decommissioned on 2026-09-05 (`apps/accounts/app.py:12-14`). `docs/RUNDOWN.md` "Adding a Person" omits the `accounts` tool. `docs/access-procedures.md` "k3s Down" and "Kubeconfig" use LAN paths (`ssh root@192.168.1.172`, `scp root@192.168.1.172:…`) that cannot work from the laptop. "Maintenance Windows" is template text. `docs/accounts.md` step 1 still says the tool creates Invidious accounts. *Risk:* an agent follows a procedure literally and does the wrong thing. *Remedy:* the owner approves the policy, and one AC runbook (joiner, mover, leaver, review, break-glass) is consolidated into `docs/accounts.md`, with the others linking to it. **Target 2026-11-30.**
 
 **Related.** Policy §1–§3, §8–§10, §19, §21; HS-AGENT-01; all AC controls.
 
@@ -149,9 +149,10 @@ System Agents (ArgoCD ServiceAccount, GitHub Actions token, image-updater deploy
 key, Renovate App, Doppler operator token). Policy §9.1 prohibits shared accounts
 except `akadmin`, ArgoCD `admin` and remux `admin`. That exception list is
 incomplete: there is also a local Grafana admin (`apps/monitoring/kustomization.yaml:243-244`,
-`existingSecret: grafana-admin`), a seeded Pelican admin (`apps/pelican/admin-job.yaml`),
-Ghost staff accounts, and the CouchDB credential for Obsidian LiveSync
-(`docs/RUNDOWN.md:27`) (G-AC-03).
+`existingSecret: grafana-admin`), a seeded Pelican admin (`apps/pelican/admin-job.yaml`)
+and Ghost staff accounts (G-AC-03). `docs/RUNDOWN.md:27` still lists an Obsidian
+LiveSync CouchDB login, but that app was removed and replaced by Memos
+(`apps/memos/kustomization.yaml:3`), so the row is stale rather than a live account.
 
 **b.** The owner is the only account manager.
 
@@ -172,7 +173,7 @@ disables anything" (`app.py:27-29`). Disabling is a manual act in the Authentik 
 
 **h, l.** There is no HR process. A leaver is someone the owner learns has left
 (policy §9.3, 7 days). Deactivating them in Authentik does **not** remove remux,
-Vaultwarden local login or Notesnook access (G-AC-04).
+Vaultwarden local login, Notesnook, Navidrome Subsonic or CWA OPDS access (G-AC-04).
 
 **i.** Authentik bindings: admin apps are bound to `authentik Admins`, and the
 rest are open to any Authentik user (`docs/accounts.md`).
@@ -191,8 +192,8 @@ session exposed the value (§16.5).
 
 **Gaps.**
 - **G-AC-02.** No authorized-user register: who exists in Authentik, which groups, and which local app accounts. *Risk:* nobody can tell whether an account is authorized, and the 90-day review has nothing to check against. *Remedy:* a register in the owner's password manager or another private store (C3), produced from an `ak shell` export. The repo records only account *types* and counts. **Target 2026-12-31.**
-- **G-AC-03.** Policy §9.1's shared/local-account exception list omits Grafana's local admin, the Pelican seeded admin, Ghost staff and the CouchDB user. *Risk:* unrecorded privileged credentials escape rotation and review. *Remedy:* amend §9.1 and record each in the §12.1 inventory. **Target 2026-11-30.**
-- **G-AC-04.** Leaver deactivation is not end-to-end. `remux-user-sync` "only ever ADDS" (`apps/remux/user-sync-cronjob.yaml:23-25`), the remux API is reachable without Authentik (`apps/remux/ingress-api.yaml`), Vaultwarden keeps local login (`SSO_ONLY=false`, `apps/vaultwarden/deployment.yaml:192-193`), and Notesnook has its own identity server with no Authentik link (`apps/notesnook/kustomization.yaml:19`). *Risk:* a deactivated person keeps working credentials. *Remedy:* a leaver checklist naming each independent credential store, and a remux delete/disable step. **Target 2026-11-30.**
+- **G-AC-03.** Policy §9.1's shared/local-account exception list omits Grafana's local admin, the Pelican seeded admin and Ghost staff. *Risk:* unrecorded privileged credentials escape rotation and review. *Remedy:* amend §9.1 and record each in the §12.1 inventory. **Target 2026-11-30.**
+- **G-AC-04.** Leaver deactivation is not end-to-end. `remux-user-sync` "only ever ADDS" (`apps/remux/user-sync-cronjob.yaml:23-25`), the remux API is reachable without Authentik (`apps/remux/ingress-api.yaml`), Vaultwarden keeps local login (`SSO_ONLY=false`, `apps/vaultwarden/deployment.yaml:192-193`), Notesnook has its own identity server with no Authentik link (`apps/notesnook/kustomization.yaml:19`), and the Navidrome Subsonic carve-out authenticates against Navidrome's own per-user password, so "revoking a user in Authentik does NOT revoke their Subsonic client" (`apps/navidrome/subsonic-ingress.yaml` header); Calibre-Web's `/opds` uses CWA's own Basic auth (`apps/books/opds-ingress.yaml`). *Risk:* a deactivated person keeps working credentials. *Remedy:* a leaver checklist naming each independent credential store, and a remux delete/disable step. **Target 2026-11-30.**
 - **G-AC-31.** No 90-day account review has been recorded. *Risk:* stale accounts persist (for example the orphaned Vaultwarden `root@example.com` user, `docs/RUNDOWN.md:271-276`). *Remedy:* run the first review and record its date and counts in the doctor log or the POA&M. **Target 2026-12-31.**
 
 **Related.** Policy §3.1, §9.1, §9.3, §13.2; W-01; AC-2(1)–(13), AC-6(7), IA-2, IA-4, PS-4.

@@ -214,3 +214,182 @@ Several assets that recovery depends on are not tiered:
 - `G-CP-07` The backup server, the off-site repository, the operator laptop and key, and the escrowed keys have no tier. Risk: a recovery dependency with no tier gets no restore order and no RTO, and is found missing only during the recovery. Remedy: add them to §7.1 and the system description. Target **2026-12-01**.
 
 **Related.** Policy §7, §12; CM-8; RA-9.
+
+### CP-3 Contingency Training
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Alternative implementation |
+| **Responsible** | System Owner |
+| **Parameters** | cp-03_odp.01 = before first acting in a contingency role (for automated operators: at the start of every session, through `AGENTS.md`); cp-03_odp.02 = every 12 months, at the policy review; cp-03_odp.03 = 12 months; cp-03_odp.04 = a SEV-1 or SEV-2 incident, any change to a recovery runbook, and any change to boot order, host or network (HS-REC-04) |
+
+> a. Provide contingency training to system users consistent with assigned roles and responsibilities:
+>   1. Within [Assignment: before first acting in a contingency role; for automated operators, at the start of every session] of assuming a contingency role or responsibility;
+>   2. When required by system changes; and
+>   3. [Assignment: every 12 months] thereafter; and
+> b. Review and update contingency training content [Assignment: every 12 months] and following [Assignment: a SEV-1 or SEV-2 incident, any change to a recovery runbook, and any change to boot order, host or network].
+
+**Implementation.** There is no training programme, and one cannot be justified: the only person with a contingency role wrote every runbook. The intent is that whoever executes recovery knows how. Three mechanisms stand in for it:
+
+- **The owner.** The awareness-training default in policy App. A ("the owner reads this policy and the doctor log at each review") covers the contingency material: `docs/recovery/cluster-down.md`, `docs/RUNDOWN.md` § Backups and the doctor-log entries for every outage. HS-REC-04 requires the full-outage runbook to be *walked through* after any change to boot order, host or network. That walk-through is the practical exercise (**a.2**). The 2026-09-04/05 outage was a real execution of the runbook.
+- **Automated operators.** Agents receive the routing at every session start ("A full outage → `docs/recovery/cluster-down.md`", `AGENTS.md`). Their contingency role is deliberately narrow. Backups, `tank`, snapshots and BIOS tokens are Z0 (policy §8.2), so agents may diagnose and describe a recovery but never execute the Z0 steps. Their "training" is therefore the rules that stop them, not recovery skills.
+- **Service users** have no contingency role.
+
+**b.** The content is the runbooks themselves. They are updated by the same change that alters the system (policy §11.5.5, HS-REC-04).
+
+**Evidence.** `AGENTS.md` "Where things are"; policy App. A, §8.2; HS-REC-04; `docs/recovery/cluster-down.md` "Resolution — 2026-09-05".
+
+**Gaps.**
+- `G-CP-08` No walk-through has ever been recorded, although HS-REC-04 is marked MET. At least two qualifying changes followed the runbook's last edit: CT 200 moving from DHCP to a static address (doctor-log, "The same log file took the cluster down again") and the CoreDNS takeover on 2026-09-14. The owner has also never practised the data-restore paths: a barman recovery, `borg extract`, or restoring an NFS PVC. Risk: the first time the owner performs a restore is during a real loss. Remedy: record each walk-through as a dated doctor-log line, and make the timed exercise in G-CP-06 the hands-on practice. Target **2027-01-31**.
+
+**Related.** HS-REC-04; policy §8.2, §19, App. A; AT-3; CP-4.
+
+### CP-4 Contingency Plan Testing
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+| **Responsible** | System Owner; `restore-drill` and `backup-freshness` CronJobs (`apps/databases/`) |
+| **Parameters** | cp-04_odp.01 = every 6 months for the timed restore exercise; monthly for the automated database drill (policy App. A, §19); cp-4_prm_2 = (1) automated restore drill of every logical dump; (2) timed restore exercise, one tier each time, against the §7.1 RTO and RPO; (3) walk-through of the full-outage runbook (HS-REC-04) |
+
+> a. Test the contingency plan for the system [Assignment: every 6 months (timed restore exercise); monthly (automated database drill)] using the following tests to determine the effectiveness of the plan and the readiness to execute the plan: [Assignment: automated restore drill of every logical dump; timed restore exercise, one tier each time, against the policy §7.1 RTO and RPO; walk-through of the full-outage runbook].
+> b. Review the contingency plan test results; and
+> c. Initiate corrective actions, if needed.
+
+**Implementation.**
+**a.** One of the three tests runs.
+
+- **The monthly drill** runs at 03:20 on the 1st (`apps/databases/restore-drill-cronjob.yaml`). It restores the newest restic snapshot, then works in two stages. Stage 1 streams every dump through `pg_restore` to `/dev/null`, which reads every block. Stage 2 restores each dump under 300 MB into a `drill_`-prefixed scratch database and compares its table count against the archive's table of contents. A missing `globals.sql` or a surviving scratch database is a failure. The last recorded run checked 17 dumps and fully restored 16, with bitmagnet integrity-checked only (`docs/RUNDOWN.md` § Backups).
+- **The timed exercise** (§19) has never been run, so every RTO and RPO is UNMEASURED (§7.1; G-CP-06).
+- **The runbook walk-through** has no record (G-CP-08).
+
+The drill is narrower than it looks. It proves the logical dumps of the newest snapshot only. It restores into the **production** instance, so it proves neither that Postgres can be stood up from nothing nor that the apps work on the restored data. It does not touch barman PITR, the off-site borg copy, ZFS snapshots, file PVCs, the Vaultwarden data mirror or the etcd snapshots. It also needs the cluster to be up to run at all.
+
+**b.** A failed drill fires `BackupRestoreDrillFailed` (critical). A drill that has not succeeded in 40 days fires `BackupRestoreDrillStale` (`apps/monitoring/backup-alerts.yaml`). Both are `Backup*`, the prefix routed to the owner by email. The per-database table exists only in the pod log of the Jobs kept by `successfulJobsHistoryLimit: 3`.
+**c.** The first run's findings were corrected the same day (doctor-log 2026-09-03, "The new restore drill restarted the apiserver twice"): the two stages, the 300 MB cap and a correct table count. The 2026-09-04 outage led to the BIOS, `onboot` and external-watchdog fixes.
+
+**Evidence.** `apps/databases/restore-drill-cronjob.yaml`; `apps/monitoring/backup-alerts.yaml` lines 104–135; `kubectl -n databases get cronjob restore-drill`; doctor-log 2026-09-03.
+
+**Gaps.**
+- `G-CP-09` No restore test exists for file data or for the non-dump layers: NFS PVCs on `tank/extra` (the Immich library, Vaultwarden attachments), the borg off-site copy, the etcd snapshots and the Vaultwarden mirror (HS-REC-03 GAP). Risk: the photo library and the off-site copy could be unrestorable, and nobody would know until they were needed. Remedy: a monthly sampled restore — extract N random files from the latest borg archive and from the newest ZFS snapshot, and compare checksums against live — alerting on mismatch. Target **2027-03-31**.
+- `G-CP-10` Test results are not retained. The drill's per-database output lives only in the last three Jobs' pod logs. Risk: no history to show the drill passed, or when it began to degrade. Remedy: the drill writes its summary line (checked, restored, failed) as a metric or a doctor-log line, and each 6-monthly exercise is recorded with its measured times. Target **2026-12-31**.
+
+**Related.** HS-REC-02, HS-REC-03, HS-REC-04; policy §7.1, §16.2, §19; CP-2(3), CP-9(1).
+
+### CP-4(1) Coordinate with Related Plans
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Alternative implementation |
+| **Responsible** | System Owner |
+| **Parameters** | None |
+
+> Coordinate contingency plan testing with organizational elements responsible for related plans.
+
+**Implementation.** One person owns every related plan, so coordination is with plans, not with people. The intent is that tests neither collide with other plans nor go unnoticed by them. That is met in three ways:
+
+1. **With incident response.** A failed backup or drill is SEV-3 (policy §16.2). The drill's alerts use the `Backup*` prefix so that they reach a human rather than being triaged by a model (`apps/monitoring/backup-alerts.yaml` comments).
+2. **With capacity planning.** The drill's 300 MB cap and its 12 GB free-space floor exist because a full restore restarted the apiserver twice on a node at 92% memory. The cap is tied to the headroom work in ADR-0005/ADR-0007, and is to be raised "after the headroom work, not before" (doctor-log 2026-09-03).
+3. **With the backup schedule.** Jobs are offset: `pgdump-backup` runs at :40 every six hours, the drill at 03:20 on the 1st, and `backup-freshness` at 09:20.
+
+**Evidence.** The CronJob schedules in `apps/databases/*.yaml` and `apps/vaultwarden/backup-cronjob.yaml`; policy §16.2; doctor-log 2026-09-03.
+
+**Gaps.**
+- `G-CP-11` The schedule coordination missed one collision. The barman base backup runs at 03:15 daily (`apps/databases/scheduledbackup.yaml`), and its comment says that time "keeps it clear of everything else". On the 1st of each month the drill starts five minutes later against the same instance. A base backup's duration is **[UNVERIFIED]**. Risk: on a memory-constrained node the two overlap and repeat the 2026-09-03 apiserver restarts. Remedy: move the drill to 04:20 in a Z1 PR. Target **2026-11-15**.
+
+**Related.** CP-2(1), CP-4, IR-3.
+
+### CP-6 Alternate Storage Site
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+| **Responsible** | System Owner; borgmatic on the nas; travisbackupserver |
+| **Parameters** | None |
+
+> a. Establish an alternate storage site, including necessary agreements to permit the storage and retrieval of system backup information; and
+> b. Ensure that the alternate storage site provides controls equivalent to that of the primary site.
+
+**Implementation.**
+**a.** The alternate storage site is the off-site borgmatic copy. It runs nightly from the nas over Tailscale, rate-limited to 1 MB/s (`docs/RUNDOWN.md` § Backups).
+
+The repository's only record of the target is `scripts/restore.sh` lines 16 and 41: `ssh://root@100.81.123.74/mnt/backups`. That address is travisbackupserver, the Debian host "at another site … Long Island" (`docs/access-procedures.md` § Infrastructure). The same script is dated 2026-08-23 and is wrong about the rest of the backup architecture (G-CP-02), and the system description marks the receiving host **[UNVERIFIED]** (§2.2). Several facts are unknown:
+- what the copy covers (which datasets; whether it includes `/tank/minio`, where the database backups live);
+- its retention;
+- its encryption mode.
+
+Even if it is the backup server, no agreement covers the premises. That host has "no remote hands" (`docs/access-procedures.md` § GPU on travisbackupserver), and who controls physical access to it is not recorded **[UNVERIFIED]**. Retrieval is `scripts/restore.sh borg-list` / `borg-extract`, which needs a `~/.ssh/id_borg` key whose escrow is unknown **[UNVERIFIED]**.
+
+**b.** Equivalence is partial:
+- **Confidentiality.** Borg encrypts client-side, and the passphrase stays on the nas with its escrow in Doppler (policy §12.1), so per §5.2.5 the key does not travel with the data.
+- **Integrity.** It depends on whether the nas's key can delete archives (G-CP-13).
+- **Availability.** There is **no freshness alert** (policy §13.1). Every other layer has one.
+- **Shared role.** The host is also the alerting relay (ntfy) and the edge probe. A fault there takes out both the off-site copy and the only alert path that survives pve's death (`docs/recovery/cluster-down.md`).
+
+**Evidence.** `scripts/restore.sh` lines 12–16, 41–42, 253–300; `docs/access-procedures.md` § Infrastructure, § Credential Locations; policy §12.1, §13.1.
+
+**Gaps.**
+- `G-CP-12` The off-site copy has no freshness alert. Risk: the only copy that survives a site loss can be stale for weeks, and the backup alerts — which run inside the cluster — never notice. Remedy: borgmatic's `after_backup`/`on_error` hooks push to ntfy. The external watchdog (or a timer on the backup server reading `borg list --last 1`) alerts when the newest archive is more than 36 h old. Target **2026-12-15**.
+- `G-CP-14` The off-site target, coverage, retention, encryption mode and append-only status are recorded nowhere current. Risk: the plan relies on a copy whose contents nobody can state. Remedy: the owner confirms them (a Z0 read) and records the non-secret facts in the system description §2.2 and §4.2, retiring the stale lines in `restore.sh`. Target **2026-11-30**.
+
+**Related.** Policy §5.2.5, §12, §13.1; CP-6(1), CP-6(3), CP-9, CP-9(8).
+
+### CP-6(1) Separation from Primary Site
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+| **Responsible** | System Owner |
+| **Parameters** | None |
+
+> Identify an alternate storage site that is sufficiently separated from the primary storage site to reduce susceptibility to the same threats.
+
+**Implementation.**
+
+**Physical separation.** The backup server is in a different building, on a different network. The outage runbook relies on exactly that: the edge probe "survives the *building* dying" (`docs/recovery/cluster-down.md`, "What is in place now"). That covers the threats seen so far — a power cut at the primary site, a fire or theft there, and the nas or pve failing. The distance between the sites, and whether they share a power grid, regional weather (both may be on Long Island) or an ISP, are not recorded **[UNVERIFIED]**.
+
+**Logical separation** is weaker, and for the threats this system actually faces it matters more:
+- The same owner credential (`worker_key`, root) opens both sites.
+- Both are on the same Tailscale tailnet.
+- The nas pushes as `root@` on the backup server (`scripts/restore.sh` line 16).
+
+Unless the nas's borg key is restricted to append-only `borg serve` **[UNVERIFIED]**, a compromise of the nas — ransomware, or a mistaken agent with `doas` — reaches the off-site archives too. The repository encryption does not help there: deletion needs no key.
+
+**Evidence.** `docs/recovery/cluster-down.md`; `docs/access-procedures.md` § SSH Access; `scripts/restore.sh`.
+
+**Gaps.**
+- `G-CP-13` The off-site repository is not shown to be protected from deletion by the primary site. Risk: one compromise destroys the primary data and the off-site copy together. Remedy: a forced command in `authorized_keys` on the backup server (`borg serve --append-only --restrict-to-path /mnt/backups`), a non-root user for it, and periodic compaction run only from the backup server. Target **2027-01-31**.
+- The geographic facts are part of `G-CP-14`.
+
+**Related.** CP-6, CP-9(8); AC-6; policy §8.2 (backup repositories are Z0).
+
+### CP-6(3) Accessibility
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+| **Responsible** | System Owner |
+| **Parameters** | None |
+
+> Identify potential accessibility problems to the alternate storage site in the event of an area-wide disruption or disaster and outline explicit mitigation actions.
+
+**Implementation.** One accessibility problem has been identified and mitigated: losing the remote host to a bad boot. Because the host has "no remote hands", a GRUB one-shot fallback and `panic=30` let a failed kernel return to the known-good one without intervention (`docs/access-procedures.md` § GPU on travisbackupserver).
+
+These problems have not been analysed, and have no mitigation:
+1. **Bandwidth.** Uploads are throttled to 1 MB/s. Restore speed is bounded by the backup site's uplink, which is unknown **[UNVERIFIED]**. Restoring the 566 G `tank/appdata/personal` dataset (`docs/expansion-plan.md`) at, for example, 10 MB/s would take about 16 hours. At 1 MB/s it would take a week, which breaks the Tier 2 RTO of 72 h.
+2. **Tailscale dependency.** Retrieval runs over Tailscale (inherited). The plan has no path for when the tailnet or its coordination service is unavailable.
+3. **Keys.** If the nas is lost, the borg passphrase survives only in Doppler. Reaching Doppler needs the owner's account, whose MFA and recovery codes are **[UNVERIFIED]** (policy §9.4).
+4. **Physical access.** Physical access to the backup site in an area-wide event is not documented.
+
+**Evidence.** `docs/access-procedures.md`; `docs/RUNDOWN.md` § Backups; policy §12.1.
+
+**Gaps.**
+- `G-CP-15` There is no accessibility analysis. Risk: in a regional event the off-site copy exists but cannot be reached or read in time. Remedy: a section of the contingency plan (G-CP-03) that records the measured restore throughput from the backup site. It also lists the fallbacks: physically fetching the backup disk; an offline escrow of the borg passphrase and repository key independent of Doppler (G-CP-19); and a non-Tailscale path. Target **2027-02-28**.
+
+**Related.** CP-6, CP-9(8), CP-10; policy §7.1, §12.2.5.
