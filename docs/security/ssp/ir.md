@@ -202,3 +202,60 @@ These mechanisms are in place and cited. Two limits matter. All of them are abou
 
 **Related.** IR-4, IR-5, IR-6(1), SI-4; HS-OBS-01, HS-OBS-05, HS-GIT-03, HS-GIT-07.
 
+### IR-5 Incident Monitoring
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+| **Responsible** | System Owner; automated operators (record, HS-AGENT-08); CI `fix-needs-log` |
+| **Parameters** | — |
+
+> Track and document incidents.
+
+**Implementation.**
+
+**Documenting.** `docs/doctor-log.md` is the incident register: one entry per incident, newest first, with symptom, root cause, fix, prevention and, for newer entries, a confidence line (`docs/doctor-log.md:1-11`). A repeat is linked to its earlier entry, because "a repeated incident means the prevention failed" (`:4-6`). The symptom index (`:13-93`) maps literal error text to entries, and `scripts/doctor.sh:342-356` retrieves entries by app name. Recurring classes get their own entries (`:2088`, `:2098`) and recurrence counts ("One-sided NetworkPolicy (4×)", `:95-106`). Git gives each entry an immutable timestamp and an author (HS-AGENT-13). CI `fix-needs-log` flags a `fix()` commit to `apps/` that adds no entry (HS-GIT-07, CHECKED, not blocking).
+
+**Tracking** is the weak half. An entry is a write-up, not a ticket:
+- There is no incident id, status, severity or timeline field. Residual work lives in prose and nothing follows it to closure. The 2026-09-14 entry shows the cost: a task was closed while DNS stayed plaintext for nine days. That same entry's "Not covered" paragraph (host resolvers still plaintext) has no tracker either.
+- Order and shape have drifted. From `:2108` on, entries are out of date order (2026-08-29 after 2026-08-26, 2026-09-05 before 2026-09-04), and three entries carry no date at all (`:2729`, `:2800`, `:2899`).
+- Security incidents recorded elsewhere never reached the log. `docs/accounts.md:20-24` says every Authentik user could reach every app until 2026-09-04. ADR-0012 "Context" says agents had put live credentials into transcripts "and sometimes into a commit to this public repo". Neither names a credential, a rotation or a severity.
+- The register is split by branch: `origin/main` has entries through 2026-10-03 that this tree lacks.
+
+**Evidence.** `docs/doctor-log.md`; `scripts/doctor.sh`; `.github/workflows/validate.yaml` job `fix-needs-log`; `docs/accounts.md:20-24`; `docs/adr/0012-agents-cannot-delete-state.md`; `git log -- docs/doctor-log.md`.
+
+**Gaps.**
+- `G-IR-12`: Incidents are documented but not tracked. Risk: open follow-ups and unresolved residue are lost in prose, which is exactly how the DNS leak stayed open. Remedy: add a header line to every new entry (`Severity · Detected · Resolved · Status · Follow-up: #issue`), open a GitHub issue labelled `incident` for any entry with open work, and review open `incident` issues in the monthly POA&M review (policy §19). Target 2027-01-31.
+- `G-IR-14`: Known security incidents are missing from the register. Risk: the only record of past credential exposures is a sentence in an ADR, so nobody can tell whether each exposed credential was rotated (HS-SEC-06 UNMEASURED). Remedy: write retrospective entries for the pre-2026-09-04 open access and for the agent credential exposures, naming each credential by name only, with its rotation status and a §16.2 severity. Rotate any that cannot be shown rotated. Target 2026-12-15.
+
+**Related.** IR-4, IR-6, IR-8; AU-6; policy §16.1, §16.3.5; HS-AGENT-08, HS-GIT-07, HS-OBS-05, HS-SEC-06.
+
+### IR-6 Incident Reporting
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+| **Responsible** | System Owner (receives every report; reports outward); automated operators and service users (report to the owner) |
+| **Parameters** | ir-06_odp.01 = automated operators: at once, in the session in which they find it (policy §10.4, §10.5); all reporters: same day for SEV-1 and SEV-2 (App. A), 72 hours for SEV-3, next working session for SEV-4 (§16.2); ir-06_odp.02 = affected service users, within 72 hours of confirmation (§16.6, App. A); the provider of an exposed credential or affected service, for revocation (§16.5.3). No external authority is assigned (G-IR-02). |
+
+> a. Require personnel to report suspected incidents to the organizational incident response capability within [Assignment: at once, in-session, for automated operators; same day for SEV-1/2, 72 hours for SEV-3, next working session for SEV-4]; and
+> b. Report incident information to [Assignment: affected service users within 72 hours of confirmation; the provider of an exposed credential or affected service].
+
+**Implementation.**
+
+**a.** The "incident response capability" is the owner. Each population reports differently:
+- *Automated operators* must stop and tell the owner when evidence contradicts what they were told or a next step needs §10.2 or §10.3 (§10.4), must report failures as failures (§10.5), and must record diagnosed cluster incidents in the log (HS-AGENT-08). This works when the owner is in the session. Agents also run unattended (ADR-0012 "Context": the owner wants that "to stay fully automated"). An agent that finds a SEV-1 or SEV-2 then has no documented way to reach him. Its report waits in a transcript or an unpushed log entry until someone reads it, which can miss the same-day clock.
+- *Service users* are assigned "reporting suspected compromise" (§3.1) but have no channel (G-IR-04).
+- *Machines* report through IR-6(1).
+
+**b.** Policy §16.6 requires the owner to tell an affected user what happened, what data was involved and what to do, within 72 hours. It has never been used. Service users' contact details live only in Authentik (Z0, out of git, W-01). Which channel the owner would use is not written down, and whether Authentik can send mail to them is **[UNVERIFIED]**. Providers are contacted through revocation in their consoles (§16.5.3). No regulator or law enforcement body is named. Whether one should be is G-IR-02.
+
+**Evidence.** Policy §3.1, §10.4–10.5, §16.2, §16.5–16.6, App. A; `AGENTS.md` "The doctor log"; `docs/accounts.md`; `docs/adr/0012-agents-cannot-delete-state.md`.
+
+**Gaps.**
+- `G-IR-15`: An unattended agent cannot raise an urgent report. Risk: a credential exposure found at night by an unattended agent is not acted on until the owner next opens the session, past the same-day clock. Remedy: give agents one sanctioned paging action, a POST to the ntfy relay's `homelab-alerts` topic with a fixed `[agent SEV-n]` title (the relay accepts it, `docs/ntfy.md` "What the relay accepts"), allowed only for SEV-1/2 findings and written into `AGENTS.md`. Target 2027-01-31.
+- G-IR-04 (no service-user reporting channel) and G-IR-02 (no external authority analysis) also apply.
+
+**Related.** IR-2, IR-5, IR-6(1), IR-7; policy §3.1, §10.4, §16; HS-AGENT-08.
