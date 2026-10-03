@@ -363,6 +363,27 @@ spec:
           # link-local address ("for ip6tables: failed cleaning up test
           # rule"). v3.41.3 does not.
           image: qmcgaw/gluetun:v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
+          # CLEAR STALE WIREGUARD RULES BEFORE STARTING.
+          #
+          # A container restart keeps the pod's network namespace, so if
+          # gluetun dies without cleaning up ("Shutdown failed:
+          # ordered shutdown timed out ... http proxy"), its
+          # `101: not from all fwmark 0xca6c lookup 51820` rules survive. Every
+          # later start then fails with "adding IPv6 rule: ... file exists",
+          # the tunnel never comes up, the liveness probe kills it, and it
+          # loops - 466 restarts in two days, vpn-proxy refusing connections
+          # in between, so Octo's YouTube previews all 502'd. This is gluetun's
+          # documented Kubernetes fix (gluetun-wiki setup/advanced/kubernetes.md),
+          # done in a wrapper instead of the wiki's postStart: postStart
+          # races the entrypoint and could delete the live tunnel's rule.
+          # Nothing else in the pod uses table 51820. exec keeps gluetun PID 1.
+          command:
+            - /bin/sh
+            - -c
+            - >-
+              while ip rule del table 51820 2>/dev/null; do :; done;
+              while ip -6 rule del table 51820 2>/dev/null; do :; done;
+              exec /gluetun-entrypoint
           securityContext:
             capabilities:
               add: ["NET_ADMIN"]
