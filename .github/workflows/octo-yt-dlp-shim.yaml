@@ -91,7 +91,7 @@ jobs:
           echo "built ${IMAGE}:${date} from ${UPSTREAM_REPO}@${short}"
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: upstream/yt-dlp-shim
           push: true
