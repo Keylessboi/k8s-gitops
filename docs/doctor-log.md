@@ -107,6 +107,7 @@ the literal string you are seeing, then read the entry.
 | A CronJob whose fixed template never runs; `ACTIVE 1`, `LAST SCHEDULE` days ago, an old Job still `Running` in `ImagePullBackOff` | `concurrencyPolicy: Forbid` held by a Job created before the fix — 2026-09-30 (games-mount-scan) |
 | A published host answers `404` from Traefik; its Ingress is there but the backend Service is `NotFound` | component disabled, hand-written Ingress left behind — 2026-10-01 (grafana) |
 | An album is downloaded over and over, `Import failed: Item removed by Queue Cleaner`, library never changes | a nightly importer racing a minutes-fast queue cleaner — 2026-10-02 (AppleMusicarr) |
+| `adding IPv6 rule: adding ip rule 101: from all to all table 51820: file exists`; gluetun restarts in the hundreds; Octo previews `502`, yt-dlp `Unable to connect to proxy` | stale WireGuard ip rules in the pod netns — 2026-10-03 |
 
 ### The traps that have bitten more than once
 
@@ -147,6 +148,38 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-10-03 — gluetun looped for two days on its own leftover ip rules
+
+**Symptom.** Octo's YouTube previews stopped playing in Feishin while library tracks
+streamed fine. Octo logged `yt-dlp-shim-search ... 502` after 15-20 s; the shim logged
+`yt-dlp timed out` and `Unable to connect to proxy ... vpn-proxy.downloads.svc.cluster.local:8888
+... Connection refused`. The qbittorrent pod showed gluetun at 466 restarts in 2d8h,
+liveness `healthcheck did not run yet`, so qBittorrent and slskd were also without a tunnel.
+
+**Root cause.** gluetun exited uncleanly once (`Shutdown failed: ordered shutdown timed out
+... http proxy: goroutine shutdown timed out`) and did not remove its
+`101: not from all fwmark 0xca6c lookup 51820` rules. A container restart keeps the pod's
+network namespace, so those rules (IPv4 and IPv6, both seen with `ip rule show`) outlived it.
+Every later start failed with `adding IPv6 rule: ... file exists`, retried on a growing
+backoff, never brought the tunnel up, and was killed by the liveness probe; the HTTP proxy
+was down for part of every cycle. `strategy: Recreate` was already set and does not help: it
+only governs rollouts, not in-pod container restarts.
+
+**Fix.** 1ccfa2d wraps gluetun's entrypoint in `sh -c` that deletes every `table 51820` rule
+(v4 and v6) and then `exec`s `/gluetun-entrypoint`. This is gluetun-wiki's Kubernetes fix,
+moved from `postStart` (which races the entrypoint and could delete a live tunnel's rule) to
+before the process starts. The push recreated the pod, which also cleared the stale state.
+
+**Prevention.** A sidecar that writes kernel network state (ip rules, routes, iptables) into a
+shared pod namespace must clean up its own leftovers *at start*, not only at shutdown:
+shutdown cleanup is skipped exactly when it is needed, on a crash or timeout. A restart count
+in the hundreds on a VPN sidecar is an outage, not noise; it should alert.
+
+**Confidence:** CONFIRMED. The stale rule was visible in both `ip rule show` and
+`ip -6 rule show` before the fix; on the new pod gluetun logged `Wireguard setup is complete`
+and exit 23.130.104.134 within seconds, with no `file exists`, and a shim `/search` through
+vpn-proxy returned 200 in 4.6 s while live preview streams answered 206.
 
 ## 2026-10-01 — the restore drill failed on a partitioned table it miscounted
 
