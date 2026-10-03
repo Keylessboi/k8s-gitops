@@ -30,9 +30,10 @@ off-site backup (CP-10). That makes the off-site storage copy (CP-6) the only
 
 | Disposition | Count |
 |---|---|
-| Partially implemented | 8 |
+| Partially implemented | 13 |
 | Alternative implementation | 3 |
-| **Total** | **11** |
+| Not applicable | 7 |
+| **Total** | **23** |
 ---
 
 ### CP-1 Policy and Procedures
@@ -388,3 +389,185 @@ These problems have not been analysed, and have no mitigation:
 - `G-CP-15` There is no accessibility analysis. Risk: in a regional event the off-site copy exists but cannot be reached or read in time. Remedy: a section of the contingency plan (G-CP-03) that records the measured restore throughput from the backup site. It also lists the fallbacks: physically fetching the backup disk; an offline escrow of the borg passphrase and repository key independent of Doppler (G-CP-19); and a non-Tailscale path. Target **2027-02-28**.
 
 **Related.** CP-6, CP-9(8), CP-10; policy §7.1, §12.2.5.
+
+### CP-7 Alternate Processing Site
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Not applicable |
+
+**Implementation.** S5: availability is LOW and the cluster is single-node and single-site by design (W-06). There is no alternate processing site; recovery is restore-in-place on rebuilt hardware within the tier RTOs (policy §7). travisbackupserver is a notification relay and edge probe, not a processing site. Residual risk: a site loss means days of outage, accepted by W-06.
+
+**Evidence.** W-06; policy §7; `00-system-description.md` §2.1
+
+**Gaps.** None.
+
+**Related.** CP-2, CP-6, CP-10.
+
+### CP-7(1) Separation from Primary Site
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Not applicable |
+
+**Implementation.** Follows CP-7: no alternate processing site.
+
+**Evidence.** —
+
+**Gaps.** None.
+
+**Related.** CP-7.
+
+### CP-7(2) Accessibility
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Not applicable |
+
+**Implementation.** Follows CP-7.
+
+**Evidence.** —
+
+**Gaps.** None.
+
+**Related.** CP-7.
+
+### CP-7(3) Priority of Service
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Not applicable |
+
+**Implementation.** Follows CP-7.
+
+**Evidence.** —
+
+**Gaps.** None.
+
+**Related.** CP-7.
+
+### CP-8 Telecommunications Services
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Not applicable |
+
+**Implementation.** S5: a single residential ISP link; no alternate telecommunications service. An ISP outage stops external access only; the cluster keeps running and recovers when the link returns. Accepted by W-06.
+
+**Evidence.** W-06
+
+**Gaps.** None.
+
+**Related.** CP-8(1), CP-8(2).
+
+### CP-8(1) Priority of Service Provisions
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Not applicable |
+
+**Implementation.** Follows CP-8.
+
+**Evidence.** —
+
+**Gaps.** None.
+
+**Related.** CP-8.
+
+### CP-8(2) Single Points of Failure
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Not applicable |
+
+**Implementation.** Follows CP-8.
+
+**Evidence.** —
+
+**Gaps.** None.
+
+**Related.** CP-8.
+
+### CP-9 System Backup
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Four layers (`00-system-description.md` §4.2): CNPG WAL and base backups to MinIO; daily encrypted restic `pg_dump` of every database; ZFS snapshots of `tank` (sanoid schedule **[UNVERIFIED]**); nightly borgmatic off-site over Tailscale. System-level data (configuration) is git. Freshness is measured from stored data for databases (HS-REC-02). File PVCs on `local-path` (app configs, SQLite) and the off-site layer are not shown to be covered or fresh.
+
+**Evidence.** `apps/databases/`; `docs/RUNDOWN.md` Backups; HS-REC-01, HS-REC-02
+
+**Gaps.** Off-site freshness is `G-CP-12`.
+- `G-CP-16` `local-path` file PVCs (app configs, Ghost SQLite, Immich thumbnails) are not shown to be in any backup layer, and the sanoid schedule is unverified. Risk: losing the pve disk loses app configuration and the blog with no copy. Remedy: list every PVC with its backup layer in `00` §4.1, add the missing ones to a restic job, and record the sanoid policy. Target **2027-01-31**.
+
+**Related.** CP-9(1), CP-9(8), CP-10; HS-REC-*.
+
+### CP-9(1) Testing for Reliability and Integrity
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** The monthly restore drill tests every database dump (17 checked, 16 fully restored, 1 integrity-verified, 0 failures at last record). File data and non-dump layers are untested (`G-CP-09`).
+
+**Evidence.** `apps/databases/restore-drill-cronjob.yaml`
+
+**Gaps.** Covered by `G-CP-09`, `G-CP-10`.
+
+**Related.** CP-4.
+
+### CP-9(8) Cryptographic Protection
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** restic repositories are encrypted; borgmatic encryption mode is unrecorded (`G-CP-14`); CNPG WAL/base backups in MinIO rely on `tank`'s ZFS encryption.
+
+**Evidence.** `00-system-description.md` §4.1
+
+**Gaps.** Covered by `G-CP-14`; key escrow by `G-SC-04`.
+
+**Related.** SC-28, SC-12.
+
+### CP-10 System Recovery and Reconstitution
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Recovery is documented in `docs/recovery/cluster-down.md` and `docs/access-procedures.md` (k3s reset, ArgoCD bootstrap). Reconstitution order is Tier 0 → 3 (policy §7.2). No recovery has been timed (`G-CP-06`), and `scripts/restore.sh` describes an old architecture (`G-CP-02`).
+
+**Evidence.** `docs/recovery/cluster-down.md`; policy §7
+
+**Gaps.** Covered by `G-CP-02`, `G-CP-06`.
+
+**Related.** CP-2, CP-4.
+
+### CP-10(2) Transaction Recovery
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Database transactions are recoverable to a point in time from WAL (RPO target 15 min, policy §7). Point-in-time restore has not been exercised.
+
+**Evidence.** `apps/databases/`; policy §7
+
+**Gaps.** Covered by `G-CP-06` (RTO/RPO never measured).
+
+**Related.** CP-10.
+

@@ -9,9 +9,10 @@ Incident response here is real and well exercised for **availability** incidents
 | Disposition | Count |
 |---|---|
 | Implemented | 1 |
-| Partially implemented | 6 |
+| Partially implemented | 10 |
 | Planned | 1 |
-| **Total** | **8** |
+| Alternative implementation | 1 |
+| **Total** | **13** |
 ### IR-1 Policy and Procedures
 
 | | |
@@ -256,3 +257,80 @@ These mechanisms are in place and cited. Two limits matter. All of them are abou
 - G-IR-04 (no service-user reporting channel) and G-IR-02 (no external authority analysis) also apply.
 
 **Related.** IR-2, IR-5, IR-6(1), IR-7; policy §3.1, §10.4, §16; HS-AGENT-08.
+
+### IR-6(1) Automated Reporting
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Availability incidents are reported automatically: Prometheus alerts and the external watchdog notify the owner through ntfy and email. Security events (Authentik login failures, CrowdSec bans) are not reported automatically.
+
+**Evidence.** `docs/ntfy.md`; HS-OBS-01
+
+**Gaps.**
+- `G-IR-13` No automated reporting of security events. Risk: a brute-force or account takeover is noticed only if someone happens to look. Remedy: Loki ruler alerts for Authentik admin logins from new IPs, repeated failures, and CrowdSec ban spikes, routed to ntfy. Target **2027-01-31**.
+
+**Related.** SI-4, AU-6.
+
+### IR-6(3) Supply Chain Coordination
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Supply-chain incidents (a compromised image or provider) would be reported by the owner to the upstream project or provider. No contact list or procedure exists.
+
+**Evidence.** Policy §16
+
+**Gaps.** Covered by `G-SA-09` (provider register with contacts).
+
+**Related.** SR-8.
+
+### IR-7 Incident Response Assistance
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Alternative implementation |
+
+**Implementation.** S1: there is no help desk. Assistance is the owner, `scripts/doctor.sh`, the doctor-log symptom index, and AI agents for diagnosis (never for declaring or containing an incident, policy §10).
+
+**Evidence.** `scripts/doctor.sh`; `docs/doctor-log.md`
+
+**Gaps.** Service-user reporting path is `G-IR-04`.
+
+**Related.** IR-4.
+
+### IR-7(1) Automation Support for Availability of Information and Support
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Automation: `scripts/doctor.sh` collects evidence in one command; the symptom index is grepped automatically.
+
+**Evidence.** `scripts/doctor.sh`
+
+**Gaps.** None.
+
+**Related.** IR-7.
+
+### IR-8 Incident Response Plan
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** The incident response plan is policy §16 (severity scale, phases, credential-exposure and agent-misbehaviour playbooks, 72-hour user notification). It has not been approved, applied or exercised (`G-IR-01`, `G-IR-06`, `G-IR-09`).
+
+**Evidence.** Policy §16
+
+**Gaps.** Covered by `G-IR-01`, `G-IR-06`, `G-IR-09`.
+
+**Related.** IR-1, IR-3.
+

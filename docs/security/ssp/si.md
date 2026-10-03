@@ -4,13 +4,15 @@
 
 ## Family summary
 
-<!-- SUMMARY-PLACEHOLDER -->
+Integrity monitoring is good for availability (Prometheus, Alertmanager, the external watchdog, backup freshness) and for the repository (gitleaks, the secret-guard hook, CI invariants). It is thin for security: no vulnerability scanning, no malware scanning of uploaded or downloaded files, no API audit log, and security events that are logged but never reviewed. Flaw remediation runs through Renovate and image-updater, but on `main` it reaches production with no test beyond rendering. Prompt injection against AI agents is treated as an input-validation problem (policy §10.2.5, HS-AGENT-11) with no technical control beyond the harness.
 
 | Disposition | Count |
 |---|---|
-| Partially implemented | 4 |
+| Partially implemented | 14 |
 | Planned | 1 |
-| **Total** | **5** |
+| Inherited | 1 |
+| Not applicable | 2 |
+| **Total** | **18** |
 ---
 
 ### SI-1 Policy and Procedures
@@ -173,4 +175,202 @@ What exists is *containment*, not detection. qBittorrent can only egress through
 - `G-SI-11`: No legal opinion on, or notice of, monitoring (f). Risk: service users are not told that their IPs and logins are logged. Remedy: in place of a legal opinion, which is disproportionate here, add a short monitoring and retention notice to `docs/accounts.md` and the accounts page. Target: **2026-12-31**.
 
 **Related.** Policy §§9.2, 14, 16; HS-OBS-01..05, HS-AGENT-13; ADR-0007; AU-2, AU-6, AU-12; SI-4(2), SI-4(4), SI-4(5).
+
+### SI-4(2) Automated Tools and Mechanisms for Real-time Analysis
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Automated analysis exists for metrics (Prometheus rules → Alertmanager → ntfy) and for edge attacks (CrowdSec scenarios on Traefik logs). No automated analysis of logs for security events (`G-IR-13`).
+
+**Evidence.** `apps/monitoring/`; `apps/crowdsec/`
+
+**Gaps.** Covered by `G-IR-13`.
+
+**Related.** SI-4, AU-6(1).
+
+### SI-4(4) Inbound and Outbound Communications Traffic
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Inbound traffic is monitored by CrowdSec on Traefik access logs. Outbound traffic is not monitored, except that the torrent stack is confined to the VPN (SC-7(8)).
+
+**Evidence.** `apps/crowdsec/`
+
+**Gaps.**
+- `G-SI-12` No monitoring of unusual outbound traffic from the cluster. Risk: a compromised pod exfiltrating data or mining is noticed only by its resource use. Remedy: egress NetworkPolicies on Tier 1–2 namespaces that allow only declared destinations, and an alert on denied egress. Target **2027-06-30**.
+
+**Related.** SC-7, AC-4.
+
+### SI-4(5) System-generated Alerts
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** System-generated alerts go to the owner through ntfy and email (HS-OBS-01). Security indicators (`G-IR-13`) and certificate expiry (`G-SI-09`) are not routed.
+
+**Evidence.** `docs/ntfy.md`
+
+**Gaps.** Covered by `G-IR-13`, `G-SI-09`.
+
+**Related.** IR-6(1).
+
+### SI-5 Security Alerts, Advisories, and Directives
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Security advisories reach the owner through Renovate PRs and release notes, and GitHub notifications. There is no subscription to advisories for hosts (Proxmox, Arch, Debian), k3s, or Authentik/Vaultwarden security lists.
+
+**Evidence.** `renovate.json`
+
+**Gaps.** Covered by `G-SI-05`.
+
+**Related.** SI-2, RA-5.
+
+### SI-7 Software, Firmware, and Information Integrity
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Configuration integrity: git history plus ArgoCD selfHeal reverts drift in managed objects. Software integrity: 16 of 85 containers are pinned by digest (HS-WL-01); the rest can change under the same tag. Data integrity: ZFS checksums and scrubs on `tank` (scrub schedule **[UNVERIFIED]**); Postgres page checksums **[UNVERIFIED]**.
+
+**Evidence.** HS-WL-01, HS-GIT-01
+
+**Gaps.** Digest pinning is `G-CM-12`.
+
+**Related.** CM-7(5), SR-11.
+
+### SI-7(1) Integrity Checks
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Integrity checks run continuously for configuration (ArgoCD sync status) and at pull time for digest-pinned images. No check of host binaries.
+
+**Evidence.** `apps/argocd/`
+
+**Gaps.** Covered by `G-CM-12` and `G-SC-02`.
+
+**Related.** SI-7.
+
+### SI-7(7) Integration of Detection and Response
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Unauthorized changes to managed objects are reverted by ArgoCD selfHeal, and git commits are attributable. Changes made outside git are not detected (`G-CM-05`, `G-CM-03`).
+
+**Evidence.** HS-GIT-01
+
+**Gaps.** Covered by `G-CM-05` and `G-CM-03`.
+
+**Related.** CM-3, IR-4.
+
+### SI-8 Spam Protection
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Not applicable |
+
+**Implementation.** The system runs no mail server; it only sends alert mail through an external relay. Spam protection is the mail provider's.
+
+**Evidence.** `docs/ntfy.md`
+
+**Gaps.** None.
+
+**Related.** SI-8(2).
+
+### SI-8(2) Automatic Updates
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Not applicable |
+
+**Implementation.** Follows SI-8.
+
+**Evidence.** —
+
+**Gaps.** None.
+
+**Related.** SI-8.
+
+### SI-10 Information Input Validation
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Input validation is each application's responsibility; Traefik and CrowdSec filter at the edge. For AI agents, content they read is data, not instructions (HS-AGENT-11, policy §10.2.5); this rests on model behaviour and on the harness's permission prompts.
+
+**Evidence.** HS-AGENT-11; policy §10
+
+**Gaps.**
+- `G-SI-13` No technical control against prompt injection for agents with admin credentials. Risk: text in a log, issue or web page steers an agent into a destructive or secret-reading action. Remedy: the scoped kubeconfig (POA&M item 1) limits the blast radius; keep destructive commands behind the harness's approval rules for every harness, not only Claude Code. Target **2027-03-31**.
+
+**Related.** AC-6, SI-3.
+
+### SI-11 Error Handling
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Error messages are each application's; no review has checked that they avoid leaking internals. Agents are told never to print secrets in their output (HS-SEC-03).
+
+**Evidence.** HS-SEC-03
+
+**Gaps.** None.
+
+**Related.** SI-10.
+
+### SI-12 Information Management and Retention
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Retention and disposal of information are set in policy §13 (retention schedule, backups, disposal). Logs: 30 days (AU-11). Agent transcripts are a C4 store when a secret is printed (`00-system-description.md` §6); their retention on the laptop and at the model provider is not set.
+
+**Evidence.** Policy §13.2; `00-system-description.md` §6
+
+**Gaps.**
+- `G-SI-14` No retention rule enforced for agent transcripts. Risk: transcripts that once held a secret persist indefinitely on the laptop. Remedy: a laptop cleanup timer that deletes transcripts older than the §13.2 period, and a record of the model provider's retention setting. Target **2027-03-31**.
+
+**Related.** AU-11, MP-6.
+
+### SI-16 Memory Protection
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Inherited (OS and runtime) |
+
+**Implementation.** Memory protection (ASLR, NX) is provided by the Linux kernels on pve, the nas and CT 200, and by the container runtime. The owner's share is keeping kernels patched (`G-SI-03`).
+
+**Evidence.** —
+
+**Gaps.** Covered by `G-SI-03`.
+
+**Related.** SI-2.
 

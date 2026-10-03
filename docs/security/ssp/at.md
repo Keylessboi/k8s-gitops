@@ -30,8 +30,10 @@ The biggest gaps:
 
 | Disposition | Count |
 |---|---|
-| Partially implemented | 2 |
-| **Total** | **2** |
+| Partially implemented | 4 |
+| Planned | 1 |
+| Alternative implementation | 1 |
+| **Total** | **6** |
 ---
 
 ### AT-1 Policy and Procedures
@@ -119,3 +121,64 @@ It then sends the agent to policy §5–6, §8 and §10. "Initial" and "periodic
 - `G-AT-03` Nothing proves each harness loads `AGENTS.md`. The repo has no `CLAUDE.md` or equivalent pointer, and no check confirms the policy is in an agent's context before it acts. *Risk:* an agent works with none of the rules and only the Claude Code hooks to stop it, and other harnesses have no hooks at all (HS-SEC-03). *Remedy:* add a pointer file for each harness in use, and have the owner confirm each harness's loading behaviour once (G-AT-03 command in the lead report). Target **2026-12-15**.
 
 **Related.** Policy §3.1, §9.4, §10, §16.6, App. A; HS-AGENT-01, HS-OBS-05; AT-2(2), AT-2(3), AT-3; PL-4; IR-2.
+
+### AT-2(2) Insider Threat
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Planned |
+
+**Implementation.** Insider-threat awareness has no subject in a one-person system except the AI agents, whose rules are policy §10. Agent misbehaviour is the realistic "insider" case and has a playbook (§16).
+
+**Evidence.** Policy §10, §16
+
+**Gaps.** Covered by `G-AT-03`.
+
+**Related.** PS-*, IR-4.
+
+### AT-2(3) Social Engineering and Mining
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Social engineering awareness for agents is HS-AGENT-11 (content read is data, not instructions). Service users receive nothing (`G-AT-02`).
+
+**Evidence.** HS-AGENT-11
+
+**Gaps.** Covered by `G-AT-02`.
+
+**Related.** SI-10.
+
+### AT-3 Role-based Training
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Alternative implementation |
+
+**Implementation.** Role-based training for the only privileged role is the owner reading the policy and the doctor log at each review (App. A), and agents receiving `AGENTS.md` and the policy in context.
+
+**Evidence.** Policy App. A; `AGENTS.md`
+
+**Gaps.** Covered by `G-AT-03`.
+
+**Related.** AT-2.
+
+### AT-4 Training Records
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Training records: the policy review record (policy §19) and git history of `AGENTS.md`. No reviews have been recorded yet.
+
+**Evidence.** Policy §19
+
+**Gaps.** Covered by `G-CA-01`.
+
+**Related.** AT-2.
+
