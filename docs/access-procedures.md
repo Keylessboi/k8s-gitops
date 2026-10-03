@@ -170,11 +170,11 @@ k3s server --cluster-reset \
 # 3. Start k3s
 systemctl start k3s
 
-# 4. Re-apply ArgoCD at the version this repo is pinned to (v2.12.3; see
-#    KUSTOMIZE_VERSION notes in .github/workflows/validate.yaml). Never
-#    `stable`: a different ArgoCD renders manifests differently.
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/v2.12.3/manifests/install.yaml
-# 5. Then apps/argocd by hand (it is not synced by ArgoCD)
+# 4. Re-apply ArgoCD at the version this repo pins, from a checkout of main.
+#    scripts/bootstrap-argocd.sh holds the pinned version; read it before
+#    running. Never `stable`: a different ArgoCD renders manifests differently.
+./scripts/bootstrap-argocd.sh
+# 5. Then apps/argocd by hand, if the script did not (it is not synced by ArgoCD)
 kubectl apply -f apps/argocd/
 ```
 

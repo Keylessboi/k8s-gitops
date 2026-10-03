@@ -1,0 +1,289 @@
+# NIST SP 800-53 Rev. 5.2.0 MODERATE baseline, in catalog order (source: usnistgov/oscal-content).
+# id	title	baselines
+AC-1	Policy and Procedures	LOW, MODERATE
+AC-2	Account Management	LOW, MODERATE
+AC-2(1)	Automated System Account Management	MODERATE
+AC-2(2)	Automated Temporary and Emergency Account Management	MODERATE
+AC-2(3)	Disable Accounts	MODERATE
+AC-2(4)	Automated Audit Actions	MODERATE
+AC-2(5)	Inactivity Logout	MODERATE
+AC-2(13)	Disable Accounts for High-risk Individuals	MODERATE
+AC-3	Access Enforcement	LOW, MODERATE
+AC-4	Information Flow Enforcement	MODERATE
+AC-5	Separation of Duties	MODERATE
+AC-6	Least Privilege	MODERATE
+AC-6(1)	Authorize Access to Security Functions	MODERATE
+AC-6(2)	Non-privileged Access for Nonsecurity Functions	MODERATE
+AC-6(5)	Privileged Accounts	MODERATE
+AC-6(7)	Review of User Privileges	MODERATE
+AC-6(9)	Log Use of Privileged Functions	MODERATE
+AC-6(10)	Prohibit Non-privileged Users from Executing Privileged Functions	MODERATE
+AC-7	Unsuccessful Logon Attempts	LOW, MODERATE
+AC-8	System Use Notification	LOW, MODERATE
+AC-11	Device Lock	MODERATE
+AC-11(1)	Pattern-hiding Displays	MODERATE
+AC-12	Session Termination	MODERATE
+AC-14	Permitted Actions Without Identification or Authentication	LOW, MODERATE
+AC-17	Remote Access	LOW, MODERATE
+AC-17(1)	Monitoring and Control	MODERATE
+AC-17(2)	Protection of Confidentiality and Integrity Using Encryption	MODERATE
+AC-17(3)	Managed Access Control Points	MODERATE
+AC-17(4)	Privileged Commands and Access	MODERATE
+AC-18	Wireless Access	LOW, MODERATE
+AC-18(1)	Authentication and Encryption	MODERATE
+AC-18(3)	Disable Wireless Networking	MODERATE
+AC-19	Access Control for Mobile Devices	LOW, MODERATE
+AC-19(5)	Full Device or Container-based Encryption	MODERATE
+AC-20	Use of External Systems	LOW, MODERATE
+AC-20(1)	Limits on Authorized Use	MODERATE
+AC-20(2)	Portable Storage Devices — Restricted Use	MODERATE
+AC-21	Information Sharing	MODERATE
+AC-22	Publicly Accessible Content	LOW, MODERATE
+AT-1	Policy and Procedures	LOW, MODERATE
+AT-2	Literacy Training and Awareness	LOW, MODERATE
+AT-2(2)	Insider Threat	LOW, MODERATE
+AT-2(3)	Social Engineering and Mining	MODERATE
+AT-3	Role-based Training	LOW, MODERATE
+AT-4	Training Records	LOW, MODERATE
+AU-1	Policy and Procedures	LOW, MODERATE
+AU-2	Event Logging	LOW, MODERATE
+AU-3	Content of Audit Records	LOW, MODERATE
+AU-3(1)	Additional Audit Information	MODERATE
+AU-4	Audit Log Storage Capacity	LOW, MODERATE
+AU-5	Response to Audit Logging Process Failures	LOW, MODERATE
+AU-6	Audit Record Review, Analysis, and Reporting	LOW, MODERATE
+AU-6(1)	Automated Process Integration	MODERATE
+AU-6(3)	Correlate Audit Record Repositories	MODERATE
+AU-7	Audit Record Reduction and Report Generation	MODERATE
+AU-7(1)	Automatic Processing	MODERATE
+AU-8	Time Stamps	LOW, MODERATE
+AU-9	Protection of Audit Information	LOW, MODERATE
+AU-9(4)	Access by Subset of Privileged Users	MODERATE
+AU-11	Audit Record Retention	LOW, MODERATE
+AU-12	Audit Record Generation	LOW, MODERATE
+CA-1	Policy and Procedures	LOW, MODERATE
+CA-2	Control Assessments	LOW, MODERATE
+CA-2(1)	Independent Assessors	MODERATE
+CA-3	Information Exchange	LOW, MODERATE
+CA-5	Plan of Action and Milestones	LOW, MODERATE
+CA-6	Authorization	LOW, MODERATE
+CA-7	Continuous Monitoring	LOW, MODERATE
+CA-7(1)	Independent Assessment	MODERATE
+CA-7(4)	Risk Monitoring	LOW, MODERATE
+CA-9	Internal System Connections	LOW, MODERATE
+CM-1	Policy and Procedures	LOW, MODERATE
+CM-2	Baseline Configuration	LOW, MODERATE
+CM-2(2)	Automation Support for Accuracy and Currency	MODERATE
+CM-2(3)	Retention of Previous Configurations	MODERATE
+CM-2(7)	Configure Systems and Components for High-risk Areas	MODERATE
+CM-3	Configuration Change Control	MODERATE
+CM-3(2)	Testing, Validation, and Documentation of Changes	MODERATE
+CM-3(4)	Security and Privacy Representatives	MODERATE
+CM-4	Impact Analyses	LOW, MODERATE
+CM-4(2)	Verification of Controls	MODERATE
+CM-5	Access Restrictions for Change	LOW, MODERATE
+CM-6	Configuration Settings	LOW, MODERATE
+CM-7	Least Functionality	LOW, MODERATE
+CM-7(1)	Periodic Review	MODERATE
+CM-7(2)	Prevent Program Execution	MODERATE
+CM-7(5)	Authorized Software — Allow-by-exception	MODERATE
+CM-8	System Component Inventory	LOW, MODERATE
+CM-8(1)	Updates During Installation and Removal	MODERATE
+CM-8(3)	Automated Unauthorized Component Detection	MODERATE
+CM-9	Configuration Management Plan	MODERATE
+CM-10	Software Usage Restrictions	LOW, MODERATE
+CM-11	User-installed Software	LOW, MODERATE
+CM-12	Information Location	MODERATE
+CM-12(1)	Automated Tools to Support Information Location	MODERATE
+CP-1	Policy and Procedures	LOW, MODERATE
+CP-2	Contingency Plan	LOW, MODERATE
+CP-2(1)	Coordinate with Related Plans	MODERATE
+CP-2(3)	Resume Mission and Business Functions	MODERATE
+CP-2(8)	Identify Critical Assets	MODERATE
+CP-3	Contingency Training	LOW, MODERATE
+CP-4	Contingency Plan Testing	LOW, MODERATE
+CP-4(1)	Coordinate with Related Plans	MODERATE
+CP-6	Alternate Storage Site	MODERATE
+CP-6(1)	Separation from Primary Site	MODERATE
+CP-6(3)	Accessibility	MODERATE
+CP-7	Alternate Processing Site	MODERATE
+CP-7(1)	Separation from Primary Site	MODERATE
+CP-7(2)	Accessibility	MODERATE
+CP-7(3)	Priority of Service	MODERATE
+CP-8	Telecommunications Services	MODERATE
+CP-8(1)	Priority of Service Provisions	MODERATE
+CP-8(2)	Single Points of Failure	MODERATE
+CP-9	System Backup	LOW, MODERATE
+CP-9(1)	Testing for Reliability and Integrity	MODERATE
+CP-9(8)	Cryptographic Protection	MODERATE
+CP-10	System Recovery and Reconstitution	LOW, MODERATE
+CP-10(2)	Transaction Recovery	MODERATE
+IA-1	Policy and Procedures	LOW, MODERATE
+IA-2	Identification and Authentication (Organizational Users)	LOW, MODERATE
+IA-2(1)	Multi-factor Authentication to Privileged Accounts	LOW, MODERATE
+IA-2(2)	Multi-factor Authentication to Non-privileged Accounts	LOW, MODERATE
+IA-2(8)	Access to Accounts — Replay Resistant	LOW, MODERATE
+IA-2(12)	Acceptance of PIV Credentials	LOW, MODERATE
+IA-3	Device Identification and Authentication	MODERATE
+IA-4	Identifier Management	LOW, MODERATE
+IA-4(4)	Identify User Status	MODERATE
+IA-5	Authenticator Management	LOW, MODERATE
+IA-5(1)	Password-based Authentication	LOW, MODERATE
+IA-5(2)	Public Key-based Authentication	MODERATE
+IA-5(6)	Protection of Authenticators	MODERATE
+IA-6	Authentication Feedback	LOW, MODERATE
+IA-7	Cryptographic Module Authentication	LOW, MODERATE
+IA-8	Identification and Authentication (Non-organizational Users)	LOW, MODERATE
+IA-8(1)	Acceptance of PIV Credentials from Other Agencies	LOW, MODERATE
+IA-8(2)	Acceptance of External Authenticators	LOW, MODERATE
+IA-8(4)	Use of Defined Profiles	LOW, MODERATE
+IA-11	Re-authentication	LOW, MODERATE
+IA-12	Identity Proofing	MODERATE
+IA-12(2)	Identity Evidence	MODERATE
+IA-12(3)	Identity Evidence Validation and Verification	MODERATE
+IA-12(5)	Address Confirmation	MODERATE
+IR-1	Policy and Procedures	LOW, MODERATE
+IR-2	Incident Response Training	LOW, MODERATE
+IR-3	Incident Response Testing	MODERATE
+IR-3(2)	Coordination with Related Plans	MODERATE
+IR-4	Incident Handling	LOW, MODERATE
+IR-4(1)	Automated Incident Handling Processes	MODERATE
+IR-5	Incident Monitoring	LOW, MODERATE
+IR-6	Incident Reporting	LOW, MODERATE
+IR-6(1)	Automated Reporting	MODERATE
+IR-6(3)	Supply Chain Coordination	MODERATE
+IR-7	Incident Response Assistance	LOW, MODERATE
+IR-7(1)	Automation Support for Availability of Information and Support	MODERATE
+IR-8	Incident Response Plan	LOW, MODERATE
+MA-1	Policy and Procedures	LOW, MODERATE
+MA-2	Controlled Maintenance	LOW, MODERATE
+MA-3	Maintenance Tools	MODERATE
+MA-3(1)	Inspect Tools	MODERATE
+MA-3(2)	Inspect Media	MODERATE
+MA-3(3)	Prevent Unauthorized Removal	MODERATE
+MA-4	Nonlocal Maintenance	LOW, MODERATE
+MA-5	Maintenance Personnel	LOW, MODERATE
+MA-6	Timely Maintenance	MODERATE
+MP-1	Policy and Procedures	LOW, MODERATE
+MP-2	Media Access	LOW, MODERATE
+MP-3	Media Marking	MODERATE
+MP-4	Media Storage	MODERATE
+MP-5	Media Transport	MODERATE
+MP-6	Media Sanitization	LOW, MODERATE
+MP-7	Media Use	LOW, MODERATE
+PE-1	Policy and Procedures	LOW, MODERATE
+PE-2	Physical Access Authorizations	LOW, MODERATE
+PE-3	Physical Access Control	LOW, MODERATE
+PE-4	Access Control for Transmission	MODERATE
+PE-5	Access Control for Output Devices	MODERATE
+PE-6	Monitoring Physical Access	LOW, MODERATE
+PE-6(1)	Intrusion Alarms and Surveillance Equipment	MODERATE
+PE-8	Visitor Access Records	LOW, MODERATE
+PE-9	Power Equipment and Cabling	MODERATE
+PE-10	Emergency Shutoff	MODERATE
+PE-11	Emergency Power	MODERATE
+PE-12	Emergency Lighting	LOW, MODERATE
+PE-13	Fire Protection	LOW, MODERATE
+PE-13(1)	Detection Systems — Automatic Activation and Notification	MODERATE
+PE-14	Environmental Controls	LOW, MODERATE
+PE-15	Water Damage Protection	LOW, MODERATE
+PE-16	Delivery and Removal	LOW, MODERATE
+PE-17	Alternate Work Site	MODERATE
+PL-1	Policy and Procedures	LOW, MODERATE
+PL-2	System Security and Privacy Plans	LOW, MODERATE
+PL-4	Rules of Behavior	LOW, MODERATE
+PL-4(1)	Social Media and External Site/Application Usage Restrictions	LOW, MODERATE
+PL-8	Security and Privacy Architectures	MODERATE
+PL-10	Baseline Selection	LOW, MODERATE
+PL-11	Baseline Tailoring	LOW, MODERATE
+PS-1	Policy and Procedures	LOW, MODERATE
+PS-2	Position Risk Designation	LOW, MODERATE
+PS-3	Personnel Screening	LOW, MODERATE
+PS-4	Personnel Termination	LOW, MODERATE
+PS-5	Personnel Transfer	LOW, MODERATE
+PS-6	Access Agreements	LOW, MODERATE
+PS-7	External Personnel Security	LOW, MODERATE
+PS-8	Personnel Sanctions	LOW, MODERATE
+PS-9	Position Descriptions	LOW, MODERATE
+RA-1	Policy and Procedures	LOW, MODERATE
+RA-2	Security Categorization	LOW, MODERATE
+RA-3	Risk Assessment	LOW, MODERATE
+RA-3(1)	Supply Chain Risk Assessment	LOW, MODERATE
+RA-5	Vulnerability Monitoring and Scanning	LOW, MODERATE
+RA-5(2)	Update Vulnerabilities to Be Scanned	LOW, MODERATE
+RA-5(5)	Privileged Access	MODERATE
+RA-5(11)	Public Disclosure Program	LOW, MODERATE
+RA-7	Risk Response	LOW, MODERATE
+RA-9	Criticality Analysis	MODERATE
+SA-1	Policy and Procedures	LOW, MODERATE
+SA-2	Allocation of Resources	LOW, MODERATE
+SA-3	System Development Life Cycle	LOW, MODERATE
+SA-4	Acquisition Process	LOW, MODERATE
+SA-4(1)	Functional Properties of Controls	MODERATE
+SA-4(2)	Design and Implementation Information for Controls	MODERATE
+SA-4(9)	Functions, Ports, Protocols, and Services in Use	MODERATE
+SA-4(10)	Use of Approved PIV Products	LOW, MODERATE
+SA-5	System Documentation	LOW, MODERATE
+SA-8	Security and Privacy Engineering Principles	LOW, MODERATE
+SA-9	External System Services	LOW, MODERATE
+SA-9(2)	Identification of Functions, Ports, Protocols, and Services	MODERATE
+SA-10	Developer Configuration Management	MODERATE
+SA-11	Developer Testing and Evaluation	MODERATE
+SA-15	Development Process, Standards, and Tools	MODERATE
+SA-15(3)	Criticality Analysis	MODERATE
+SA-22	Unsupported System Components	LOW, MODERATE
+SC-1	Policy and Procedures	LOW, MODERATE
+SC-2	Separation of System and User Functionality	MODERATE
+SC-4	Information in Shared System Resources	MODERATE
+SC-5	Denial-of-service Protection	LOW, MODERATE
+SC-7	Boundary Protection	LOW, MODERATE
+SC-7(3)	Access Points	MODERATE
+SC-7(4)	External Telecommunications Services	MODERATE
+SC-7(5)	Deny by Default — Allow by Exception	MODERATE
+SC-7(7)	Split Tunneling for Remote Devices	MODERATE
+SC-7(8)	Route Traffic to Authenticated Proxy Servers	MODERATE
+SC-8	Transmission Confidentiality and Integrity	MODERATE
+SC-8(1)	Cryptographic Protection	MODERATE
+SC-10	Network Disconnect	MODERATE
+SC-12	Cryptographic Key Establishment and Management	LOW, MODERATE
+SC-13	Cryptographic Protection	LOW, MODERATE
+SC-15	Collaborative Computing Devices and Applications	LOW, MODERATE
+SC-17	Public Key Infrastructure Certificates	MODERATE
+SC-18	Mobile Code	MODERATE
+SC-20	Secure Name/Address Resolution Service (Authoritative Source)	LOW, MODERATE
+SC-21	Secure Name/Address Resolution Service (Recursive or Caching Resolver)	LOW, MODERATE
+SC-22	Architecture and Provisioning for Name/Address Resolution Service	LOW, MODERATE
+SC-23	Session Authenticity	MODERATE
+SC-28	Protection of Information at Rest	MODERATE
+SC-28(1)	Cryptographic Protection	MODERATE
+SC-39	Process Isolation	LOW, MODERATE
+SI-1	Policy and Procedures	LOW, MODERATE
+SI-2	Flaw Remediation	LOW, MODERATE
+SI-2(2)	Automated Flaw Remediation Status	MODERATE
+SI-3	Malicious Code Protection	LOW, MODERATE
+SI-4	System Monitoring	LOW, MODERATE
+SI-4(2)	Automated Tools and Mechanisms for Real-time Analysis	MODERATE
+SI-4(4)	Inbound and Outbound Communications Traffic	MODERATE
+SI-4(5)	System-generated Alerts	MODERATE
+SI-5	Security Alerts, Advisories, and Directives	LOW, MODERATE
+SI-7	Software, Firmware, and Information Integrity	MODERATE
+SI-7(1)	Integrity Checks	MODERATE
+SI-7(7)	Integration of Detection and Response	MODERATE
+SI-8	Spam Protection	MODERATE
+SI-8(2)	Automatic Updates	MODERATE
+SI-10	Information Input Validation	MODERATE
+SI-11	Error Handling	MODERATE
+SI-12	Information Management and Retention	LOW, MODERATE
+SI-16	Memory Protection	MODERATE
+SR-1	Policy and Procedures	LOW, MODERATE
+SR-2	Supply Chain Risk Management Plan	LOW, MODERATE
+SR-2(1)	Establish SCRM Team	LOW, MODERATE
+SR-3	Supply Chain Controls and Processes	LOW, MODERATE
+SR-5	Acquisition Strategies, Tools, and Methods	LOW, MODERATE
+SR-6	Supplier Assessments and Reviews	MODERATE
+SR-8	Notification Agreements	LOW, MODERATE
+SR-10	Inspection of Systems or Components	LOW, MODERATE
+SR-11	Component Authenticity	LOW, MODERATE
+SR-11(1)	Anti-counterfeit Training	LOW, MODERATE
+SR-11(2)	Configuration Control for Component Service and Repair	LOW, MODERATE
+SR-12	Component Disposal	LOW, MODERATE
