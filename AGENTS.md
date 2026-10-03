@@ -15,7 +15,9 @@ ArgoCD watches `apps/*` through one ApplicationSet and auto-syncs `main` with
   with the owner first unless they already asked for the change.
 - `kubectl edit` / `kubectl scale` gets reverted on the next sync. Change the
   file, push, let it land.
-- Images are pinned by digest. Bumping one is a deliberate commit.
+- Images **must** be pinned by digest (HS-WL-01). Most are not yet: 16 of 85
+  containers in the non-Helm apps were on 2026-10-01. Pin any image you touch.
+  Bumping one is a deliberate commit.
 - Before pushing a manifest change, render it and dry-run it server-side:
   `kubectl kustomize apps/<app> | kubectl apply --dry-run=server --validate=strict -f -`.
   That catches misplaced fields a YAML linter accepts.
@@ -73,6 +75,8 @@ intended. Do not work around it:
 
 | You need | Look at |
 |---|---|
+| **What you may and may not touch, and how to handle data** | `docs/security/01-policy.md`: protection zones (§8), data classes (§5–6), your rules as an automated operator (§10). It overrides anything else here. |
+| Whether a requirement is met, and how it's tested | `docs/security/03-homelab-standard.md` |
 | Something is broken | `scripts/doctor.sh <app>` first, then grep `docs/doctor-log.md` for the literal error text. Its symptom index is the point of the file. |
 | Why something is built the way it is | `docs/adr/` |
 | What each app is and how to log in | `docs/RUNDOWN.md` |

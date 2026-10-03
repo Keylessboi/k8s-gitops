@@ -105,20 +105,34 @@ kubectl get applications -n argocd
 
 ### ArgoCD Admin Password
 
+The value is C4 RESTRICTED (`docs/security/01-policy.md` §6). **The owner**
+reads it, by hand, in their own terminal. Agents never do, and must not run
+this for you: the hook will block it, and the policy forbids it either way.
+
 ```bash
+# Owner only. Never run by an agent.
 kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath="{.data.password}" | base64 -d
+  -o jsonpath="{.data.password}" | base64 -d; echo
 ```
+
+To check whether the secret exists without reading it:
+`secret-meta argocd argocd-initial-admin-secret`.
 
 ## Emergency Bypass
 
 ### ArgoCD Down
 
-If ArgoCD is unresponsive and you need to remove an application:
+If ArgoCD is unresponsive and you need to remove an application **object**
+without touching what it deployed:
 
 ```bash
-kubectl delete application -n argocd <app-name> --cascade=background
+kubectl delete application -n argocd <app-name> --cascade=orphan
 ```
+
+**Never `--cascade=background` or `foreground`.** Every Application carries
+the resources finalizer, so a cascading delete removes the app's namespace and
+PVCs, and on `local-path` that is the data (ADR-0012). This is break-glass
+(`docs/security/01-policy.md` §9.6): owner only, written up afterwards.
 
 ### k3s Down
 
@@ -156,8 +170,12 @@ k3s server --cluster-reset \
 # 3. Start k3s
 systemctl start k3s
 
-# 4. Re-apply ArgoCD
-kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+# 4. Re-apply ArgoCD at the version this repo pins, from a checkout of main.
+#    scripts/bootstrap-argocd.sh holds the pinned version; read it before
+#    running. Never `stable`: a different ArgoCD renders manifests differently.
+./scripts/bootstrap-argocd.sh
+# 5. Then apps/argocd by hand, if the script did not (it is not synced by ArgoCD)
+kubectl apply -f apps/argocd/
 ```
 
 ## Maintenance Windows
