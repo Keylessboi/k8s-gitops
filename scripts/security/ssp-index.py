@@ -39,7 +39,7 @@ FAMILIES = {
     "SI": "System and Information Integrity", "SR": "Supply Chain Risk Management",
 }
 HEAD = re.compile(r"^### ([A-Z]{2}-\d+(?:\(\d+\))?) (.+)$")
-GAP = re.compile(r"^\s*[-*] `(G-[A-Z]{2}-\d+)`:?\s*(.*)$")
+GAP = re.compile(r"^\s*[-*] (?:`(G-[A-Z]{2}-\d+)`|\*\*(G-[A-Z]{2}-\d+)\.?\*\*):?\s*(.*)$")
 
 
 def baseline():
@@ -73,7 +73,7 @@ def sections():
         s["disposition"] = m[1].strip() if m else ""
         s["kind"] = next((d for d in DISPOSITIONS if s["disposition"].startswith(d)), "")
         s["missing"] = [p.strip("*.") for p in PARTS if p not in body]
-        s["gaps"] = [(g[1], g[2]) for g in map(GAP.match, s["body"]) if g]
+        s["gaps"] = [(g[1] or g[2], g[3]) for g in map(GAP.match, s["body"]) if g]
         impl = body.split("**Implementation.**", 1)[-1].split("**Evidence.**", 1)[0]
         s["implementation"] = " ".join(impl.split())
     return out

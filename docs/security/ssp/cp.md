@@ -30,13 +30,9 @@ off-site backup (CP-10). That makes the off-site storage copy (CP-6) the only
 
 | Disposition | Count |
 |---|---|
-| Implemented | 0 |
-| Partially implemented | 14 |
-| Planned | 0 |
-| Inherited | 0 |
-| Alternative implementation | 2 |
-| Not applicable | 7 |
-| **Total** | **23** |
+| Partially implemented | 8 |
+| Alternative implementation | 3 |
+| **Total** | **11** |
 
 ---
 

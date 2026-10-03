@@ -9,11 +9,9 @@ Incident response here is real and well exercised for **availability** incidents
 | Disposition | Count |
 |---|---|
 | Implemented | 1 |
-| Partially implemented | 10 |
-| Planned | 2 |
-| Inherited | 0 |
-| Alternative implementation | 0 |
-| Not applicable | 0 |
+| Partially implemented | 6 |
+| Planned | 1 |
+| **Total** | **8** |
 
 ### IR-1 Policy and Procedures
 

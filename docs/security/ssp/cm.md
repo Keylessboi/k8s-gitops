@@ -23,13 +23,10 @@ work (policy §3.2). Travel controls (CM-2(7)) are tailored out.
 
 | Disposition | Count |
 |---|---|
-| Implemented | 0 |
-| Partially implemented | 20 |
-| Planned | 2 |
-| Inherited | 0 |
+| Partially implemented | 6 |
 | Alternative implementation | 1 |
 | Not applicable | 1 |
-| **Total** | **24** |
+| **Total** | **8** |
 
 ### Reading this family: which tree is "the system"
 

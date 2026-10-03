@@ -4,9 +4,12 @@
 
 ## Family summary
 
-_Counts are recomputed from the sections below once the family is complete._
-
 ---
+
+| Disposition | Count |
+|---|---|
+| Partially implemented | 4 |
+| **Total** | **4** |
 
 ### AU-1 Policy and Procedures
 

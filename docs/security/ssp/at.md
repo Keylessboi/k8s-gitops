@@ -30,13 +30,8 @@ The biggest gaps:
 
 | Disposition | Count |
 |---|---|
-| Implemented | 0 |
-| Partially implemented | 5 |
-| Planned | 1 |
-| Inherited | 0 |
-| Alternative implementation | 0 |
-| Not applicable | 0 |
-| **Total** | **6** |
+| Partially implemented | 2 |
+| **Total** | **2** |
 
 ---
 
