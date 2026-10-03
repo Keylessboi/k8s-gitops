@@ -4,12 +4,16 @@
 
 ## Family summary
 
----
+Accountability for *changes* is good: every change is a git commit, agent commits carry a `Co-Authored-By` trailer, and incidents go into the doctor log with a confidence line. Accountability for *actions* is weak: there is no Kubernetes API audit log, host journals are not collected, and Authentik and CrowdSec security events are kept but never reviewed. Logs live in Loki inside the cluster they describe, so a cluster-admin (person, agent or intruder) can alter or remove them. Retention is 30 days with no archive, a tailoring decision recorded in `02-tailoring.md` §3.3.
 
 | Disposition | Count |
 |---|---|
-| Partially implemented | 4 |
-| **Total** | **4** |
+| Implemented | 1 |
+| Partially implemented | 12 |
+| Planned | 2 |
+| Alternative implementation | 1 |
+| **Total** | **16** |
+---
 
 ### AU-1 Policy and Procedures
 
@@ -163,4 +167,187 @@ None of them says how to query Loki, how long anything is kept, or how to review
 **Gaps.** Covered by `G-AU-02` (API client fields) and `G-AU-04` (trailer not enforced, other harnesses unmarked). No separate gap.
 
 **Related.** HS-GIT-07, HS-AGENT-08, HS-AGENT-13; AU-3; CM-3.
+
+### AU-4 Audit Log Storage Capacity
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Loki and Prometheus run in `apps/monitoring` on persistent volumes. Policy says every time-series or log store MUST have a size ceiling (HS-PLAT-02); that is UNMEASURED.
+
+**Evidence.** `apps/monitoring/`; HS-PLAT-02
+
+**Gaps.**
+- `G-AU-05` Log and metric store size ceilings are unmeasured. Risk: a full volume stops log ingestion silently, or fills a node disk shared with databases. Remedy: measure the configured retention/size limits for Loki and Prometheus, set them where missing, and alert at 80%. Target **2027-01-31**.
+
+**Related.** AU-5, HS-PLAT-02.
+
+### AU-5 Response to Audit Logging Process Failures
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Failures of the monitoring pipeline as a whole are detected by the external watchdog: if the cluster's heartbeat stops, ntfy alerts the owner (HS-OBS-01). Failures of log ingestion alone (Alloy or Loki down while Prometheus is up) have no recorded alert.
+
+**Evidence.** `docs/ntfy.md`; HS-OBS-01
+
+**Gaps.** Covered by `G-AU-05` (add ingestion and capacity alerts).
+
+**Related.** AU-4, SI-4.
+
+### AU-6 Audit Record Review, Analysis, and Reporting
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Planned |
+
+**Implementation.** Logs are read during incident diagnosis (`scripts/doctor.sh`, doctor log), not reviewed on a schedule. Policy §14 lists the security events to keep; no routine reviews them.
+
+**Evidence.** Policy §14; `scripts/doctor.sh`
+
+**Gaps.** Covered by `G-SI-09` (security logs never reviewed).
+
+**Related.** AU-6(1), AU-6(3), SI-4.
+
+### AU-6(1) Automated Process Integration
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Planned |
+
+**Implementation.** Alertmanager integrates metrics alerts with ntfy, but no log-based security alerting exists (Loki ruler use for security events is not recorded).
+
+**Evidence.** `apps/monitoring/`
+
+**Gaps.** Covered by `G-SI-09`.
+
+**Related.** AU-6.
+
+### AU-6(3) Correlate Audit Record Repositories
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Logs from cluster workloads land in one Loki store, so they can be correlated by time. Host journals, Tailscale and provider logs are separate (`G-AU-03`).
+
+**Evidence.** `apps/monitoring/`
+
+**Gaps.** Covered by `G-AU-03`.
+
+**Related.** AU-6.
+
+### AU-7 Audit Record Reduction and Report Generation
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Grafana with Loki and Prometheus provides query and reduction. Grafana is not published while `grafana.enabled: false` on `main` (`docs/access-procedures.md`), so querying is by port-forward or LogCLI. No saved security queries exist.
+
+**Evidence.** `apps/monitoring/`; `docs/access-procedures.md`
+
+**Gaps.** Covered by `G-AU-01` (no procedure for querying logs).
+
+**Related.** AU-7(1).
+
+### AU-7(1) Automatic Processing
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Loki label and LogQL filters support event selection by namespace, app and time. No predefined security filters.
+
+**Evidence.** —
+
+**Gaps.** Covered by `G-AU-01`.
+
+**Related.** AU-7.
+
+### AU-8 Time Stamps
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Records use the host clocks of pve, CT 200 and the nas. Time synchronisation (NTP/chrony) on each host is **[UNVERIFIED]**.
+
+**Evidence.** —
+
+**Gaps.**
+- `G-AU-06` Host time synchronisation is unverified. Risk: skewed timestamps make cross-host correlation and TLS validation fail. Remedy: record `timedatectl` on pve, nas and travisbackupserver and add a node-exporter clock-skew alert. Target **2027-01-31**.
+
+**Related.** AU-3, SC-45.
+
+### AU-9 Protection of Audit Information
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Git history is protected by GitHub, though `main` can be force-pushed (`G-CM-06`). Loki data sits inside the cluster it records; anyone with cluster-admin can delete it. The doctor log is in git.
+
+**Evidence.** `G-CM-06`; `apps/monitoring/`
+
+**Gaps.**
+- `G-AU-07` Audit logs are stored where the actors they record can delete them. Risk: an intruder or a mistaken agent erases its own trail. Remedy: ship security-relevant streams (API audit, Authentik events, host auth logs) to travisbackupserver or another host the cluster's credentials cannot write. Target **2027-03-31**.
+
+**Related.** AU-9(4), AU-11.
+
+### AU-9(4) Access by Subset of Privileged Users
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Alternative implementation |
+
+**Implementation.** S1: only one person can hold privileged access, so a subset of privileged users cannot be defined. Intended compensation: a log copy outside the cluster (`G-AU-07`).
+
+**Evidence.** `02-tailoring.md` §3.1
+
+**Gaps.** Covered by `G-AU-07`.
+
+**Related.** AU-9.
+
+### AU-11 Audit Record Retention
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Implemented |
+
+**Implementation.** Audit/security logs are kept 30 days online with no long-term archive (policy App. A; tailoring decision in `02-tailoring.md` §3.3). Git history and the doctor log keep the long-term change and incident record. Whether Loki's configured retention actually equals 30 days is part of `G-AU-05`.
+
+**Evidence.** Policy App. A, §13.2; `02-tailoring.md` §3.3
+
+**Gaps.** None.
+
+**Related.** AU-4.
+
+### AU-12 Audit Record Generation
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Records are generated by Traefik (access logs), Authentik (events), CrowdSec (decisions), workloads (stdout to Alloy/Loki) and git. Not generated: Kubernetes API audit (`G-AU-02`), central host auth logs (`G-AU-03`).
+
+**Evidence.** `apps/traefik/`; `apps/authentik/`; `apps/monitoring/`
+
+**Gaps.** Covered by `G-AU-02` and `G-AU-03`.
+
+**Related.** AU-2.
 

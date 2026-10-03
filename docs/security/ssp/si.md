@@ -11,7 +11,6 @@
 | Partially implemented | 4 |
 | Planned | 1 |
 | **Total** | **5** |
-
 ---
 
 ### SI-1 Policy and Procedures

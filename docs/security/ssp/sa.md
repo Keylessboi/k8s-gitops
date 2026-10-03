@@ -4,15 +4,15 @@
 
 ## Family summary
 
-<!-- SUMMARY-PLACEHOLDER -->
+Almost nothing here is acquired under contract: the system is built from open-source images and Helm charts chosen by the owner, plus a handful of images the owner builds, plus external services under their providers' terms. SA therefore maps onto *how components are admitted and kept*: Renovate and image-updater for updates, ADRs for design decisions, CI for developer testing. The main gaps are that there are no written admission criteria for a new component, Renovate's configuration on `main` automerges updates that policy says need review (`G-SA-05`), the custom images are built by hand outside CI (`G-SA-03`), and there is no register of external services or of unsupported components.
 
 | Disposition | Count |
 |---|---|
-| Partially implemented | 10 |
+| Partially implemented | 14 |
+| Planned | 1 |
 | Alternative implementation | 1 |
 | Not applicable | 1 |
-| **Total** | **12** |
-
+| **Total** | **17** |
 ---
 
 ### SA-1 Policy and Procedures
@@ -391,4 +391,80 @@ The gap is precision, not absence. Where the egress is a wildcard, the specific 
 - Covered by `G-SA-06` (the ports, protocols and services table includes a row per external provider flow) and `G-SA-09` (the register links each provider's published network requirements).
 
 **Related.** SA-4(9), SA-9, CM-7, SC-7; policy §15.
+
+### SA-10 Developer Configuration Management
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Developer configuration management for this repository is git with CI. The owner's custom images (applemusic-wrapper, spatial-sidecar and others) are built and pushed by hand outside CI (`G-SA-03`).
+
+**Evidence.** `.github/workflows/validate.yaml`
+
+**Gaps.** Covered by `G-SA-03`.
+
+**Related.** CM-3, SR-11.
+
+### SA-11 Developer Testing and Evaluation
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Developer testing is CI rendering and validation (HS-GIT-05, -06, -09), invariant and protected-state checks, and gitleaks. There is no runtime or security test (`G-CM-09`, `G-CM-10`).
+
+**Evidence.** `.github/workflows/validate.yaml`; `scripts/ci/`
+
+**Gaps.** Covered by `G-CM-09` and `G-CM-10`.
+
+**Related.** CM-4.
+
+### SA-15 Development Process, Standards, and Tools
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** The development process is documented in `AGENTS.md`, ADRs and policy §11. Tools are pinned in CI (kustomize/Helm versions matching ArgoCD, HS-GIT-06).
+
+**Evidence.** `AGENTS.md`; HS-GIT-06
+
+**Gaps.** None.
+
+**Related.** SA-10.
+
+### SA-15(3) Criticality Analysis
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Planned |
+
+**Implementation.** No criticality analysis of components beyond the tiers in policy §7.
+
+**Evidence.** Policy §7
+
+**Gaps.** Covered by `G-CP-07` (untiered components).
+
+**Related.** RA-9.
+
+### SA-22 Unsupported System Components
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Components whose upstream is dead or unmaintained are not tracked systematically. Some are known from removals (Invidious, decommissioned 2026-09-05). Custom images depend on the owner.
+
+**Evidence.** `docs/doctor-log.md`
+
+**Gaps.**
+- `G-SA-10` No list of unsupported or end-of-life components. Risk: an unmaintained app keeps a known flaw forever. Remedy: add a "support status" column (maintained / slow / dead) to the inventory in `00` §4 and review it at the yearly review. Target **2027-03-31**.
+
+**Related.** SI-2, SR-5.
 

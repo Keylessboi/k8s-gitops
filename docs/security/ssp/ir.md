@@ -12,7 +12,6 @@ Incident response here is real and well exercised for **availability** incidents
 | Partially implemented | 6 |
 | Planned | 1 |
 | **Total** | **8** |
-
 ### IR-1 Policy and Procedures
 
 | | |

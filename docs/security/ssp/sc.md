@@ -14,7 +14,6 @@ Boundary protection is the strongest part of SC: one MetalLB address into Traefi
 | Alternative implementation | 1 |
 | Not applicable | 2 |
 | **Total** | **25** |
-
 ### SC-1 Policy and Procedures
 
 | | |

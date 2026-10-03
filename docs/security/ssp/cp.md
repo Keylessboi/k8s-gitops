@@ -33,7 +33,6 @@ off-site backup (CP-10). That makes the off-site storage copy (CP-6) the only
 | Partially implemented | 8 |
 | Alternative implementation | 3 |
 | **Total** | **11** |
-
 ---
 
 ### CP-1 Policy and Procedures

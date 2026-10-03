@@ -50,7 +50,6 @@ it says "owner" it means the System Owner, who holds every human role
 | Alternative implementation | 1 |
 | Not applicable | 4 |
 | **Total** | **39** |
-
 ---
 
 ### AC-1 Policy and Procedures

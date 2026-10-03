@@ -23,11 +23,12 @@ work (policy §3.2). Travel controls (CM-2(7)) are tailored out.
 
 | Disposition | Count |
 |---|---|
-| Partially implemented | 6 |
-| Alternative implementation | 1 |
+| Implemented | 3 |
+| Partially implemented | 17 |
+| Planned | 1 |
+| Alternative implementation | 2 |
 | Not applicable | 1 |
-| **Total** | **8** |
-
+| **Total** | **24** |
 ### Reading this family: which tree is "the system"
 
 This section was written in the `homelab-standard` branch (worktree
@@ -288,4 +289,248 @@ The alternative is weakened today wherever changes bypass the owner: Renovate's 
 **Gaps.** None beyond `G-CM-07` and `G-CM-08`.
 
 **Related.** CM-3, CM-4; policy §3.
+
+### CM-4 Impact Analyses
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Impact analysis is done by rendering and dry-running a change (`kubectl kustomize … | kubectl apply --dry-run=server`, AGENTS.md) and by CI. There is no security impact analysis step and no runtime test (`G-CM-09`).
+
+**Evidence.** `AGENTS.md`; `.github/workflows/validate.yaml`
+
+**Gaps.** Covered by `G-CM-09`.
+
+**Related.** CM-3, SA-11.
+
+### CM-4(2) Verification of Controls
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** After a change, agents must show data-plane evidence that it works (HS-AGENT-07, process only). Security functions are not re-verified after a change (e.g. that forward-auth still applies to a route).
+
+**Evidence.** HS-AGENT-07
+
+**Gaps.**
+- `G-CM-10` No check that security functions still work after a change. Risk: a refactor drops a forward-auth middleware or NetworkPolicy and nobody notices. Remedy: a CI check that every published Ingress has the Authentik middleware unless listed as an exception (blog, Kiwix, remux API). Target **2027-01-31**.
+
+**Related.** CM-4, SC-7.
+
+### CM-5 Access Restrictions for Change
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Changes to the cluster are restricted to git → ArgoCD (HS-GIT-01, ENFORCED by selfHeal for managed objects). Who can push is restricted to the owner's GitHub account, but agents push with it and `main` is unprotected (`G-AC-09`). Direct kubectl remains possible for anyone with the admin path (`G-AC-10`).
+
+**Evidence.** HS-GIT-01; `apps/argocd/root-applicationset.yaml`
+
+**Gaps.** Covered by `G-AC-09` and `G-AC-10`.
+
+**Related.** AC-3, AC-6.
+
+### CM-6 Configuration Settings
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Configuration settings are the manifests in `apps/`, enforced by ArgoCD selfHeal. Workload hardening settings are measured in `03` and mostly GAP: memory limits 76/85, readiness probes 29/39, no-escalation 32/85, non-root 15/56 pods (HS-WL-03, -04, -10). Host settings are not in git (`G-CM-03`). No CIS benchmark has been run (HS-HOST-01/02).
+
+**Evidence.** `03-homelab-standard.md` HS-WL-*, HS-HOST-*
+
+**Gaps.**
+- `G-CM-11` Workload security settings fall short of the standard (privilege escalation, non-root, limits) and no CIS scan exists. Risk: a compromised container has more room than it needs. Remedy: a CI report of HS-WL-03/04/10 per container, fix by tier (Tier 1 first), then a kube-bench run with the k3s profile. Target **2027-06-30**.
+
+**Related.** CM-7, HS-WL-*, HS-HOST-01.
+
+### CM-7 Least Functionality
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Only declared Ingress hosts are published; admin UIs are not (`00-system-description.md` §3); `HS-PLAT-01` forbids adding new operators or meshes without cause. Exceptions to least functionality: ConvertX (arbitrary file conversion, root, no forward-auth, `G-SI-07`), privileged namespaces without recorded reasons (W-04).
+
+**Evidence.** `00-system-description.md` §3; W-04
+
+**Gaps.** Covered by `G-SI-07`, `G-SC-02`; W-04 reasons by the 2026-11-01 waiver date.
+
+**Related.** SC-7, CM-7(1).
+
+### CM-7(1) Periodic Review
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Reviews of functions happen when an app is removed (e.g. Invidious decommissioned 2026-09-05), not on a schedule. Dead references remain (`G-AC-08`).
+
+**Evidence.** `docs/doctor-log.md`
+
+**Gaps.** Covered by `G-AC-08`.
+
+**Related.** CM-7.
+
+### CM-7(2) Prevent Program Execution
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Workloads run only what their images and manifests declare; ArgoCD reverts unmanaged changes to managed objects. Nothing prevents `kubectl run` of an arbitrary image via the admin path.
+
+**Evidence.** HS-GIT-01
+
+**Gaps.** Covered by `G-AC-10`.
+
+**Related.** CM-7(5).
+
+### CM-7(5) Authorized Software — Allow-by-exception
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Planned |
+
+**Implementation.** There is no allow-list of registries or images (no admission policy). Digest pinning, which would fix which image runs, covers 16 of 85 containers (HS-WL-01).
+
+**Evidence.** HS-WL-01
+
+**Gaps.**
+- `G-CM-12` No image allow-listing and 19% digest pinning. Risk: a re-tagged or hijacked upstream image deploys on the next pull. Remedy: pin every image by digest (Renovate keeps them current), then a Kyverno/ValidatingAdmissionPolicy that rejects unpinned images. Target **2027-06-30**.
+
+**Related.** SR-11, SI-7; HS-WL-01.
+
+### CM-8 System Component Inventory
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Implemented |
+
+**Implementation.** The component inventory is `00-system-description.md` §2 and §4 (hosts, apps, data stores, classes, tiers), and `apps/*` is the authoritative list of deployed applications.
+
+**Evidence.** `00-system-description.md` §2, §4
+
+**Gaps.** Off-site target and backup server tiers tracked as `G-CP-07`.
+
+**Related.** CM-8(1), CM-8(3).
+
+### CM-8(1) Updates During Installation and Removal
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** The inventory is updated when apps change only if the author remembers; policy §7.2 requires a tier and class before first deploy, with no check.
+
+**Evidence.** Policy §7.2
+
+**Gaps.**
+- `G-CM-13` No check that a new app gets a tier and data class. Risk: a new C4 store appears with no backup or protection decision. Remedy: namespace labels `homelab/data-class` and `homelab/criticality` (policy §5.3) and a CI check that every namespace has them. Target **2027-03-31**.
+
+**Related.** CM-8.
+
+### CM-8(3) Automated Unauthorized Component Detection
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Unauthorized components in the cluster are reverted or flagged OutOfSync by ArgoCD for managed namespaces. Unauthorized hosts or devices on the LAN or tailnet are not detected.
+
+**Evidence.** `apps/argocd/root-applicationset.yaml`
+
+**Gaps.** Covered by `G-AC-14` (home network) and `G-SA-09` (Tailscale review).
+
+**Related.** CM-8.
+
+### CM-9 Configuration Management Plan
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Implemented |
+
+**Implementation.** The configuration management plan is policy §11 (change types), §8 (zones), ADR-0012 (state protection), `AGENTS.md` and `03-homelab-standard.md` §GIT. Configuration items are everything under `apps/` and `components/`.
+
+**Evidence.** Policy §8, §11; `AGENTS.md`
+
+**Gaps.** None.
+
+**Related.** CM-3.
+
+### CM-10 Software Usage Restrictions
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Software is open source under its own licences; custom images are built by the owner. Licence compliance is not tracked, which matters only for redistribution (none).
+
+**Evidence.** `00-system-description.md` §4
+
+**Gaps.** None.
+
+**Related.** SA-4.
+
+### CM-11 User-installed Software
+
+| | |
+|---|---|
+| **Baseline** | LOW, MODERATE |
+| **Disposition** | Partially implemented |
+
+**Implementation.** Service users cannot install software on the system. The owner and agents can, through git (tracked) or directly on hosts (untracked, `G-CM-03`).
+
+**Evidence.** `G-CM-03`
+
+**Gaps.** Covered by `G-CM-03`.
+
+**Related.** CM-7.
+
+### CM-12 Information Location
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Implemented |
+
+**Implementation.** Where each class of information lives is recorded in `00-system-description.md` §4 and §4.1 (stores, encryption, location).
+
+**Evidence.** `00-system-description.md` §4.1
+
+**Gaps.** None.
+
+**Related.** CM-12(1).
+
+### CM-12(1) Automated Tools to Support Information Location
+
+| | |
+|---|---|
+| **Baseline** | MODERATE |
+| **Disposition** | Alternative implementation |
+
+**Implementation.** No automated discovery tool; the data-store table is maintained by hand and checked at the 3-monthly re-measure. Small enough to keep by hand.
+
+**Evidence.** Policy §19
+
+**Gaps.** None.
+
+**Related.** CM-12.
 

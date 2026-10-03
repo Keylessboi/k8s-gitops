@@ -32,7 +32,6 @@ The biggest gaps:
 |---|---|
 | Partially implemented | 2 |
 | **Total** | **2** |
-
 ---
 
 ### AT-1 Policy and Procedures

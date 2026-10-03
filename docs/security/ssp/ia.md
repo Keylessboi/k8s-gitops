@@ -14,7 +14,6 @@ IA rests on Authentik as the single identity provider for people, SSH keys for h
 | Alternative implementation | 3 |
 | Not applicable | 5 |
 | **Total** | **24** |
-
 ---
 
 ### IA-1 Policy and Procedures
