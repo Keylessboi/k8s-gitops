@@ -19,8 +19,8 @@ needs the risk accepted again, or the function stopped.
 | **Moderate** | Needs a prior foothold (LAN, tailnet, a compromised pod), or harms C3 data or availability, or removes the ability to detect or investigate. |
 | **Low** | Weakens documentation, assurance or hygiene; no direct path to harm. |
 
-Items are ordered by rating, then target date. Status is **Open** unless
-stated.
+Items 1–32 are ordered by rating, then target date. Later items are added
+at the end. Status is **Open** unless stated.
 
 ## Items
 
@@ -58,6 +58,7 @@ stated.
 | 30 | **No supply-chain plan or external-service register.** No admission criteria, provider assessments, exit plans, principles statement or security budget. | Low | (a) SCRM one-pager; (b) provider register (MFA, retention, contacts, attestation, exit); (c) admission criteria; (d) principles + ADR index; (e) time/money note | 2027-03-31 | G-SR-01, G-SA-09, G-SA-04, G-SA-08, G-SA-02 |
 | 31 | **Data handling details.** Shared Redis isolation undocumented; agent transcripts kept indefinitely; DNSSEC unverified. | Low | (a) record Redis isolation; (b) transcript cleanup timer and provider retention record; (c) check DNSSEC | 2027-03-31 | G-SC-01, G-SI-14, G-SC-06 |
 | 32 | **Physical, maintenance and media records missing.** No physical policy section, no UPS evidence, no hardware log, no disposal procedure. | Low | (a) physical section in policy; (b) hardware and disposal log; (c) sanitization runbook; (d) UPS decision | 2027-06-30 | G-PE-01, G-PE-02, G-MA-01, G-MP-01 |
+| 33 | **No approved publication register; authentication decisions are made per manifest.** 20 routes are published without forward-auth and none is approved (`03` §12.1). Two carve-outs on hosts that otherwise use forward-auth do not remove client identity headers (HS-NET-07). One manifest relied on forward-auth that a later manifest removed (HS-NET-09). | High | (a) owner approves or closes each entry in `03` §12.1; (b) CI check for HS-NET-06, -07 and -09; (c) verify local login is off for the OIDC applications; (d) complete the account register (HS-ACC-01) | 2026-12-31 | HS-NET-06, HS-NET-07, HS-NET-09, HS-ACC-01; with items 3 and 4 |
 
 ## Findings outside the SSP
 
