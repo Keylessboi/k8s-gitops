@@ -128,7 +128,7 @@ jobs:
       # both faster and the main defence against the flakiness handled below.
       # Keyed on the kustomization files, so any chart or version change misses
       # the cache and re-pulls.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: apps/*/charts
           key: helm4-charts-${{ hashFiles('apps/*/kustomization.yaml') }}
@@ -291,7 +291,7 @@ jobs:
           install -m 0755 /tmp/kubeconform "$HOME/bin/kubeconform"
           echo "$HOME/bin" >> "$GITHUB_PATH"
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: apps/*/charts
           key: helm4-charts-${{ hashFiles('apps/*/kustomization.yaml') }}
