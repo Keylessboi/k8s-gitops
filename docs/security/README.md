@@ -48,7 +48,8 @@ cites a file, or is marked **[UNVERIFIED]**.
 - The control text in `ssp/` is quoted from NIST's official OSCAL catalog
   (`usnistgov/oscal-content`, SP 800-53 Rev. 5), not paraphrased from
   memory.
-- The implementation statements were drafted by AI agents on 2026-10-01. They
+- The implementation statements were drafted by AI agents on 2026-10-01..03,
+  about 50 in full form and the rest in compact form (`02-tailoring.md` §2). They
   were written from the repository and its documentation only, under a rule
   that forbade inventing facts. **Runtime state was not inspected**: no
   cluster, host or provider console was queried. Anything that can only be
