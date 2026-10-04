@@ -108,6 +108,7 @@ the literal string you are seeing, then read the entry.
 | A published host answers `404` from Traefik; its Ingress is there but the backend Service is `NotFound` | component disabled, hand-written Ingress left behind — 2026-10-01 (grafana) |
 | An album is downloaded over and over, `Import failed: Item removed by Queue Cleaner`, library never changes | a nightly importer racing a minutes-fast queue cleaner — 2026-10-02 (AppleMusicarr) |
 | `adding IPv6 rule: adding ip rule 101: from all to all table 51820: file exists`; gluetun restarts in the hundreds; Octo previews `502`, yt-dlp `Unable to connect to proxy` | stale WireGuard ip rules in the pod netns — 2026-10-03 |
+| NAS kernel upgraded, and `/usr/lib/modules/<new kernel>` has no `zfs.ko` (or `zpool import` finds nothing after a reboot) | ZFS hand-built outside DKMS — 2026-10-04 |
 
 ### The traps that have bitten more than once
 
@@ -148,6 +149,51 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-10-04 — a kernel upgrade left the NAS with no bootable kernel that has ZFS
+
+**Symptom.** None visible yet: caught before any reboot. A manual `pacman -Syu`
+on the NAS (19:24) upgraded `linux` 7.1.8 -> 7.2.8 and `linux-lts` 6.18.45 ->
+6.18.55. Afterwards `/usr/lib/modules/7.2.8-arch1-2` and `6.18.55-1-lts` had
+no `zfs.ko`, and the 7.1.8 kernel image was gone from `/boot`. The next reboot
+would have come up without `tank`: no MinIO (every backup), no NFS shares.
+
+**Root cause.** ZFS on the NAS was OpenZFS 2.4.99 (git master, because no
+release supported kernel 7.1 at the time) built by hand on 2026-08-22 and
+installed straight into the two kernels' module directories. It was never
+registered with DKMS (`dkms status` empty) and its source tree was deleted
+afterwards, so the dkms pacman hook ran during the upgrade and had nothing to
+build. The `archzfs` repo still configured on the box is stale (2.3.3, built
+for 6.15) and could not have helped. The `lts-zfs` boot entry was no fallback
+either: its zfs.ko sat in a `6.18.45` directory that matches no installed
+kernel's `uname -r`. ZFS itself does support 7.2 (`Linux-Maximum: 7.2` in
+master's META, and in the August build's `zfs_config.h`).
+
+**Fix.**
+1. Reinstalled `linux`/`linux-headers` 7.1.8-arch1-3 from the pacman cache
+   (signatures verified), which matches the loaded module. Verified the
+   kernel image, initramfs and `modules.dep` all name 7.1.8 and include
+   `zfs`/`spl`. Held `IgnorePkg = linux linux-headers`.
+2. Rebuilt ZFS as the AUR `zfs-dkms-git` + `zfs-utils-git` packages so pacman
+   owns it and DKMS rebuilds it for every kernel. It stays on git master: the
+   pool has master-only features enabled (`draid_failure_domains`,
+   `physical_rewrite`, `dynamic_gang_header`), so a release build may refuse
+   to import it.
+3. `scripts/host/nas-auto-update`: the weekly unattended upgrade checks every
+   installed kernel for `zfs.ko` afterwards, retries `dkms autoinstall`, and
+   rolls the kernel back from the cache (with an urgent ntfy) if it still has
+   none. See docs/host-updates.md.
+
+**Prevention.** An out-of-tree module the machine cannot boot without must be
+owned by the package manager and registered with DKMS (or an equivalent hook),
+never copied into `/usr/lib/modules` by hand. After any kernel upgrade on a
+box whose storage depends on such a module, verify the module exists for the
+kernel that will boot *before* rebooting, and keep the previous kernel package
+in the cache until that check has passed.
+
+**Confidence:** CONFIRMED. Module presence per kernel, `dkms status`, the
+deleted source tree and the pacman log were all read directly; the reboot was
+never attempted.
 
 ## 2026-10-03 — gluetun looped for two days on its own leftover ip rules
 
