@@ -105,8 +105,9 @@
       "allowedVersions": "<1.32"
     },
     {
-      "description": "Mongo changes its on-disk data and feature-compatibility version even on minors (8.0 -> 8.x needs setFeatureCompatibilityVersion); a human merges these.",
+      "description": "Mongo changes its on-disk data and feature-compatibility version even on minors (8.0 -> 8.x needs setFeatureCompatibilityVersion); a human merges these. Majors only (x.0.y): 8.1-8.3 are minor releases, unpatched once the next ships, and give notesnook nothing (8.3.9 declined in #60). This still offers 8.0.x patches and 9.0 (allowed straight from 8.0).",
       "matchPackageNames": ["mongo"],
+      "allowedVersions": "/^\\d+\\.0\\.\\d+$/",
       "automerge": false
     },
     {
