@@ -108,6 +108,7 @@ the literal string you are seeing, then read the entry.
 | A published host answers `404` from Traefik; its Ingress is there but the backend Service is `NotFound` | component disabled, hand-written Ingress left behind — 2026-10-01 (grafana) |
 | An album is downloaded over and over, `Import failed: Item removed by Queue Cleaner`, library never changes | a nightly importer racing a minutes-fast queue cleaner — 2026-10-02 (AppleMusicarr) |
 | `adding IPv6 rule: adding ip rule 101: from all to all table 51820: file exists`; gluetun restarts in the hundreds; Octo previews `502`, yt-dlp `Unable to connect to proxy` | stale WireGuard ip rules in the pod netns — 2026-10-03 |
+| `ERROR:  syntax error at or near "$"` from SQL in a Job/initContainer, where the same SQL runs fine in psql | Kubernetes turns `$$` into `$` in container commands — 2026-10-05 |
 | NAS kernel upgraded, and `/usr/lib/modules/<new kernel>` has no `zfs.ko` (or `zpool import` finds nothing after a reboot) | ZFS hand-built outside DKMS — 2026-10-04 |
 
 ### The traps that have bitten more than once
@@ -149,6 +150,32 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-10-05 — immich-extensions failed: Kubernetes ate the `$$` in a DO block
+
+**Symptom.** After #68 moved the Postgres image to `16.15-1.1.1`, the
+`immich-extensions` PostSync job logged `ERROR:  syntax error at or near "$"`
+and kept retrying. `vector` had updated to 0.8.6, but `vchord` stayed at 0.4.1
+while the server now loads the 1.1.1 library. immich-server kept running (it
+was not restarted); on its next start it would refuse to boot, because it
+cannot run `ALTER EXTENSION vchord UPDATE` itself.
+
+**Root cause.** The job's SQL used a PL/pgSQL `DO $$ ... $$` block inside the
+container `command`. Kubernetes expands `$(VAR)` references in command/args,
+and `$$` is its escape for a literal `$`, so Postgres received `DO $ ... $`.
+The change was rehearsed by feeding the same SQL to psql directly, which never
+passes through that expansion.
+
+**Fix.** A named dollar-quote, `DO $vchord$ ... $vchord$`, which Kubernetes
+leaves alone.
+
+**Prevention.** Never write `$$` in a container command or args - use a named
+dollar-quote (`$tag$`) or mount the SQL from a ConfigMap. Rehearse a Job's
+script from the *rendered* manifest (`kubectl kustomize` output, as the pod
+receives it), not from the source YAML.
+
+**Confidence:** CONFIRMED. The job log shows the syntax error at `$`, and the
+rendered command contains `DO $$` that Kubernetes documents as escaping to `$`.
 
 ## 2026-10-04 — a kernel upgrade left the NAS with no bootable kernel that has ZFS
 
