@@ -39,7 +39,7 @@ spec:
           volumeMounts: [{name: r, mountPath: /restore}]
       containers:
         - name: verify
-          image: ghcr.io/tensorchord/cloudnative-vectorchord:16-0.4.1
+          image: ghcr.io/tensorchord/cloudnative-vectorchord:16.15-1.1.1
           env:
             - name: PGHOST
               value: app-databases-rw.databases.svc.cluster.local
