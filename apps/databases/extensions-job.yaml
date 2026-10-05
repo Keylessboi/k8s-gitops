@@ -73,7 +73,10 @@ spec:
               # are small (tens of MB); REINDEX takes seconds.
               psql -d immich -v ON_ERROR_STOP=1 <<'SQL'
               ALTER EXTENSION "vector" UPDATE;
-              DO $$
+              -- Named dollar-quote, never $$: Kubernetes expands $(VAR) in a
+              -- container command and turns $$ into a literal $, so `DO $$`
+              -- reached Postgres as `DO $` (syntax error, 2026-10-05).
+              DO $vchord$
               DECLARE
                 before text;
                 after text;
@@ -90,7 +93,7 @@ spec:
                     REINDEX INDEX public.face_index;
                   END IF;
                 END IF;
-              END $$;
+              END $vchord$;
               SQL
               psql -d immich -At -c "SELECT extname || ' ' || extversion FROM pg_extension WHERE extname IN ('vector', 'vchord')"
               echo "immich extensions ready"
