@@ -111,6 +111,12 @@
       "automerge": false
     },
     {
+      "description": "HOLD: CNPG operator 1.31 removes the in-tree barmanObjectStore that apps/databases/cluster.yaml uses for WAL archiving and base backups (warned by the 1.30 webhook). Chart 0.N.x ships operator 1.(N+1), so <0.30.0 keeps 1.30.x patches and blocks 1.31. Lift only after the cluster moves to the Barman Cloud plugin (planned with the MinIO -> Garage migration).",
+      "matchPackageNames": ["cloudnative-pg"],
+      "allowedVersions": "<0.30.0",
+      "automerge": false
+    },
+    {
       "description": "Suspended one-shot Jobs. A Job's pod template is immutable, so bumping an image here makes the app's sync fail. Recreate the Job by hand when it is next needed.",
       "matchFileNames": ["apps/lidarr/mass-search-job.yaml", "apps/music/replaygain-backfill-job.yaml"],
       "enabled": false
