@@ -122,13 +122,13 @@ spec:
             - name: MONGODB_DATABASE_NAME
               value: "notesnook"
             - name: S3_INTERNAL_SERVICE_URL
-              value: "http://notesnook-s3:9000"
+              value: "http://notesnook-garage:3900"
             - name: S3_INTERNAL_BUCKET_NAME
               value: "attachments"
             - name: S3_ACCESS_KEY_ID
-              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_S3_ACCESS_KEY}}
+              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_GARAGE_ACCESS_KEY}}
             - name: S3_ACCESS_KEY
-              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_S3_SECRET_KEY}}
+              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_GARAGE_SECRET_KEY}}
             - name: S3_SERVICE_URL
               value: "https://notesnook-files.sandstorm.chat"
             - name: S3_REGION

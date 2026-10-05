@@ -140,6 +140,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: notesnook-s3
+                name: notesnook-garage
                 port:
-                  number: 9000
+                  number: 3900
