@@ -145,7 +145,7 @@ Four layers, each covering the previous one's failure mode:
 
 | What | Where | Cadence |
 |---|---|---|
-| Postgres WAL + base backups | MinIO, `s3://cnpg-backups/app-databases` | continuous WAL, scheduled base |
+| Postgres WAL + base backups | MinIO, `s3://cnpg-backups/app-databases/app-databases-pg18` (PG16 archive kept at `.../app-databases/app-databases`) | continuous WAL, scheduled base |
 | Logical `pg_dump` of every database | MinIO, restic repo, deduplicated and encrypted | daily, kept 8 latest / 7 daily / 4 weekly / 6 monthly |
 | ZFS snapshots of `tank` | On the NAS | sanoid schedule |
 | Off-site | borgmatic over Tailscale | nightly, rate limited to 1 MB/s so it can't saturate the uplink |
