@@ -89,7 +89,7 @@ spec:
             # five days later because nobody re-read the sentence. Any pod
             # whose first real action is a network connection needs this.
             - name: wait-for-postgres
-              image: ghcr.io/tensorchord/cloudnative-vectorchord:16.15-1.1.1
+              image: ghcr.io/tensorchord/cloudnative-vectorchord:18.6-1.1.1
               env:
                 - name: PGHOST
                   value: app-databases-rw.databases.svc.cluster.local
@@ -143,7 +143,7 @@ spec:
           containers:
             - name: verify
               # Same image as the cluster so pg_restore matches the server.
-              image: ghcr.io/tensorchord/cloudnative-vectorchord:16.15-1.1.1
+              image: ghcr.io/tensorchord/cloudnative-vectorchord:18.6-1.1.1
               env:
                 - name: PGHOST
                   value: app-databases-rw.databases.svc.cluster.local
