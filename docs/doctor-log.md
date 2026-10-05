@@ -174,11 +174,17 @@ master's META, and in the August build's `zfs_config.h`).
    (signatures verified), which matches the loaded module. Verified the
    kernel image, initramfs and `modules.dep` all name 7.1.8 and include
    `zfs`/`spl`. Held `IgnorePkg = linux linux-headers`.
-2. Rebuilt ZFS as the AUR `zfs-dkms-git` + `zfs-utils-git` packages so pacman
-   owns it and DKMS rebuilds it for every kernel. It stays on git master: the
-   pool has master-only features enabled (`draid_failure_domains`,
-   `physical_rewrite`, `dynamic_gang_header`), so a release build may refuse
-   to import it.
+2. Rebuilt ZFS as the AUR `zfs-dkms-git` + `zfs-utils-git` packages
+   (2.4.99.r1185.gf79c81d35b) so pacman owns it and DKMS rebuilds it for every
+   kernel; `dkms status` now shows it installed for 7.1.8 and 6.18.55-lts, so
+   the LTS boot entry is a real fallback for the first time. It stays on git
+   master: the pool has master-only features enabled
+   (`draid_failure_domains`, `physical_rewrite`, `dynamic_gang_header`), so a
+   release build may refuse to import it. The first DKMS build failed on an
+   AUR packaging bug - the PKGBUILD does not ship `scripts/make_gitrev.sh`,
+   which master's Makefile now runs - so the module compiled and DKMS still
+   reported "Bad return status". Fixed locally; the rebuild recipe with the
+   fix is in docs/host-updates.md.
 3. `scripts/host/nas-auto-update`: the weekly unattended upgrade checks every
    installed kernel for `zfs.ko` afterwards, retries `dkms autoinstall`, and
    rolls the kernel back from the cache (with an urgent ntfy) if it still has

@@ -14,9 +14,27 @@ own** - a pending reboot arrives as a low-priority ntfy on `homelab-alerts`.
 What stays manual, on purpose:
 
 - **ZFS on the NAS** (`zfs-dkms-git`, `zfs-utils-git`, AUR) and other AUR
-  packages (`minio`). Rebuild with `paru -S zfs-utils-git zfs-dkms-git` when a
-  kernel outgrows the current build. Never a release build: the pool has
-  master-only features enabled (doctor-log 2026-10-04).
+  packages (`minio`). Rebuild both when a kernel outgrows the current build.
+  Never a release build: the pool has master-only features enabled
+  (doctor-log 2026-10-04).
+
+  **The AUR `zfs-dkms-git` PKGBUILD needs a one-line fix** (as of
+  2.4.99.r1185, 2026-10-04): OpenZFS master's Makefile runs
+  `scripts/make_gitrev.sh`, but the package only copies `dkms.postbuild` and
+  `objtool-wrapper.in` from `scripts/`. The module compiles, `make` exits 2 on
+  the missing script, and DKMS throws the build away ("Bad return status";
+  `make.log` shows `make_gitrev.sh: No such file or directory`). Build it by
+  hand with the fix, keeping both packages on the same commit:
+
+  ```
+  cd ~/build && paru -G zfs-utils-git zfs-dkms-git
+  sed -i 's#scripts/objtool-wrapper.in "${dkmsdir}"/scripts/#scripts/objtool-wrapper.in scripts/make_gitrev.sh "${dkmsdir}"/scripts/#' zfs-dkms-git/PKGBUILD
+  export PACMAN_AUTH=doas   # makepkg defaults to sudo; the NAS has doas
+  (cd zfs-dkms-git && makepkg -s) && (cd zfs-utils-git && makepkg -s)
+  # pkgver of the two must match (zfs-dkms-git depends on the exact utils version)
+  doas pacman -U zfs-utils-git/zfs-utils-git-2:*-x86_64.pkg.tar.zst zfs-dkms-git/zfs-dkms-git-2:*-any.pkg.tar.zst
+  doas dkms status   # every installed kernel: "installed"
+  ```
 - **Proxmox packages** (pve-manager, the pve kernel, qemu, lxc): Proxmox
   advises against unattended upgrades. `apt full-upgrade` on pve, then a
   planned reboot (`docs/recovery/cluster-down.md` covers getting CT 200 back).
