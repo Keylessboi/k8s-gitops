@@ -45,6 +45,7 @@ resources:
   - config.yaml
   - mongodb.yaml
   - minio.yaml
+  - garage.yaml
   - servers.yaml
   - ingress.yaml
 

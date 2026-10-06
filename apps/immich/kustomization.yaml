@@ -90,7 +90,14 @@ helmCharts:
                 # (vchord 0.4.1, pgvecto.rs drop is a no-op), node CPU meets
                 # x86-64-v2, none of the removed env vars are set here, OAuth
                 # issuer is a valid https URL.
-                tag: v3.1.0
+                # v3.2.4 (2026-09-30). Its ClusterGroups migration rewrites
+                # trigger functions, which only their owner may do; they had been
+                # owned by `postgres` since the 2026-09-04 restore and were
+                # reassigned to `immich` first (doctor-log 2026-09-30). No other
+                # breaking changes from 3.1; VectorChord range unchanged
+                # (>=0.3 <2). Renovate tracks this tag; majors are not automerged.
+                # renovate: datasource=docker depName=ghcr.io/immich-app/immich-server
+                tag: v3.2.4
               env:
                 # Central Postgres, not a per-app cluster.
                 DB_HOSTNAME: app-databases-rw.databases.svc.cluster.local
@@ -182,8 +189,10 @@ helmCharts:
               main:
                 image:
                   # Kept in lockstep with the server tag above: Immich requires
-                  # server and ML to run the exact same version.
-                  tag: v3.1.0
+                  # server and ML to run the exact same version. So is the
+                  # remote ML container on the backup host (docker, immich-ml).
+                  # renovate: datasource=docker depName=ghcr.io/immich-app/immich-machine-learning
+                  tag: v3.2.4
                 resources:
                   requests:
                     cpu: 250m

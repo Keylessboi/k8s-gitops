@@ -29,9 +29,24 @@ resources:
 helmCharts:
   - name: traefik
     repo: https://traefik.github.io/charts
-    version: 33.2.1
+    # Chart 41.x = Traefik v3.7. Notes from the 33 -> 41 jump that shaped the
+    # values below (chart majors 34, 39 and 41 renamed keys this file uses):
+    #   - ports.<ep>.redirectTo -> ports.<ep>.http.redirections.entryPoint
+    #   - ports.<ep>.tls        -> ports.<ep>.http.tls
+    #   - logs.general / logs.access -> log / accessLog
+    # The chart's values.schema.json rejects the old keys, so a stale key
+    # fails the render instead of being silently dropped.
+    #
+    # The chart no longer ships the Gateway API CRDs. Nothing here uses the
+    # Gateway API (the provider is off), so ArgoCD prunes the copies this app
+    # used to own; install them separately before enabling that provider.
+    version: 41.6.1
     releaseName: traefik
     namespace: kube-system
+    # CRDs are rendered into the manifest set and applied by ArgoCD with
+    # ServerSideApply (set on the ApplicationSet), so they are updated in the
+    # same sync as the Deployment rather than being left at their first-install
+    # version the way `helm upgrade` would leave them.
     includeCRDs: true
     valuesInline:
       # The CrowdSec bouncer runs as a Traefik plugin, so Traefik itself has
@@ -93,14 +108,32 @@ helmCharts:
           port: 8000
           exposedPort: 80
           # Everything is HTTPS; bare HTTP only exists to redirect.
-          redirectTo:
-            port: websecure
-            priority: 10
+          http:
+            redirections:
+              entryPoint:
+                to: websecure
+                scheme: https
+                permanent: true
+                priority: 10
+            aliasHeadersStrategy: delete
         websecure:
           port: 8443
           exposedPort: 443
-          tls:
-            enabled: true
+          http:
+            tls:
+              enabled: true
+            # Drop request headers whose names contain anything other than
+            # letters, digits and dashes (Traefik >= 3.7.12).
+            #
+            # Go treats X-Authentik-Username and X_Authentik_Username as two
+            # different headers, but CGI/WSGI/PHP backends map both to
+            # HTTP_X_AUTHENTIK_USERNAME. ForwardAuth only overwrites the dash
+            # form, so a client could smuggle the underscore form past it to
+            # a backend that trusts the header. Calibre-Web (books) is WSGI;
+            # its reverse-proxy header login is off today (checked 2026-10-01),
+            # and this keeps it safe if anyone turns it on. The default `keep`
+            # forwards such headers untouched.
+            aliasHeadersStrategy: delete
           # Traefik v3 defaults respondingTimeouts.readTimeout to 60s (v2 was
           # unlimited). A multi-GB video upload at the measured ~25 MB/s needs
           # minutes in flight, so every 2.6-3.2 GB file died with a 504 at
@@ -114,11 +147,21 @@ helmCharts:
           transport:
             respondingTimeouts:
               readTimeout: 20m
-      logs:
-        general:
-          level: INFO
-        access:
-          enabled: true
+        # Internal entrypoints: set too, so no entrypoint runs with the
+        # unsafe default and Traefik's per-entrypoint startup warning stays
+        # meaningful if a new one is ever added.
+        metrics:
+          http:
+            aliasHeadersStrategy: delete
+        traefik:
+          http:
+            aliasHeadersStrategy: delete
+      log:
+        level: INFO
+      # CrowdSec parses these (apps/crowdsec acquires traefik-* pod logs with
+      # the crowdsecurity/traefik parser), so keep the default `common` format.
+      accessLog:
+        enabled: true
       resources:
         requests:
           cpu: 50m

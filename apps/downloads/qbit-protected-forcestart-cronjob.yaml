@@ -59,7 +59,7 @@ spec:
             # simply fail that race. Caught by scripts/ci/check-invariants.py,
             # which exists because this cost three consecutive pg_dump runs.
             - name: wait-for-qbittorrent
-              image: busybox:1.37
+              image: busybox:1.38
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
@@ -81,7 +81,7 @@ spec:
                 limits: {cpu: 100m, memory: 64Mi}
           containers:
             - name: forcestart
-              image: python:3.12-alpine3.20
+              image: python:3.14-alpine3.24
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
@@ -134,7 +134,10 @@ data:
         with op.open(URL + path, d, timeout=timeout) as r:
             return r.read().decode()
 
-    if "Ok" not in call("/api/v2/auth/login",
+    # qBittorrent 5.2 answers a good login with an empty body (5.1 said
+    # "Ok.") and a bad one with HTTP 401, which raises. Only 5.1's explicit
+    # "Fails." is left to catch here.
+    if "Fails" in call("/api/v2/auth/login",
                         {"username": os.environ["QBIT_USER"],
                          "password": os.environ["QBIT_PASS"]}):
         sys.exit("qbittorrent login failed")

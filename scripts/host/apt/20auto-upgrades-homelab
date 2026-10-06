@@ -1,0 +1,5 @@
+// Turn the periodic apt jobs on: refresh lists and run unattended-upgrades
+// daily (apt-daily.timer / apt-daily-upgrade.timer), clean the cache weekly.
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";

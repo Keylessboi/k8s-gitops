@@ -1,0 +1,15 @@
+[Unit]
+Description=Weekly pacman -Syu with a ZFS-for-every-kernel guard (no reboot)
+Documentation=file:///home/travis/k8s-gitops/docs/host-updates.md
+After=network-online.target tailscaled.service
+Wants=network-online.target
+# Not Conflicts=borgmatic-backup.service: that would STOP a running backup.
+# The script skips the week instead if borgmatic is active.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/nas-auto-update
+# DKMS builds ZFS here; keep it out of the way of the media workloads.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=2h

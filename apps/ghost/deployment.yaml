@@ -51,14 +51,16 @@ spec:
         - name: ghost
           # Pinned: :latest gives no way to reason about what is running.
           #
-          # 5.130.6 is the FINAL 5.x release - upstream dropped the 5.x image
-          # variants in Feb 2026 ("Drop EOL 5.x"), so this tag is frozen and
-          # will not move under us. 5.x over 6.x is the owner's call for a
-          # low-traffic personal blog (flagged overridable). It also happens
-          # to satisfy Ghost's own upgrade rule - "be on the latest minor
-          # before crossing a major" - so a future 5 -> 6 move starts from the
-          # right place.
-          image: ghost:5.130.6-alpine
+          # 6.x since 2026-09-30 (owner: "update everything to latest"),
+          # crossed from 5.130.6, the final 5.x release - Ghost's rule is to
+          # be on the latest 5.x minor before crossing the major, which that
+          # was. Ghost 6 needs Node 22 (the image carries it), drops AMP and
+          # caps API/`{{#get}}` limits at 100. SQLite still works: Ghost 6
+          # aliases `database__client: sqlite3` to better-sqlite3 itself
+          # (core/server/data/db/connection.js), so the env below is unchanged.
+          # The 5.x database was copied first (VACUUM INTO) to
+          # content/data/preupgrade-backups-20260930/ghost-5.130.6.db.
+          image: ghost:6.67.0-alpine
           securityContext:
             allowPrivilegeEscalation: false
             # Ghost and its sharp image pipeline expect a writable container

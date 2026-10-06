@@ -1,0 +1,71 @@
+# Known pre-existing workloads with a readiness probe and no liveness probe.
+#
+# WHY A BASELINE AND NOT A FIX. When check-invariants.py gained this check on
+# 2026-09-30 it found 22. One was on the pipeline that had just failed and was
+# fixed in the same change (apps/lidarr/applemusic-decryptor.yaml); the 21 below
+# predate the check, are currently working, and each needs its own decision.
+#
+# Failing CI on all 21 the day the check lands is how a check stops being read.
+# The debt is RECORDED here instead, and the check protects every new workload
+# from day one.
+#
+# This file should only ever shrink. Removing a line is the fix; the checker
+# fails if a name here no longer has a finding, so a stale line cannot quietly
+# hide a container that was deleted or already fixed.
+#
+# To clear one, decide which of these it is:
+#
+#   * Add a livenessProbe on an endpoint that answers from the process ITSELF -
+#     never one that checks a dependency, or a slow database becomes a restart
+#     loop. Both probes done properly in this repo work this way: the wrapper's
+#     /status and the sidecar's /healthz report dependency state as DATA and
+#     always return 200. Match the liveness grace to be longer than the
+#     readiness grace (initialDelay + period x failureThreshold) so the two can
+#     never disagree about a pod that is merely still starting.
+#
+#   * Or annotate the pod template with
+#       homelab/no-liveness: "why restarting this would not help"
+#     and delete the line. The honest cases are real: a probe on a
+#     dependency-checking endpoint, a deliberately slow start, or a pod whose
+#     work must not be interrupted.
+#
+# Ranked by how much a silent wedge costs, because the list is not uniform:
+#
+#   lidarr, prowlarr, navidrome   the media path the owner actually uses; a
+#                                 wedge here is noticed, but only after it has
+#                                 already stopped working.
+#   notesnook-* (4), mongodb      a wedged database sidecar or identity server
+#                                 takes the whole app down with no pod-level
+#                                 symptom beyond NotReady.
+#   vaultwarden                   a password manager that is up but not serving
+#                                 is worse than one that is down, because nothing
+#                                 about the failure looks like an outage.
+#   the rest                      low traffic, cheap to fix, no urgency.
+#
+# Why these are not simply mechanical: for a Servarr app the useful liveness
+# endpoint is a socket check on its own port, not /ping against the database;
+# for the notesnook sidecars the endpoints differ per container; and for minio
+# the documented health endpoint is cluster-wide and costs a quorum read, which
+# is the exact shape that turns a transient into a restart loop. Each needs its
+# own verification, so each is its own small change.
+apps/books/book-downloader.yaml:book-downloader/downloader
+apps/books/calibre-web-automated.yaml:calibre-web-automated/cwa
+apps/convertx/deployment.yaml:convertx/convertx
+apps/downloads/qui.yaml:qui/qui
+apps/flaresolverr/deployment.yaml:flaresolverr/flaresolverr
+apps/hermes/deployment.yaml:hermes/hermes
+apps/kiwix/deployment.yaml:kiwix/kiwix
+apps/lidarr/deployment.yaml:lidarr/lidarr
+apps/lidarr/lucida-solver.yaml:lucida-solver/solver
+apps/music/beets.yaml:beets/beets
+apps/navidrome/deployment.yaml:navidrome/navidrome
+apps/notesnook/minio.yaml:notesnook-s3/minio
+apps/notesnook/mongodb.yaml:notesnook-db/mongo
+apps/notesnook/servers.yaml:identity-server/identity-server
+apps/notesnook/servers.yaml:monograph-server/monograph-server
+apps/notesnook/servers.yaml:notesnook-server/notesnook-server
+apps/notesnook/servers.yaml:sse-server/sse-server
+apps/prowlarr/deployment.yaml:prowlarr/prowlarr
+apps/remux/deployment.yaml:remux/remux
+apps/spatial-sidecar/deployment.yaml:spatial-sidecar/sidecar
+apps/vaultwarden/deployment.yaml:vaultwarden/vaultwarden

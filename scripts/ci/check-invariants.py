@@ -29,6 +29,14 @@ CHECK 2 - NetworkPolicy declared on both sides
     outpost, octo's egress to vpn:8888 (where the VPN side had always allowed
     the port and the downloads side never opened it), and the monitoring
     namespace's probes.
+
+CHECK 3 - a readiness probe implies a liveness probe
+    Readiness moves traffic. It heals nothing. A container that wedges without
+    exiting - process alive, loop stopped - fails its readiness probe, loses its
+    Service endpoint, and stays that way FOREVER, because Kubernetes does not
+    restart a container for failing readiness. The 2026-09-30 applemusic-wrapper
+    incident was exactly this and ran for 34 hours behind a pod that read
+    Running with RESTARTS 0.
 """
 from __future__ import annotations
 
@@ -408,6 +416,111 @@ def check_fsgroup_policy(findings: list[str], passes: list[str]) -> None:
                     )
 
 
+LIVENESS_BASELINE = pathlib.Path(__file__).resolve().parent / "liveness-baseline.txt"
+
+# Opt out with this annotation plus a reason, on the pod template.
+LIVENESS_SKIP_ANNOTATION = "homelab/no-liveness"
+
+# Long-running workloads only. A Job or CronJob is SUPPOSED to finish, so a
+# liveness probe there would kill the work it is doing.
+LONG_RUNNING_KINDS = ("Deployment", "StatefulSet", "DaemonSet", "ReplicaSet")
+
+
+def load_liveness_baseline() -> set[str]:
+    if not LIVENESS_BASELINE.exists():
+        return set()
+    out = set()
+    for line in LIVENESS_BASELINE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            out.add(line)
+    return out
+
+
+def check_liveness_probe(findings: list[str], passes: list[str]) -> None:
+    """A container with a readinessProbe and no livenessProbe cannot recover.
+
+    Kubernetes treats readiness and liveness as different questions and only one
+    of them is answered by restarting anything:
+
+      readiness  "should this pod receive traffic?"   - stops traffic, heals nothing
+      liveness   "is this process still working?"     - restarts the container
+
+    Declaring only readiness is therefore a statement that the author thought
+    about whether the process is serving, and then wired up the half that cannot
+    recover. It is not a theoretical gap.
+
+    On 2026-09-29 00:46 the applemusic-wrapper daemon wedged: it stayed alive
+    (Running, RESTARTS 0) and stopped answering anything, including the readiness
+    probe. The Service lost its endpoint, so every Apple Music download failed
+    with "Connection refused" - for 34 hours, with nothing on fire, because the
+    only symptom was that a particular kind of new music never arrived. See
+    docs/doctor-log.md 2026-09-30.
+
+    WHY readiness=>liveness AND NOT "every container needs a probe". A container
+    with no probes at all declares no health concept, and inventing one for it
+    means guessing a port, path and timeout the checker cannot know. The sharp,
+    checkable rule is the asymmetric one: if you declared readiness, say what
+    happens when it fails forever. Use the annotation when the honest answer is
+    "nothing should - restarting this would not help" (a dependency-checking
+    endpoint, a deliberately slow start, a pod that must not be interrupted).
+
+    A liveness probe is not free - pointed at a readiness endpoint that depends
+    on a slow database it converts a transient into a restart loop, which is why
+    the opt-out exists and why the probe should sit on an endpoint that answers
+    from the process itself. Both probes in this repo that do so (the wrapper's
+    /status, the sidecar's /healthz) report dependency state as *data* and always
+    return 200.
+    """
+    baseline = load_liveness_baseline()
+    seen_in_baseline: set[str] = set()
+
+    for path in sorted(APPS.rglob("*.yaml")):
+        if "/charts/" in str(path):
+            continue
+        rel = path.relative_to(REPO)
+        for doc in load_docs(path):
+            if doc.get("kind") not in LONG_RUNNING_KINDS:
+                continue
+            name = (doc.get("metadata") or {}).get("name", "<unnamed>")
+            for pod in _all_pod_specs(doc):
+                tmpl_meta = ((doc.get("spec") or {}).get("template") or {}).get("metadata") or {}
+                anns = dict(tmpl_meta.get("annotations") or {})
+                if LIVENESS_SKIP_ANNOTATION in anns:
+                    passes.append(f"{rel}:{name} opted out ({anns[LIVENESS_SKIP_ANNOTATION]})")
+                    continue
+
+                for c in pod.get("containers") or []:
+                    if "readinessProbe" not in c or "livenessProbe" in c:
+                        continue
+                    key = f"{rel}:{name}/{c.get('name')}"
+                    if key in baseline:
+                        seen_in_baseline.add(key)
+                        passes.append(f"{key} baselined (pre-existing debt)")
+                        continue
+
+                    findings.append(
+                        f"{rel}: {doc['kind']}/{name} container {c.get('name')!r} has a "
+                        f"readinessProbe and no livenessProbe.\n"
+                        f"    readiness only moves traffic; it restarts nothing, so if this\n"
+                        f"    process\n"
+                        f"    wedges without exiting the pod stays Running with RESTARTS 0\n"
+                        f"    and NotReady forever. That was 34 hours of failed Apple Music\n"
+                        f"    downloads on 2026-09-30.\n"
+                        f"    Add a livenessProbe on an endpoint that answers from the process\n"
+                        f"    itself (never one that checks a dependency), or annotate the pod\n"
+                        f"    template with\n"
+                        f"      {LIVENESS_SKIP_ANNOTATION}: \"why restarting this would not help\""
+                    )
+
+    for stale in sorted(baseline - seen_in_baseline):
+        findings.append(
+            f"scripts/ci/liveness-baseline.txt lists '{stale}', but that container\n"
+            f"    no longer has a readinessProbe-without-livenessProbe.\n"
+            f"    Delete that line - the debt is paid."
+        )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--list", action="store_true", help="also print what passed")
@@ -421,6 +534,7 @@ def main() -> int:
     check_netpol_pairs(findings, passes)
     check_intra_namespace(findings, passes)
     check_fsgroup_policy(findings, passes)
+    check_liveness_probe(findings, passes)
 
     if args.list:
         print(f"--- {len(passes)} checks passed ---")

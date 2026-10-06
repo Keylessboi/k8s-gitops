@@ -101,8 +101,23 @@ spec:
         # lands in `namespace` (monitoring), while the object's namespace lands
         # in `exported_namespace`. Matching on namespace="databases" here would
         # silently match nothing and this alert would never fire.
+        #
+        # LATEST RUN ONLY (2026-10-06). The rule used to be "any failed
+        # restore-drill Job exists". The drill is monthly and the CronJob keeps
+        # the last 3 failed Jobs, so one failure kept this firing - and
+        # re-emailing - for a month after a manual re-run had already passed.
+        # Now it fires only while the newest failed drill started after the
+        # newest successful one (manual `create job --from=cronjob/...` runs
+        # count, they match the same name pattern), so a passing re-run
+        # resolves it.
         - alert: BackupRestoreDrillFailed
-          expr: kube_job_status_failed{exported_namespace="databases", job_name=~"restore-drill-.*"} > 0
+          expr: >-
+            max(kube_job_status_start_time{exported_namespace="databases", job_name=~"restore-drill-.*"}
+                and on(job_name) (kube_job_status_failed{exported_namespace="databases", job_name=~"restore-drill-.*"} > 0))
+            >
+            (max(kube_job_status_start_time{exported_namespace="databases", job_name=~"restore-drill-.*"}
+                 and on(job_name) (kube_job_status_succeeded{exported_namespace="databases", job_name=~"restore-drill-.*"} > 0))
+             or vector(0))
           for: 5m
           labels:
             severity: critical

@@ -69,7 +69,7 @@ spec:
           #
           # Trade-off accepted knowingly: a community fork of a password
           # manager. It tracks upstream closely and is actively maintained.
-          image: ghcr.io/timshel/oidcwarden:v2026.8.0-1-alpine
+          image: ghcr.io/timshel/oidcwarden:v2026.9.0-2-alpine
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false

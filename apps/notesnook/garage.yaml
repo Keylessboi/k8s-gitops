@@ -1,0 +1,217 @@
+---
+# Notesnook's attachment store: Garage, replacing the private MinIO
+# (minio.yaml). MinIO's community edition is archived upstream (2026-04-25)
+# and can no longer be kept current; Garage is S3-compatible, maintained,
+# and runs as one small single-node process.
+#
+# What notesnook needs from S3, all rehearsed against this exact image before
+# it went in (2026-10-05): SigV4 presigned GET/PUT over path-style URLs in
+# region us-east-1, multipart uploads, DeleteObjects, ListObjectsV2, and CORS
+# that EXPOSES ETag - web and desktop clients upload straight to
+# notesnook-files.sandstorm.chat and read the ETag back to finish multipart.
+#
+# `server --single-node --default-bucket` (Garage >= 2.3) creates the layout,
+# the `attachments` bucket and the access key from GARAGE_DEFAULT_* on first
+# start, idempotently - no setup Job for those. CORS is only settable through
+# the S3 API, hence notesnook-garage-cors below.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notesnook-garage
+  namespace: notesnook
+data:
+  garage.toml: |
+    metadata_dir = "/var/lib/garage/meta"
+    data_dir = "/var/lib/garage/data"
+    db_engine = "sqlite"
+    replication_factor = 1
+    rpc_bind_addr = "[::]:3901"
+    rpc_public_addr = "127.0.0.1:3901"
+
+    [s3_api]
+    # Must equal notesnook's S3_REGION. Garage's default is "garage", and a
+    # mismatch fails every SigV4 signature with 403.
+    s3_region = "us-east-1"
+    api_bind_addr = "[::]:3900"
+    # No root_domain: path-style only, which is what notesnook signs.
+
+    [admin]
+    # /health here is unauthenticated (probes, the CORS job's wait); the
+    # rest of the admin API needs GARAGE_ADMIN_TOKEN.
+    api_bind_addr = "[::]:3903"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notesnook-garage
+  namespace: notesnook
+spec:
+  selector:
+    app.kubernetes.io/name: notesnook-garage
+  ports:
+    - name: s3
+      port: 3900
+      targetPort: s3
+    - name: admin
+      port: 3903
+      targetPort: admin
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: notesnook-garage
+  namespace: notesnook
+spec:
+  accessModes: [ReadWriteOnce]
+  # local-path on the NAS, like MinIO's: Garage keeps a sqlite metadata DB,
+  # which must never sit on NFS (ADR-0009).
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notesnook-garage
+  namespace: notesnook
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notesnook-garage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: notesnook-garage
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: garage
+          # renovate: datasource=docker depName=dxflrs/garage
+          image: dxflrs/garage:v2.4.1@sha256:9c96caa2612d3411acc5b0e6701fb238dbfba33e533a6d7d3d811a4b12d0d020
+          # The image is FROM scratch: no shell, so no wrapper scripts.
+          args: ["/garage", "server", "--single-node", "--default-bucket"]
+          env:
+            - name: GARAGE_RPC_SECRET
+              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_GARAGE_RPC_SECRET}}
+            - name: GARAGE_ADMIN_TOKEN
+              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_GARAGE_ADMIN_TOKEN}}
+            - name: GARAGE_DEFAULT_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_GARAGE_ACCESS_KEY}}
+            - name: GARAGE_DEFAULT_SECRET_KEY
+              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_GARAGE_SECRET_KEY}}
+            - name: GARAGE_DEFAULT_BUCKET
+              value: attachments
+          ports:
+            - name: s3
+              containerPort: 3900
+            - name: admin
+              containerPort: 3903
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: admin
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: admin
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/garage.toml
+              subPath: garage.toml
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/garage
+      volumes:
+        - name: config
+          configMap:
+            name: notesnook-garage
+        - name: data
+          persistentVolumeClaim:
+            claimName: notesnook-garage
+---
+# CORS for browser uploads. A PostSync hook so it re-applies on every sync of
+# this app; put-bucket-cors replaces the whole policy, so it is idempotent.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: notesnook-garage-cors
+  namespace: notesnook
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-garage
+          image: busybox:1.38.0@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+          command: ["sh", "-c"]
+          args:
+            - |
+              until wget -q -O /dev/null http://notesnook-garage:3903/health; do
+                echo "waiting for notesnook-garage"; sleep 5
+              done
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {cpu: 50m, memory: 32Mi}
+      containers:
+        - name: cors
+          image: amazon/aws-cli:2.37.9@sha256:92de75724b6a746951f0e8b915d86bbccd7cb55aff96cd0cb4f7017272160780
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              cat > /tmp/cors.json <<'JSON'
+              {"CORSRules":[{"AllowedOrigins":["*"],
+                "AllowedMethods":["GET","PUT","POST","HEAD","DELETE"],
+                "AllowedHeaders":["*"],"ExposeHeaders":["ETag"],"MaxAgeSeconds":3600}]}
+              JSON
+              aws --endpoint-url http://notesnook-garage:3900 s3api put-bucket-cors \
+                --bucket attachments --cors-configuration file:///tmp/cors.json
+              aws --endpoint-url http://notesnook-garage:3900 s3api get-bucket-cors \
+                --bucket attachments --query 'CORSRules[0].ExposeHeaders' --output text
+              echo "cors ready"
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_GARAGE_ACCESS_KEY}}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_GARAGE_SECRET_KEY}}
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            - name: HOME
+              value: /tmp
+          resources:
+            requests: {cpu: 10m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}

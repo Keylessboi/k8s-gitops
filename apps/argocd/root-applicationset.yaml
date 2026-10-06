@@ -64,11 +64,22 @@ spec:
         # live copies this pod's privileged securityContext lets the API server
         # default in ways the predicted object cannot reproduce.
         #
+        # lidarr joined 2026-09-30, and it is the SILENT variant. Nothing was
+        # red: the app read Synced/Healthy with automated selfHeal on, while its
+        # last APPLIED operation was 2026-09-28T02:26Z and commits since - a
+        # livenessProbe on the applemusic-decryptor and two CronJob annotations -
+        # had not reached the cluster at all. The tell is the one 2026-09-11
+        # documents: .status.sync.revision tracks what was COMPARED and
+        # .status.operationState.finishedAt tracks what was APPLIED; they
+        # disagreed, and because the diff cannot see an added probe it concluded
+        # "in sync", so selfHeal never fired. A hard refresh is not enough - it
+        # re-compares and advances the revision while still applying nothing.
+        #
         # Written as a quoted scalar, not a {{- if }} block: this file is a
         # CustomResource that kubectl must parse as YAML before ArgoCD ever
         # templates it, and a bare conditional makes it invalid. Every other app
         # renders an empty string here, which ArgoCD reads as no options.
-        argocd.argoproj.io/compare-options: '{{ if has .path.basename (list "downloads" "vaultwarden" "books" "ghost" "nfs-csi" "metallb" "prowlarr" "applemusic-wrapper") }}ServerSideDiff=false{{ end }}'
+        argocd.argoproj.io/compare-options: '{{ if has .path.basename (list "downloads" "vaultwarden" "books" "ghost" "nfs-csi" "metallb" "prowlarr" "applemusic-wrapper" "lidarr") }}ServerSideDiff=false{{ end }}'
       finalizers:
         - resources-finalizer.argocd.argoproj.io
     spec:

@@ -47,7 +47,7 @@ spec:
           # main container's comment below).
           initContainers:
             - name: wait-for-lidarr
-              image: python:3.12-slim
+              image: python:3.14-slim
               command: ["python3", "-c"]
               args:
                 - |
@@ -75,7 +75,7 @@ spec:
                   memory: 64Mi
           containers:
             - name: maintenance
-              image: python:3.12-slim
+              image: python:3.14-slim
                   # Fetched with urllib rather than `git clone` on purpose: installing
                   # git needs apt, and apt drags in a large dependency chain that
                   # fails outright here because cluster DNS answers with AAAA

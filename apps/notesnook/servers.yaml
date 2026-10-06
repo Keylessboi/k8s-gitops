@@ -18,6 +18,23 @@ spec:
       port: 8264
       targetPort: http
 ---
+# identity-server's token-signing key (/app/keystore) and ASP.NET
+# data-protection keys are generated on first start and were kept only in
+# the container filesystem, so every restart minted a new signing key and
+# invalidated every Notesnook session - found 2026-10-06 when a config
+# rollout broke an in-progress 2FA login (doctor-log). Persisted here.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: identity-server-keys
+  namespace: notesnook
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,6 +47,11 @@ spec:
       app.kubernetes.io/name: identity-server
   template:
     metadata:
+      annotations:
+        # notesnook-env is a plain ConfigMap read via envFrom, so editing it
+        # does not restart anything. Bump this when a value identity-server
+        # reads (DISABLE_SIGNUPS) changes, so the change actually applies.
+        homelab/env-revision: "2026-10-06 signups closed"
       labels:
         app.kubernetes.io/name: identity-server
     spec:
@@ -40,9 +62,29 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # local-path volumes are created root-owned; the app runs as
+        # dotnetuser (uid 1000). Not fsGroup: the kubelet does not apply it
+        # to hostPath-backed local-path volumes.
+        - name: keys-perms
+          image: busybox:1.38.0@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+          command: ["sh", "-c", "mkdir -p /keys/keystore /keys/dataprotection && chown -R 1000:1000 /keys"]
+          volumeMounts:
+            - name: keys
+              mountPath: /keys
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {cpu: 50m, memory: 32Mi}
       containers:
         - name: identity-server
-          image: streetwriters/identity:latest@sha256:0441b8cabb7c15436e804458bc766fa3b138f2aaa611224762e813cfcfa87b98
+          image: streetwriters/identity:latest@sha256:e7f6cd9c23678722573617912412a968a66e7b6c8999f45834f15f66be66f6f1
+          volumeMounts:
+            - name: keys
+              mountPath: /app/keystore
+              subPath: keystore
+            - name: keys
+              mountPath: /app/.aspnet/DataProtection-Keys
+              subPath: dataprotection
           envFrom:
             - configMapRef:
                 name: notesnook-env
@@ -71,6 +113,10 @@ spec:
             limits:
               cpu: "1"
               memory: 512Mi
+      volumes:
+        - name: keys
+          persistentVolumeClaim:
+            claimName: identity-server-keys
 ---
 # The sync API. S3_SERVICE_URL is the public attachments host, because presigned URLs it signs are used by clients directly; S3_INTERNAL_SERVICE_URL is how the server itself reaches MinIO.
 apiVersion: v1
@@ -110,7 +156,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: notesnook-server
-          image: streetwriters/notesnook-sync:latest@sha256:6c0f5e0fc088ad64cf088935411e3494bcb000535d182a693dc2c63ea7bb13b6
+          image: streetwriters/notesnook-sync:latest@sha256:da8e45256dd2a1e2930f0ff347b637bc05b28136b3f2d2b050ffd9dc5e319db4
           envFrom:
             - configMapRef:
                 name: notesnook-env
@@ -122,13 +168,13 @@ spec:
             - name: MONGODB_DATABASE_NAME
               value: "notesnook"
             - name: S3_INTERNAL_SERVICE_URL
-              value: "http://notesnook-s3:9000"
+              value: "http://notesnook-garage:3900"
             - name: S3_INTERNAL_BUCKET_NAME
               value: "attachments"
             - name: S3_ACCESS_KEY_ID
-              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_S3_ACCESS_KEY}}
+              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_GARAGE_ACCESS_KEY}}
             - name: S3_ACCESS_KEY
-              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_S3_SECRET_KEY}}
+              valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_GARAGE_SECRET_KEY}}
             - name: S3_SERVICE_URL
               value: "https://notesnook-files.sandstorm.chat"
             - name: S3_REGION
@@ -192,7 +238,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: sse-server
-          image: streetwriters/sse:latest@sha256:0acdc4c1f1d417ea32411043481b8e98a46cd82690ef4e48280914936481c9ba
+          image: streetwriters/sse:latest@sha256:6e1b52f220107dead2b139503a86366cefb0003a76a975c7c032164b5434d5a4
           envFrom:
             - configMapRef:
                 name: notesnook-env
