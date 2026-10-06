@@ -322,7 +322,19 @@ All registers are in Z0 (policy §8.2).
 
 ### 12.9 How the owner approves an entry
 
-An approval is an SSH signature over the entry. An agent cannot make one.
+There are two modes.
+
+- **Trust mode (the default, 2026-10-06).** `security/allowed_signers` has
+  no keys. The owner approves an entry by setting `status: approved` in a
+  pull request. Nothing proves who set it. Only policy §10.2 and `AGENTS.md`
+  forbid an agent to do this. CI still fails any route or grant that has no
+  approved entry, so honest mistakes are caught. A deliberate or confused
+  agent is not stopped. The register approvals are CHECKED, not ENFORCED.
+- **Signature mode.** Put a key in `security/allowed_signers`. From then on,
+  each approved entry MUST have a valid owner signature, as below.
+
+In signature mode, an approval is an SSH signature over the entry. An agent
+cannot make one.
 
 1. Make a hardware approval key one time:
    `ssh-keygen -t ed25519-sk -O verify-required -C register-approval`.

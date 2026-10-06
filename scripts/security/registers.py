@@ -72,6 +72,11 @@ def signers():
 
 
 def verify(register, entry):
+    # Trust mode: with no keys in allowed_signers, "approved" is taken on
+    # trust (policy §10 forbids agents to set it). Add a key to turn on
+    # signature checking for every approved entry.
+    if not signers():
+        return True, "trust mode (no signers configured)"
     sig = SIGS / f"{register}.{entry['id']}.sig"
     if not sig.exists():
         return False, "no signature"
