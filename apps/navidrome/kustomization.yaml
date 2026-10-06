@@ -32,6 +32,8 @@ labels:
       homelab/tier: apps
 
 resources:
+  - pvc-navidrome-data-nas-tank.yaml
+  - migrate-navidrome-data-nas.yaml
   - namespace.yaml
   - media-data-pv.yaml
   - pvc-data.yaml

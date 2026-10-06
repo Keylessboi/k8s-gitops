@@ -1,0 +1,16 @@
+---
+# Garage object store and metadata: moved to the encrypted tank pool (policy §12.4). The old claim
+# notesnook-garage stays declared for rollback.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: notesnook-garage-tank
+  namespace: notesnook
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 20Gi

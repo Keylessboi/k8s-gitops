@@ -1,0 +1,16 @@
+---
+# Navidrome SQLite database: moved to the encrypted tank pool (policy §12.4). The old claim
+# navidrome-data-nas stays declared for rollback.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: navidrome-data-nas-tank
+  namespace: navidrome
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 5Gi

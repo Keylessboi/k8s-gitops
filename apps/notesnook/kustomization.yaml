@@ -41,6 +41,8 @@ labels:
     includeSelectors: false
 
 resources:
+  - pvc-notesnook-garage-tank.yaml
+  - migrate-notesnook-garage.yaml
   - namespace.yaml
   - networkpolicy.yaml
   - config.yaml

@@ -12,7 +12,7 @@ metadata:
   annotations:
     secrets.doppler.com/reload: 'true'
 spec:
-  replicas: 1
+  replicas: 0   # migration step 1: copying navidrome-data-nas to tank
   strategy:
     type: Recreate
   selector:

@@ -1,0 +1,64 @@
+---
+# STEP 1 of moving notesnook-garage to tank. The workload is scaled to 0 in git while this copies. Step 2 (a later PR) points the
+# workload at notesnook-garage-tank and removes this file. The marker file stops a later sync
+# from copying old data over a volume that is in use.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: notesnook-garage-migrate
+  namespace: notesnook
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      annotations:
+        homelab/no-wait-init: "copies between two volumes; makes no network call"
+      labels:
+        app.kubernetes.io/name: notesnook-garage
+        app.kubernetes.io/component: data-migrate
+    spec:
+      restartPolicy: Never
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      containers:
+        - name: copy
+          image: busybox:1.38.0@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              if [ -e /new/.migrated ]; then echo "already migrated"; exit 0; fi
+              cp -a /old/. /new/
+              diff -r /old /new
+              touch /new/.migrated
+              echo "copied and verified: $(find /new -type f | wc -l) files"
+              # Read speed on the new volume, for the switch-over decision:
+              # time 60 reads of files from it.
+              t0=$(date +%s)
+              n=0
+              for f in $(find /new -type f | head -60); do
+                cat "$f" > /dev/null
+                n=$((n + 1))
+              done
+              echo "read $n files from the new volume in $(( $(date +%s) - t0 )) s"
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+              add: [CHOWN, DAC_OVERRIDE, FOWNER]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 500m, memory: 128Mi}
+          volumeMounts:
+            - {name: old, mountPath: /old, readOnly: true}
+            - {name: new, mountPath: /new}
+      volumes:
+        - name: old
+          persistentVolumeClaim: {claimName: notesnook-garage}
+        - name: new
+          persistentVolumeClaim: {claimName: notesnook-garage-tank}

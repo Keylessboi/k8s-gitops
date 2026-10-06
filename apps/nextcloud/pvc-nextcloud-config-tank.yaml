@@ -1,0 +1,16 @@
+---
+# Nextcloud application code and config: moved to the encrypted tank pool (policy §12.4). The old claim
+# nextcloud-config stays declared for rollback.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nextcloud-config-tank
+  namespace: nextcloud
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 5Gi

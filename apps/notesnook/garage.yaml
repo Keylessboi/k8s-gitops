@@ -78,7 +78,7 @@ metadata:
   annotations:
     secrets.doppler.com/reload: 'true'
 spec:
-  replicas: 1
+  replicas: 0   # migration step 1: copying notesnook-garage to tank
   strategy:
     type: Recreate
   selector:
@@ -182,12 +182,24 @@ spec:
           command: ["sh", "-c"]
           args:
             - |
-              until wget -q -O /dev/null http://notesnook-garage:3903/health; do
-                echo "waiting for notesnook-garage"; sleep 5
+              # Bounded wait. If Garage is scaled to 0 (a volume migration), the
+              # hook skips instead of hanging, so it cannot block the sync.
+              # The next sync with Garage up applies the CORS policy.
+              for i in $(seq 1 24); do
+                if wget -q -O /dev/null http://notesnook-garage:3903/health; then
+                  touch /flag/up; exit 0
+                fi
+                echo "waiting for notesnook-garage ($i/24)"; sleep 5
               done
+              echo "notesnook-garage is not up; skipping CORS this sync"
+          volumeMounts:
+            - {name: flag, mountPath: /flag}
           resources:
             requests: {cpu: 5m, memory: 8Mi}
             limits: {cpu: 50m, memory: 32Mi}
+      volumes:
+        - name: flag
+          emptyDir: {}
       containers:
         - name: cors
           image: amazon/aws-cli:2.37.9@sha256:92de75724b6a746951f0e8b915d86bbccd7cb55aff96cd0cb4f7017272160780
@@ -195,6 +207,7 @@ spec:
           args:
             - |
               set -e
+              [ -e /flag/up ] || { echo "garage was down; CORS not applied this sync"; exit 0; }
               cat > /tmp/cors.json <<'JSON'
               {"CORSRules":[{"AllowedOrigins":["*"],
                 "AllowedMethods":["GET","PUT","POST","HEAD","DELETE"],
@@ -214,6 +227,8 @@ spec:
               value: us-east-1
             - name: HOME
               value: /tmp
+          volumeMounts:
+            - {name: flag, mountPath: /flag, readOnly: true}
           resources:
             requests: {cpu: 10m, memory: 64Mi}
             limits: {cpu: 500m, memory: 256Mi}

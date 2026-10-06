@@ -32,6 +32,8 @@ labels:
     includeSelectors: false
 
 resources:
+  - pvc-immich-thumbs-local-tank.yaml
+  - migrate-immich-thumbs-local.yaml
   - namespace.yaml
   - pvc.yaml
   - pvc-thumbs-local.yaml

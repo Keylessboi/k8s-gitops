@@ -32,6 +32,8 @@ labels:
     includeSelectors: false
 
 resources:
+  - pvc-nextcloud-config-tank.yaml
+  - migrate-nextcloud-config.yaml
   - namespace.yaml
   - pvc-config.yaml
   - pvc-scratch.yaml
