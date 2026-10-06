@@ -60,3 +60,14 @@ spec:
       ports:
         - {port: 587, protocol: TCP}
         - {port: 465, protocol: TCP}
+    # Certificate revocation lists, over plain HTTP. MailKit checks revocation
+    # before trusting the SMTP server's certificate, and "unable to get
+    # certificate CRL" fails the TLS handshake - so with only 587/465 open,
+    # every 2FA code, sign-up confirmation and password reset email failed
+    # (2026-10-06). Public addresses only, port 80 only.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
+      ports:
+        - {port: 80, protocol: TCP}
