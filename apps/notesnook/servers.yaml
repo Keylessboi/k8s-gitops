@@ -42,9 +42,6 @@ metadata:
   namespace: notesnook
 spec:
   replicas: 1
-  # One pod at a time owns the key files.
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: identity-server
