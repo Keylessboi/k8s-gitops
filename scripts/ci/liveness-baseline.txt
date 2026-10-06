@@ -50,7 +50,6 @@
 # own verification, so each is its own small change.
 apps/books/book-downloader.yaml:book-downloader/downloader
 apps/books/calibre-web-automated.yaml:calibre-web-automated/cwa
-apps/convertx/deployment.yaml:convertx/convertx
 apps/downloads/qui.yaml:qui/qui
 apps/flaresolverr/deployment.yaml:flaresolverr/flaresolverr
 apps/hermes/deployment.yaml:hermes/hermes
@@ -66,6 +65,5 @@ apps/notesnook/servers.yaml:monograph-server/monograph-server
 apps/notesnook/servers.yaml:notesnook-server/notesnook-server
 apps/notesnook/servers.yaml:sse-server/sse-server
 apps/prowlarr/deployment.yaml:prowlarr/prowlarr
-apps/remux/deployment.yaml:remux/remux
 apps/spatial-sidecar/deployment.yaml:spatial-sidecar/sidecar
 apps/vaultwarden/deployment.yaml:vaultwarden/vaultwarden

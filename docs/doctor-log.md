@@ -108,6 +108,7 @@ the literal string you are seeing, then read the entry.
 | A published host answers `404` from Traefik; its Ingress is there but the backend Service is `NotFound` | component disabled, hand-written Ingress left behind — 2026-10-01 (grafana) |
 | An album is downloaded over and over, `Import failed: Item removed by Queue Cleaner`, library never changes | a nightly importer racing a minutes-fast queue cleaner — 2026-10-02 (AppleMusicarr) |
 | `adding IPv6 rule: adding ip rule 101: from all to all table 51820: file exists`; gluetun restarts in the hundreds; Octo previews `502`, yt-dlp `Unable to connect to proxy` | stale WireGuard ip rules in the pod netns — 2026-10-03 |
+| Notesnook "error sending 2FA code"; identity-server log: MailKit `SslHandshakeException ... unable to get certificate CRL` | egress port 80 blocked, CRL fetch fails — 2026-10-06 |
 | Notesnook login/2FA fails after an identity-server restart; its log says `IDX10501: Signature validation failed. Unable to match key` | signing key not persisted — 2026-10-06 |
 | `BackupRestoreDrillFailed` emails repeating for days after a re-run passed | rule matched any failed drill Job still in history — 2026-10-06 |
 | `ERROR:  syntax error at or near "$"` from SQL in a Job/initContainer, where the same SQL runs fine in psql | Kubernetes turns `$$` into `$` in container commands — 2026-10-05 |
@@ -152,6 +153,28 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-10-06 — Notesnook 2FA / sign-up emails failed: SMTP TLS handshake could not fetch the CRL
+
+**Symptom.** The Notesnook app showed an error sending the 2FA code at login. identity-server logged
+`MailKit.Security.SslHandshakeException ... The server's SSL certificate could not be validated:
+unable to get certificate CRL` from `Send2FACodeEmailAsync` (smtp.gmail.com:587).
+
+**Root cause.** MailKit checks certificate revocation before trusting the SMTP server, and Google's
+CRL is fetched over plain HTTP (port 80). The namespace NetworkPolicy allowed egress only to 587 and
+465 for SMTP, so the fetch was refused (`wget http://c.pki.goog` -> connection refused from the pod)
+and the handshake failed. Every email Notesnook sends (2FA, confirmation, reset) was affected; it went
+unnoticed because sign-up worked before the email path was ever exercised.
+
+**Fix.** An egress rule for TCP 80 to public addresses (RFC1918 excluded) in
+`apps/notesnook/networkpolicy.yaml`.
+
+**Prevention.** When allowing an app's outbound mail, also allow what TLS validation itself needs:
+CRL/OCSP over port 80. Test a new egress rule by sending a real message, not by `nc` to the SMTP port
+(the port connects fine; the handshake after it is what fails).
+
+**Confidence:** CONFIRMED for the cause (error text plus the refused port-80 connection); the email
+itself is verified once the app sends a code.
 
 ## 2026-10-06 — Notesnook 2FA login failed: identity-server lost its signing key on restart
 
