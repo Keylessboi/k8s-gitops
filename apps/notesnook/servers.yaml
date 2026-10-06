@@ -18,6 +18,23 @@ spec:
       port: 8264
       targetPort: http
 ---
+# identity-server's token-signing key (/app/keystore) and ASP.NET
+# data-protection keys are generated on first start and were kept only in
+# the container filesystem, so every restart minted a new signing key and
+# invalidated every Notesnook session - found 2026-10-06 when a config
+# rollout broke an in-progress 2FA login (doctor-log). Persisted here.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: identity-server-keys
+  namespace: notesnook
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,6 +42,9 @@ metadata:
   namespace: notesnook
 spec:
   replicas: 1
+  # One pod at a time owns the key files.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: identity-server
@@ -45,9 +65,29 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # local-path volumes are created root-owned; the app runs as
+        # dotnetuser (uid 1000). Not fsGroup: the kubelet does not apply it
+        # to hostPath-backed local-path volumes.
+        - name: keys-perms
+          image: busybox:1.38.0@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+          command: ["sh", "-c", "mkdir -p /keys/keystore /keys/dataprotection && chown -R 1000:1000 /keys"]
+          volumeMounts:
+            - name: keys
+              mountPath: /keys
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {cpu: 50m, memory: 32Mi}
       containers:
         - name: identity-server
           image: streetwriters/identity:latest@sha256:e7f6cd9c23678722573617912412a968a66e7b6c8999f45834f15f66be66f6f1
+          volumeMounts:
+            - name: keys
+              mountPath: /app/keystore
+              subPath: keystore
+            - name: keys
+              mountPath: /app/.aspnet/DataProtection-Keys
+              subPath: dataprotection
           envFrom:
             - configMapRef:
                 name: notesnook-env
@@ -76,6 +116,10 @@ spec:
             limits:
               cpu: "1"
               memory: 512Mi
+      volumes:
+        - name: keys
+          persistentVolumeClaim:
+            claimName: identity-server-keys
 ---
 # The sync API. S3_SERVICE_URL is the public attachments host, because presigned URLs it signs are used by clients directly; S3_INTERNAL_SERVICE_URL is how the server itself reaches MinIO.
 apiVersion: v1
