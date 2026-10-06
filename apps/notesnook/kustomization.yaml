@@ -47,4 +47,5 @@ resources:
   - minio.yaml
   - garage.yaml
   - servers.yaml
+  - migrate-keys.yaml
   - ingress.yaml

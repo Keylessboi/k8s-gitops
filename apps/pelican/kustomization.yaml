@@ -36,3 +36,4 @@ resources:
   - ingress.yaml
   - admin-job.yaml
   - wings-ca-configmap.yaml
+  - migrate-data.yaml
