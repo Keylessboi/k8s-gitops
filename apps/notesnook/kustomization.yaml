@@ -47,4 +47,5 @@ resources:
   - minio.yaml
   - garage.yaml
   - servers.yaml
+  - signup-window.yaml
   - ingress.yaml
