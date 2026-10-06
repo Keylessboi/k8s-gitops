@@ -108,6 +108,7 @@ the literal string you are seeing, then read the entry.
 | A published host answers `404` from Traefik; its Ingress is there but the backend Service is `NotFound` | component disabled, hand-written Ingress left behind — 2026-10-01 (grafana) |
 | An album is downloaded over and over, `Import failed: Item removed by Queue Cleaner`, library never changes | a nightly importer racing a minutes-fast queue cleaner — 2026-10-02 (AppleMusicarr) |
 | `adding IPv6 rule: adding ip rule 101: from all to all table 51820: file exists`; gluetun restarts in the hundreds; Octo previews `502`, yt-dlp `Unable to connect to proxy` | stale WireGuard ip rules in the pod netns — 2026-10-03 |
+| Notesnook login/2FA fails after an identity-server restart; its log says `IDX10501: Signature validation failed. Unable to match key` | signing key not persisted — 2026-10-06 |
 | `BackupRestoreDrillFailed` emails repeating for days after a re-run passed | rule matched any failed drill Job still in history — 2026-10-06 |
 | `ERROR:  syntax error at or near "$"` from SQL in a Job/initContainer, where the same SQL runs fine in psql | Kubernetes turns `$$` into `$` in container commands — 2026-10-05 |
 | NAS kernel upgraded, and `/usr/lib/modules/<new kernel>` has no `zfs.ko` (or `zpool import` finds nothing after a reboot) | ZFS hand-built outside DKMS — 2026-10-04 |
@@ -151,6 +152,29 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-10-06 — Notesnook 2FA login failed: identity-server lost its signing key on restart
+
+**Symptom.** Logging in to Notesnook failed at the 2FA step right after identity-server was restarted
+(a rollout to apply `DISABLE_SIGNUPS`). Its log repeated `IDX10501: Signature validation failed.
+Unable to match key` / `Number of keys in TokenValidationParameters: '0'`.
+
+**Root cause.** identity-server (IdentityServer4) generates its token-signing key in `/app/keystore`
+and its ASP.NET data-protection keys in `/app/.aspnet/DataProtection-Keys` on first start. The pod had
+no volumes, so both lived in the container filesystem: every restart minted a new key, and every token
+issued before it - including the half-finished login waiting for the 2FA code - stopped validating.
+Any restart (image bump, node reboot, config change) silently logged every client out.
+
+**Fix.** A 1Gi local-path PVC `identity-server-keys` mounted at both paths (subPaths), a busybox
+initContainer handing it to uid 1000 (`dotnetuser`), and `strategy: Recreate` so one pod owns the
+keys. The first start after this change writes the key that then persists; log in once after it.
+
+**Prevention.** For any self-hosted auth/token server, find where it keeps signing and
+data-protection keys before relying on it, and put them on persistent storage. "Logs out on restart"
+is the symptom to test for: restart the pod once after setup and confirm an existing session survives.
+
+**Confidence:** CONFIRMED. The keystore directory's timestamp matched the pod start, the pod had no
+volumes, and the IDX10501 errors began with the restart.
 
 ## 2026-10-06 — BackupRestoreDrillFailed kept emailing after the drill had passed
 
