@@ -13,7 +13,7 @@ data:
   # is fenced to LAN/Tailscale by the lan-only middleware (ingress.yaml), so the
   # open sign-up is never reachable from the internet. Flip to "true" and drop
   # that middleware together.
-  DISABLE_SIGNUPS: "false"
+  DISABLE_SIGNUPS: "true"
   # Used only for links in emails; the official web app talks to any server.
   NOTESNOOK_APP_PUBLIC_URL: https://app.notesnook.com
   NOTESNOOK_API_PUBLIC_URL: https://notesnook-api.sandstorm.chat

@@ -3,11 +3,15 @@
 # Authentik forward-auth (same as Vaultwarden); CrowdSec and rate limiting apply
 # to all of them.
 #
-# The auth host additionally carries lan-only WHILE SIGN-UPS ARE OPEN
-# (DISABLE_SIGNUPS=false in config.yaml): account creation is reachable only from
-# the LAN and Tailscale until the owner's account exists. Then both change
-# together - lan-only removed here, DISABLE_SIGNUPS "true" there - so logging in
-# from a phone on mobile data works and nobody else can register.
+# Sign-ups are CLOSED (DISABLE_SIGNUPS "true" in config.yaml) since the owner's
+# account was created on 2026-10-06, so the auth host needs no IP restriction:
+# phones on mobile data log in and refresh tokens like any other client.
+#
+# History: it carried lan-only while sign-ups were open, but lan-only never
+# matched anyone - clients resolve notesnook-auth.sandstorm.chat to the public
+# IP and hairpin back in, so Traefik sees the public address and returned 403
+# even at home. The account was created through a temporary allow-list of the
+# owner's public IP (#82). To open sign-ups again, restrict this host first.
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -44,7 +48,7 @@ metadata:
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,notesnook-signup-window@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
 spec:
   ingressClassName: traefik
   tls:
