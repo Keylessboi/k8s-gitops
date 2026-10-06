@@ -13,6 +13,14 @@ metadata:
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
+  # Deleting or renaming an apps/* directory removes its Application. Without
+  # this, the resources finalizer below then cascade-deletes everything the
+  # app owned, namespace and PVCs included. With it, the Application goes and
+  # the workload keeps running, orphaned, until a human removes it on purpose.
+  # One renamed directory in an agent's commit must not be a restore from
+  # backup. See ADR-0012.
+  syncPolicy:
+    preserveResourcesOnDeletion: true
   generators:
     - git:
         # Change to your fork of this repo.
@@ -71,7 +79,7 @@ spec:
         # CustomResource that kubectl must parse as YAML before ArgoCD ever
         # templates it, and a bare conditional makes it invalid. Every other app
         # renders an empty string here, which ArgoCD reads as no options.
-        argocd.argoproj.io/compare-options: '{{ if has .path.basename (list "downloads" "vaultwarden" "books" "ghost" "nfs-csi" "metallb" "remux" "prowlarr" "applemusic-wrapper" "lidarr") }}ServerSideDiff=false{{ end }}'
+        argocd.argoproj.io/compare-options: '{{ if has .path.basename (list "downloads" "vaultwarden" "books" "ghost" "nfs-csi" "metallb" "prowlarr" "applemusic-wrapper" "lidarr") }}ServerSideDiff=false{{ end }}'
       finalizers:
         - resources-finalizer.argocd.argoproj.io
     spec:

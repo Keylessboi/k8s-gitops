@@ -204,3 +204,8 @@ helmCharts:
       # Use the one shared Postgres, not the chart's bundled subchart.
       postgresql:
         enabled: false
+
+# Prune/Delete protection for PVCs, PVs, Namespaces and CNPG Clusters, so a
+# manifest dropped from git never deletes live data. See ADR-0012.
+components:
+  - ../../components/protect-state

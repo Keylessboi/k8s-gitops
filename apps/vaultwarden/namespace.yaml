@@ -3,6 +3,8 @@ kind: Namespace
 metadata:
   name: vaultwarden
   labels:
+    homelab/data-class: c4
+    homelab/criticality: tier-1
     app.kubernetes.io/name: vaultwarden
     app.kubernetes.io/part-of: homelab
     pod-security.kubernetes.io/enforce: baseline

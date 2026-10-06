@@ -34,6 +34,7 @@ labels:
     includeSelectors: false
 
 resources:
+  - strip-auth-headers-middleware.yaml
   - namespace.yaml
   - media-data-pv.yaml
   - pvc.yaml
@@ -46,3 +47,8 @@ resources:
   - authentik-outpost.yaml
   - book-downloader-ingress.yaml
   - opds-ingress.yaml
+
+# Prune/Delete protection for PVCs, PVs, Namespaces and CNPG Clusters, so a
+# manifest dropped from git never deletes live data. See ADR-0012.
+components:
+  - ../../components/protect-state
