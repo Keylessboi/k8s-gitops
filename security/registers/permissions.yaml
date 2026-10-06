@@ -51,8 +51,8 @@ entries:
     review_by: 2027-10-01
   - id: PM-08
     subject: "ClusterRole/_cluster/cnpg-cloudnative-pg"
-    grants: [secrets-read]
-    reason: "Operator: manages database credentials and backup Secrets."
+    grants: [pods-exec, secrets-read]
+    reason: "Operator: manages database credentials and backup Secrets, and runs commands in database pods."
     status: proposed
     review_by: 2027-10-01
   - id: PM-09
@@ -245,5 +245,11 @@ entries:
     subject: "Role/monitoring/kps-kube-prometheus-stack-admission"
     grants: [secrets-read]
     reason: "Monitoring admission webhook: writes its TLS Secret."
+    status: proposed
+    review_by: 2027-10-01
+  - id: PM-41
+    subject: "Role/nextcloud/games-mount-scan"
+    grants: [pods-exec]
+    reason: "A scheduled job runs a file scan inside the Nextcloud pod."
     status: proposed
     review_by: 2027-10-01

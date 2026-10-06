@@ -39,6 +39,16 @@ findings contains [subject(o), "secrets-read"] if {
 	v in read_verbs
 }
 
+# HS-PERM-03: running commands in other pods (exec or attach).
+findings contains [subject(o), "pods-exec"] if {
+	some o in roles
+	some r in object.get(o, "rules", [])
+	some res in object.get(r, "resources", [])
+	res in {"pods/exec", "pods/attach", "*"}
+	some v in object.get(r, "verbs", [])
+	v in {"create", "get", "*"}
+}
+
 # HS-PERM-04: host access or privilege in a pod.
 findings contains [subject(o), "privileged"] if {
 	some o in lib.workloads

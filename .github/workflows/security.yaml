@@ -1,0 +1,104 @@
+# Security checks: signed registers, policy-as-code, quality and image scans.
+#
+#   registers  every register parses; every "approved" entry has a valid
+#              owner signature (scripts/security/registers.py)
+#   policy     Conftest rules over the rendered manifests, with the approved
+#              register entries as data (policy/*.rego), and the Polaris
+#              quality score, which must not fall below its floor
+#   scan       Trivy on every deployed image, weekly and on demand
+#
+# Every tool is pinned by version AND sha256, and every action by commit:
+# a scanner's own release pipeline is a supply chain too. To bump a tool,
+# change the version and the checksum together, from the project's published
+# checksums file. Zone 1 (policy §8).
+name: security
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"   # scan: Mondays 06:17 UTC
+
+permissions:
+  contents: read
+
+env:
+  KUSTOMIZE_VERSION: "5.4.2"
+  KUSTOMIZE_SHA256: "881c6e9007c7ea2b9ecc214d13f4cdd1f837635dcf4db49ce4479898f7d911a3"
+  HELM_VERSION: "3.15.2"
+  HELM_SHA256: "2694b91c3e501cff57caf650e639604a274645f61af2ea4d601677b746b44fe2"
+  CONFTEST_VERSION: "0.71.1"
+  CONFTEST_SHA256: "c3f6b2a753bd56e377a1e51a95ae3e057f926f2e9139f7d5b5dfbbaf810f7985"
+  POLARIS_VERSION: "10.2.5"
+  POLARIS_SHA256: "21c979f649e9600ad41d907d188c6e01b2c7ae4dc0cdbf4df392120c950e1fca"
+  TRIVY_VERSION: "0.75.0"
+  TRIVY_SHA256: "c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f"
+
+jobs:
+  registers:
+    name: registers are signed
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - run: pip install --disable-pip-version-check "PyYAML==6.0.2"
+      - name: Check every register and owner signature
+        run: python3 scripts/security/registers.py check
+
+  policy:
+    name: policy and quality
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - run: pip install --disable-pip-version-check "PyYAML==6.0.2"
+      - name: Install pinned tools
+        run: scripts/security/install-tools.sh "$RUNNER_TEMP/bin" kustomize helm conftest polaris
+      - name: Render every app
+        run: |
+          PATH="$RUNNER_TEMP/bin:$PATH" scripts/security/render-all.sh "$RUNNER_TEMP/rendered"
+      - name: Conftest (registers as data)
+        run: PATH="$RUNNER_TEMP/bin:$PATH" scripts/security/policy-check.sh "$RUNNER_TEMP/rendered"
+      - name: Polaris quality score
+        if: always()
+        run: |
+          floor="$(cat policy/polaris-score-floor)"
+          score="$("$RUNNER_TEMP/bin/polaris" audit --config policy/polaris.yaml \
+            --audit-path "$RUNNER_TEMP/rendered" --format score)"
+          echo "Polaris score $score (floor $floor)" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$score" -lt "$floor" ]; then
+            echo "::error::Polaris score $score is below the floor $floor (HS-QUAL-01)"
+            exit 1
+          fi
+          if [ "$score" -gt "$floor" ]; then
+            echo "::notice::Score rose above the floor; raise policy/polaris-score-floor to $score"
+          fi
+
+  scan:
+    name: image vulnerabilities
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - run: pip install --disable-pip-version-check "PyYAML==6.0.2"
+      - name: Install pinned tools
+        run: scripts/security/install-tools.sh "$RUNNER_TEMP/bin" kustomize helm trivy
+      - name: Render every app
+        run: PATH="$RUNNER_TEMP/bin:$PATH" scripts/security/render-all.sh "$RUNNER_TEMP/rendered"
+      - name: Trivy
+        run: |
+          rc=0
+          PATH="$RUNNER_TEMP/bin:$PATH" scripts/security/scan-images.sh \
+            "$RUNNER_TEMP/rendered" "$RUNNER_TEMP/scan" || rc=$?
+          cat "$RUNNER_TEMP/scan/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"

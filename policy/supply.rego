@@ -25,7 +25,15 @@ deny contains msg if {
 	msg := sprintf("HS-WL-01 %s/%s: image %s uses a floating tag", [o.kind, lib.ref(o), img])
 }
 
-floating(img) if endswith(img, ":latest")
+moving_tags := {"latest", "stable", "main", "master", "edge", "nightly", "develop", "dev", "rolling", "release"}
+
+floating(img) if {
+	not contains(img, "@")
+	parts := split(img, "/")
+	tag := split(parts[count(parts) - 1], ":")
+	count(tag) == 2
+	tag[1] in moving_tags
+}
 
 floating(img) if {
 	not contains(img, "@")

@@ -1,0 +1,330 @@
+# Polaris configuration for the quality standard (03 §11, HS-QUAL).
+# Based on the Polaris v10.2.5 default (pkg/config/default.yaml). Only the
+# lines marked with a reason differ from the default. Zone 1.
+checks:
+  # reliability
+  deploymentMissingReplicas: ignore  # W-06: one node by design
+  priorityClassNotSet: ignore  # W-06: one node; no preemption between tenants
+  tagNotSpecified: danger
+  pullPolicyNotAlways: ignore  # HS-WL-01: a digest pin makes the pull policy irrelevant
+  readinessProbeMissing: warning
+  livenessProbeMissing: warning
+  metadataAndInstanceMismatched: ignore  # chart label hygiene; no security or reliability effect
+  pdbDisruptionsIsZero: ignore  # W-06: one node by design
+  missingPodDisruptionBudget: ignore  # W-06: one node by design
+  topologySpreadConstraint: ignore  # W-06: one node by design
+  hpaMaxAvailability: ignore  # W-06: no autoscaling
+  hpaMinAvailability: ignore  # W-06: no autoscaling
+  pdbMinAvailableGreaterThanHPAMinReplicas: ignore  # W-06: no autoscaling
+
+  # efficiency
+  cpuRequestsMissing: warning
+  cpuLimitsMissing: warning
+  memoryRequestsMissing: warning
+  memoryLimitsMissing: warning
+  
+  # security
+  automountServiceAccountToken: warning
+  hostIPCSet: danger
+  hostPathSet: warning
+  hostProcess: warning
+  hostPIDSet: danger
+  linuxHardening: warning
+  missingNetworkPolicy: warning
+  notReadOnlyRootFilesystem: warning
+  privilegeEscalationAllowed: danger
+  procMount: warning
+  runAsRootAllowed: danger
+  runAsPrivileged: danger
+  dangerousCapabilities: danger
+  insecureCapabilities: warning
+  hostNetworkSet: danger
+  hostPortSet: warning
+  tlsSettingsMissing: warning
+  sensitiveContainerEnvVar: danger
+  sensitiveConfigmapContent: danger
+  clusterrolePodExecAttach: danger
+  rolePodExecAttach: danger
+  clusterrolebindingPodExecAttach: danger
+  rolebindingClusterRolePodExecAttach: danger
+  rolebindingRolePodExecAttach: danger
+  clusterrolebindingClusterAdmin: danger
+  rolebindingClusterAdminClusterRole: danger
+  rolebindingClusterAdminRole: danger
+
+
+mutations:
+  - pullPolicyNotAlways
+
+exemptions:
+  # Homelab: false positives of sensitiveContainerEnvVar, checked 2026-10-06 by
+  # variable name and value shape only. The values are a Secret name, a file
+  # path and a boolean flag, not credentials.
+  - namespace: metallb-system
+    controllerNames: [metallb-controller, metallb-speaker]
+    rules: [sensitiveContainerEnvVar]
+  - namespace: vaultwarden
+    controllerNames: [vaultwarden]
+    rules: [sensitiveContainerEnvVar]
+  - namespace: kube-system
+    controllerNames:
+      - dns-controller
+      - ebs-csi-controller
+      - ebs-csi-node
+      - kindnet
+      - kops-controller
+      - kube-dns
+      - kube-flannel-ds
+      - kube-proxy
+      - kube-scheduler
+      - vpa-recommender
+    rules:
+      - automountServiceAccountToken
+      - linuxHardening
+      - missingNetworkPolicy
+  - namespace: kube-system
+    controllerNames:
+      - coredns
+    rules:
+      - automountServiceAccountToken
+      - missingNetworkPolicy
+  - namespace: kube-system
+    controllerNames:
+      - ebs-csi-controller
+    rules:
+      - sensitiveContainerEnvVar
+  - namespace: kube-system
+    controllerNames:
+      - coredns-autoscaler
+    rules:
+      - linuxHardening
+  - namespace: local-path-storage
+    controllerNames:
+      - local-path-provisioner
+    rules:
+      - automountServiceAccountToken
+      - linuxHardening
+      - missingNetworkPolicy
+  - namespace: kube-system
+    controllerNames:
+      - kube-apiserver
+      - kube-proxy
+      - kube-scheduler
+      - etcd-manager-events
+      - kube-controller-manager
+      - kube-dns
+      - etcd-manager-main
+    rules:
+      - hostPortSet
+      - hostNetworkSet
+      - readinessProbeMissing
+      - livenessProbeMissing
+      - cpuRequestsMissing
+      - cpuLimitsMissing
+      - memoryRequestsMissing
+      - memoryLimitsMissing
+      - runAsRootAllowed
+      - runAsPrivileged
+      - notReadOnlyRootFilesystem
+      - hostPIDSet
+  - namespace: datadog
+    controllerNames:
+      - datadogtoken
+    rules:
+      - sensitiveConfigmapContent
+  - namespace: datadog
+    controllerNames:
+      - datadog-cluster-agent-apiserver
+    rules:
+      - rolebindingClusterAdminRole
+      - rolebindingRolePodExecAttach
+
+  - controllerNames:
+      - ingress-nginx-controller
+    rules:
+      - sensitiveConfigmapContent
+  - controllerNames:
+      - ingress-nginx-controller
+      - ingress-nginx-default-backend
+      - polaris
+      - rbac-manager
+    rules:
+      - automountServiceAccountToken
+      - missingNetworkPolicy
+  - controllerNames:
+      - aws-iam-authenticator
+      - aws-load-balancer-controller
+      - docker-registry
+      - external-dns
+      - kube2iam
+      - metrics-server
+    rules:
+      - automountServiceAccountToken
+      - linuxHardening
+      - missingNetworkPolicy
+  - controllerNames:
+      - oauth2-proxy
+    rules:
+      - automountServiceAccountToken
+      - linuxHardening
+      - missingNetworkPolicy
+      - sensitiveContainerEnvVar
+  - controllerNames:
+      - kube-flannel-ds
+    rules:
+      - notReadOnlyRootFilesystem
+      - runAsRootAllowed
+      - notReadOnlyRootFilesystem
+      - readinessProbeMissing
+      - livenessProbeMissing
+      - cpuLimitsMissing
+
+  - controllerNames:
+      - cert-manager
+    rules:
+      - notReadOnlyRootFilesystem
+      - runAsRootAllowed
+      - readinessProbeMissing
+      - livenessProbeMissing
+      - automountServiceAccountToken
+      - linuxHardening
+      - missingNetworkPolicy
+
+  - controllerNames:
+      - cluster-autoscaler
+    rules:
+      - notReadOnlyRootFilesystem
+      - runAsRootAllowed
+      - readinessProbeMissing
+      - automountServiceAccountToken
+      - linuxHardening
+      - missingNetworkPolicy
+
+  - controllerNames:
+      - vpa
+    rules:
+      - runAsRootAllowed
+      - readinessProbeMissing
+      - livenessProbeMissing
+      - notReadOnlyRootFilesystem
+
+  - controllerNames:
+      - datadog
+    rules:
+      - runAsRootAllowed
+      - readinessProbeMissing
+      - livenessProbeMissing
+      - notReadOnlyRootFilesystem
+      - automountServiceAccountToken
+      - linuxHardening
+      - missingNetworkPolicy
+      - sensitiveContainerEnvVar
+
+  - controllerNames:
+      - nginx-ingress-controller
+    rules:
+      - privilegeEscalationAllowed
+      - insecureCapabilities
+      - runAsRootAllowed
+
+  - controllerNames:
+      - dns-controller
+      - datadog-datadog
+      - kube-flannel-ds
+      - kube2iam
+      - aws-iam-authenticator
+      - datadog
+      - kube2iam
+    rules:
+      - hostNetworkSet
+
+  - controllerNames:
+      - aws-iam-authenticator
+      - aws-cluster-autoscaler
+      - kube-state-metrics
+      - dns-controller
+      - external-dns
+      - dnsmasq
+      - autoscaler
+      - kubernetes-dashboard
+      - install-cni
+      - kube2iam
+    rules:
+      - readinessProbeMissing
+      - livenessProbeMissing
+
+  - controllerNames:
+      - aws-iam-authenticator
+      - nginx-ingress-default-backend
+      - aws-cluster-autoscaler
+      - kube-state-metrics
+      - dns-controller
+      - external-dns
+      - kubedns
+      - dnsmasq
+      - autoscaler
+      - tiller
+      - kube2iam
+    rules:
+      - runAsRootAllowed
+
+  - controllerNames:
+      - aws-iam-authenticator
+      - nginx-ingress-controller
+      - nginx-ingress-default-backend
+      - aws-cluster-autoscaler
+      - kube-state-metrics
+      - dns-controller
+      - external-dns
+      - kubedns
+      - dnsmasq
+      - autoscaler
+      - tiller
+      - kube2iam
+    rules:
+      - notReadOnlyRootFilesystem
+
+  - controllerNames:
+      - cert-manager
+      - dns-controller
+      - kubedns
+      - dnsmasq
+      - autoscaler
+      - insights-agent-goldilocks-vpa-install
+      - datadog
+    rules:
+      - cpuRequestsMissing
+      - cpuLimitsMissing
+      - memoryRequestsMissing
+      - memoryLimitsMissing
+
+  - controllerNames:
+      - kube2iam
+      - kube-flannel-ds
+    rules:
+      - runAsPrivileged
+
+  - controllerNames:
+      - kube-hunter
+    rules:
+      - hostPIDSet
+
+  - controllerNames:
+      - polaris
+      - kube-hunter
+      - goldilocks
+      - insights-agent-goldilocks-vpa-install
+    rules:
+      - notReadOnlyRootFilesystem
+
+  - controllerNames:
+      - insights-agent-goldilocks-controller
+    rules:
+      - livenessProbeMissing
+      - readinessProbeMissing
+
+  - controllerNames:
+      - insights-agent-goldilocks-vpa-install
+      - kube-hunter
+    rules:
+      - runAsRootAllowed
