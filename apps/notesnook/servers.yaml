@@ -41,7 +41,7 @@ metadata:
   name: identity-server
   namespace: notesnook
 spec:
-  replicas: 0   # migration step 1: copying the keys to tank (migrate-keys.yaml)
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: identity-server
@@ -116,7 +116,7 @@ spec:
       volumes:
         - name: keys
           persistentVolumeClaim:
-            claimName: identity-server-keys
+            claimName: identity-server-keys-tank
 ---
 # The sync API. S3_SERVICE_URL is the public attachments host, because presigned URLs it signs are used by clients directly; S3_INTERNAL_SERVICE_URL is how the server itself reaches MinIO.
 apiVersion: v1

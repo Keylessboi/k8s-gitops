@@ -1,0 +1,17 @@
+---
+# identity-server keys (token signing, data protection), moved 2026-10-06 from
+# the NAS NVMe (unencrypted) to the encrypted tank pool. The old claim
+# identity-server-keys stays declared for rollback.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: identity-server-keys-tank
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+  namespace: notesnook
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 1Gi
