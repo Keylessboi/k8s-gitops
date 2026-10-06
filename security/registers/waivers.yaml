@@ -19,3 +19,11 @@ entries:
     compensating: Backups, restore drills and the external watchdog. Does not remove those rules (policy §18.5).
     status: proposed
     review_by: 2027-10-01
+  - id: W-07
+    requirement: HS-GIT-03, HS-GIT-04, HS-GIT-10
+    scope: Branch protection on main (required checks, required pull request)
+    reason: The owner decided on 2026-10-06 not to enable branch protection. The owner wants agents to change the homelab while the owner is away.
+    compensating: Agents run the checks before they push (AGENTS.md). CI reports a failure after the push. The reconciler deploys within 3 minutes, so a failing change is live before CI answers. Zone 0 and Zone 1 rules (policy §8) bind agents by instruction and by the harness hook only.
+    status: approved
+    approved_on: 2026-10-06
+    review_by: 2027-10-01

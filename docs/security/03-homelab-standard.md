@@ -71,7 +71,7 @@ no status and does not count.
 
 | Area | Reqs | ENFORCED | CHECKED | MET | GAP / UNMEASURED | WAIVED |
 |---|---|---|---|---|---|---|
-| GIT — change and GitOps | 10 | 1 | 4 | 2 | 3 | — |
+| GIT — change and GitOps | 10 | 1 | 4 | 2 | — | 3 |
 | STATE — data protection | 6 | 2 | 1 | — | 3 | — |
 | REC — backup and recovery | 5 | — | 2 | 3 | — | — |
 | SEC — secrets | 7 | 1 | 1 | — | 5 | — |
@@ -88,7 +88,7 @@ no status and does not count.
 | REST — data at rest | 5 | — | 1 | 1 | 3 | — |
 | PERM — permissions | 6 | — | 5 | — | 1 | — |
 | QUAL — quality | 2 | — | 1 | 1 | — | — |
-| **Total** | **98** | **7** | **20** | **13** | **57** | **0** |
+| **Total** | **98** | **7** | **20** | **13** | **54** | **3** |
 
 Engineering conventions (§11.3) are not security requirements and are not
 counted. A CHECKED status here means a CI check finds the violations; the
@@ -116,8 +116,8 @@ The largest gaps:
 |---|---|---|---|---|
 | HS-GIT-01 | Declare the desired cluster state under `apps/`. Change it only by a commit. Do not use `kubectl edit`, `scale`, `patch` or `apply` to change an object that the reconciler manages. | OpenGitOps 1–4; doctor-log 2026-09-10 | The reconciler's `selfHeal` reverses drift | ENFORCED |
 | HS-GIT-02 | Each item of state or configuration that is not in git MUST be on the out-of-band register (§12.3), with a reason. | Policy §8; doctor-log 2026-09-27 | manual | MET |
-| HS-GIT-03 | Each commit on `main` MUST pass `validate`. `main` MUST require `validate` to pass before a merge. | ADR-0007; policy §3.2 | Branch protection | **GAP**: no protection; `validate` fails on `main` |
-| HS-GIT-04 | Changes SHOULD go to `main` through a pull request. | Policy §11; OWASP LLM06 | Branch protection | **GAP** |
+| HS-GIT-03 | Each commit on `main` MUST pass `validate`. `main` MUST require `validate` to pass before a merge. | ADR-0007; policy §3.2 | Branch protection | WAIVED (W-07): no protection; `validate` fails on `main` |
+| HS-GIT-04 | Changes SHOULD go to `main` through a pull request. | Policy §11; OWASP LLM06 | Branch protection | WAIVED (W-07) |
 | HS-GIT-05 | Each rendered application MUST pass strict schema validation against the cluster's Kubernetes version. Before you push a manifest change, you SHOULD also do a server-side dry run. | doctor-log 2026-09-03 | CI `kubeconform (strict)`; `kubectl apply --dry-run=server --validate=strict` | CHECKED |
 | HS-GIT-06 | CI MUST render with the same kustomize and Helm versions as the reconciler. | `validate.yaml` header | Pinned versions in `validate.yaml` | CHECKED |
 | HS-GIT-07 | A `fix()` commit that changes `apps/` MUST add a doctor-log entry. | doctor-log header | CI `fix() updates the doctor's log` | CHECKED |
@@ -293,7 +293,7 @@ over the rendered manifests.
 | HS-SUP-05 | Each GitHub Action MUST be pinned by commit SHA. Each tool that CI downloads MUST be pinned by version and sha256. | Policy §15; the 2025 tj-actions incident | Review; `install-tools.sh` | **GAP**: `validate.yaml` pins actions by tag |
 | HS-SUP-06 | A container image MUST NOT use a moving tag (`latest`, `stable`, `main` and similar). | Policy §15 | Conftest `supply` | CHECKED: 2 images (2026-10-06) |
 | HS-SUP-07 | Each deployed image MUST be scanned every week. A fixable CRITICAL in an internet-facing image MUST be patched in 14 days (policy §17). | Policy §17 | Trivy in `security.yaml` (weekly) | CHECKED (first full run pending) |
-| HS-GIT-10 | The policy checks (`security.yaml`) MUST pass before a merge to `main`, together with `validate` (HS-GIT-03). | Policy §11.3 | Branch protection | **GAP**: not required; 150 Conftest failures (2026-10-06) |
+| HS-GIT-10 | The policy checks (`security.yaml`) MUST pass before a merge to `main`, together with `validate` (HS-GIT-03). | Policy §11.3 | Branch protection | WAIVED (W-07); 150 Conftest failures (2026-10-06) |
 
 ## 12. Registers
 
