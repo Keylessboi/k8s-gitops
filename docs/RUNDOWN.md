@@ -99,7 +99,7 @@ The second command must print an AirVPN address. If it prints your home address,
 
 ### Then Wire It Up
 
-1. Open `qui.sandstorm.chat`, sign in through Authentik, and add an instance: host `http://qbittorrent.downloads.svc.cluster.local:8080`. qBittorrent's default credentials are printed in its own log on first start — `kubectl -n downloads logs deploy/qbittorrent -c qbittorrent | grep -i password`. Change them immediately.
+1. Open `qui.sandstorm.chat`, sign in through Authentik, and add an instance: host `http://qbittorrent.downloads.svc.cluster.local:8080`. qBittorrent's default credentials are printed in its own log on first start. **The owner** reads them by hand (`kubectl -n downloads logs deploy/qbittorrent -c qbittorrent | grep -i password`). An agent never runs that, because the value is C4 (`docs/security/01-policy.md` §6). Change them immediately, and put the new ones in Doppler.
 2. In Prowlarr, add your indexers, then add Lidarr and Readarr as applications so Prowlarr pushes indexer config to them automatically.
 3. In Lidarr and Readarr, add qBittorrent as the download client at that same cluster address.
 

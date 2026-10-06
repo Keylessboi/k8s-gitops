@@ -3,6 +3,8 @@ kind: Namespace
 metadata:
   name: ghost
   labels:
+    homelab/data-class: c3
+    homelab/criticality: tier-3
     app.kubernetes.io/name: ghost
     app.kubernetes.io/part-of: homelab
     pod-security.kubernetes.io/enforce: baseline

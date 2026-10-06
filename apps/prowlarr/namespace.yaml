@@ -3,6 +3,8 @@ kind: Namespace
 metadata:
   name: prowlarr
   labels:
+    homelab/data-class: c2
+    homelab/criticality: tier-3
     app.kubernetes.io/name: prowlarr
     app.kubernetes.io/part-of: homelab
     pod-security.kubernetes.io/enforce: baseline

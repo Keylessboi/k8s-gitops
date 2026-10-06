@@ -15,7 +15,9 @@ ArgoCD watches `apps/*` through one ApplicationSet and auto-syncs `main` with
   with the owner first unless they already asked for the change.
 - `kubectl edit` / `kubectl scale` gets reverted on the next sync. Change the
   file, push, let it land.
-- Images are pinned by digest. Bumping one is a deliberate commit.
+- Images **must** be pinned by digest (HS-WL-01). Most are not yet: 16 of 85
+  containers in the non-Helm apps were on 2026-10-01. Pin any image you touch.
+  Bumping one is a deliberate commit.
 - Before pushing a manifest change, render it and dry-run it server-side:
   `kubectl kustomize apps/<app> | kubectl apply --dry-run=server --validate=strict -f -`.
   That catches misplaced fields a YAML linter accepts.
@@ -32,15 +34,66 @@ In short:
 - `ssh nas ...`: the storage node and the second k3s node. Its user is
   `travis`, with `doas` rather than `sudo`.
 
+## Secrets: never read a value
+
 Secrets come from Doppler through DopplerSecret objects
-(`apps/doppler/dopplersecrets.yaml`). Never print a secret's value: compare
-hashes or lengths, or work inside the pod, where the credential is already in
-the environment.
+(`apps/doppler/dopplersecrets.yaml`). No agent reads a secret's **value**,
+ever, including "just to check". A value that reaches your output is in a
+transcript on disk and has to be rotated.
+
+| Don't | Do instead |
+|---|---|
+| `kubectl get secret X -o yaml/json/jsonpath` | `secret-meta <ns> <name>` (keys, lengths, sha256 prefix) or `kubectl describe secret` |
+| `env`, `printenv`, `kubectl exec ... -- env` | `test -n "$VAR" && echo set`, or `echo ${#VAR}` for its length |
+| `echo $SOME_PASSWORD`, `base64 -d` | compare lengths or hashes |
+| `doppler secrets` | `doppler secrets --only-names` |
+| `cat` a kubeconfig, SSH key, k3s token or `.env` | use it without reading it (`--kubeconfig`, `ssh -i`) |
+
+Using a credential inside the pod is fine as long as it never gets printed:
+`psql "$DATABASE_URL" -c '...'` yes, `echo $DATABASE_URL` no. If the owner
+needs a value, they run the command themselves.
+
+On the owner's machine a Claude Code hook (`~/.claude/hooks/secret-guard.py`)
+blocks these command shapes. Other harnesses have no such hook, so this table
+is the rule.
+
+## Deleting state takes a human
+
+Every PVC, PV, Namespace and CNPG Cluster carries
+`Prune=false,Delete=false` through `components/protect-state`, and the root
+ApplicationSet preserves resources when an Application is deleted (ADR-0012).
+Removing one from git therefore leaves it running and OutOfSync. That is
+intended. Do not work around it:
+
+- Every `apps/*/kustomization.yaml` includes `../../components/protect-state`.
+  A new app includes it too; CI fails without it.
+- Never remove the annotation, strip the component, or `kubectl delete` a
+  PVC, PV, Namespace, database Cluster or Application yourself. Removing an
+  app from git is fine; the final `kubectl delete` is the owner's.
+
+## Policy checks and registers
+
+CI (`.github/workflows/security.yaml`) checks the rendered manifests
+against `policy/*.rego` (Conftest) and the Polaris score floor. Exceptions
+live in `security/registers/*.yaml`, and an exception counts only when the
+owner has signed it with a hardware key. Run the checks before you push:
+
+```sh
+scripts/security/render-all.sh /tmp/r && scripts/security/policy-check.sh /tmp/r
+```
+
+When a check fails, fix the manifest, or add a register entry with
+`status: proposed` and ask the owner. Never set `status: approved`, never
+touch `security/registers/approvals/` or `security/allowed_signers`, never
+edit an approved entry, and never change a rule to make a finding go away.
+Details: `docs/security/03-homelab-standard.md` §12.10.
 
 ## Where things are
 
 | You need | Look at |
 |---|---|
+| **What you may and may not touch, and how to handle data** | `docs/security/01-policy.md`: protection zones (§8), data classes (§5–6), your rules as an automated operator (§10). It overrides anything else here. |
+| Whether a requirement is met, and how it's tested | `docs/security/03-homelab-standard.md` |
 | Something is broken | `scripts/doctor.sh <app>` first, then grep `docs/doctor-log.md` for the literal error text. Its symptom index is the point of the file. |
 | Why something is built the way it is | `docs/adr/` |
 | What each app is and how to log in | `docs/RUNDOWN.md` |

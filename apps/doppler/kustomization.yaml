@@ -35,6 +35,19 @@ resources:
   - networkpolicy.yaml
   - dopplersecrets.yaml
 
+# Data class and criticality labels for the chart's Namespace (policy §5.3).
+patches:
+  - target:
+      kind: Namespace
+      name: doppler-operator-system
+    patch: |-
+      - op: add
+        path: /metadata/labels/homelab~1data-class
+        value: c4
+      - op: add
+        path: /metadata/labels/homelab~1criticality
+        value: tier-0
+
 helmCharts:
   # NOTE: this chart ships NO values.yaml. Supplying valuesInline makes kustomize
   # fail with "could not parse values file into rnode: EOF", which is what kept
@@ -46,3 +59,8 @@ helmCharts:
     releaseName: doppler-operator
     namespace: doppler-operator-system
     includeCRDs: true
+
+# Prune/Delete protection for PVCs, PVs, Namespaces and CNPG Clusters, so a
+# manifest dropped from git never deletes live data. See ADR-0012.
+components:
+  - ../../components/protect-state

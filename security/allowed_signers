@@ -1,0 +1,9 @@
+# Keys that may approve register entries (scripts/security/registers.py).
+# Zone 0: only the owner changes this file.
+#
+# Each line:  owner namespaces="homelab-register" <key type> <public key>
+# CI accepts only FIDO2 keys (sk-ssh-ed25519@openssh.com). An agent cannot
+# use one without a touch on the physical key. Add the public half of a
+# second security key as the escrow (keys register K-08).
+#
+# Make one with:  ssh-keygen -t ed25519-sk -O verify-required -C register-approval

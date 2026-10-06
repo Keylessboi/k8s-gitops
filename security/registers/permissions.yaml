@@ -1,0 +1,321 @@
+register: permissions
+kind: exception
+policy: 01-policy.md §9.1
+requirement: HS-PERM-01..05
+# Grants beyond least privilege: cluster-admin bindings, wildcard rules,
+# Secret read access, host access and privilege in pods, and privileged
+# Pod Security namespaces. subject: <Kind>/<namespace or _cluster>/<name>.
+# Seeded 2026-10-06 from the policy findings; every entry is proposed.
+entries:
+  - id: PM-01
+    subject: "ClusterRole/_cluster/alloy"
+    grants: [secrets-read]
+    reason: "Chart default or not recorded. Owner to confirm the need or narrow it."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-02
+    subject: "ClusterRole/_cluster/cert-manager-cainjector"
+    grants: [secrets-read]
+    reason: "Operator: issues certificates and writes their TLS Secrets."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-03
+    subject: "ClusterRole/_cluster/cert-manager-controller-certificates"
+    grants: [secrets-read]
+    reason: "Operator: issues certificates and writes their TLS Secrets."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-04
+    subject: "ClusterRole/_cluster/cert-manager-controller-challenges"
+    grants: [secrets-read]
+    reason: "Operator: issues certificates and writes their TLS Secrets."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-05
+    subject: "ClusterRole/_cluster/cert-manager-controller-clusterissuers"
+    grants: [secrets-read]
+    reason: "Operator: issues certificates and writes their TLS Secrets."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-06
+    subject: "ClusterRole/_cluster/cert-manager-controller-issuers"
+    grants: [secrets-read]
+    reason: "Operator: issues certificates and writes their TLS Secrets."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-07
+    subject: "ClusterRole/_cluster/cert-manager-controller-orders"
+    grants: [secrets-read]
+    reason: "Operator: issues certificates and writes their TLS Secrets."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-08
+    subject: "ClusterRole/_cluster/cnpg-cloudnative-pg"
+    grants: [pods-exec, secrets-read]
+    reason: "Operator: manages database credentials and backup Secrets, and runs commands in database pods."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-09
+    subject: "ClusterRole/_cluster/doppler-operator-manager-role"
+    grants: [secrets-read]
+    reason: "Operator: writes Secrets from the secrets store."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-10
+    subject: "ClusterRole/_cluster/kps-kube-prometheus-stack-operator"
+    grants: [secrets-read, wildcard]
+    reason: "Monitoring operator: manages its own Secrets. Wildcard is a chart default."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-11
+    subject: "ClusterRole/_cluster/kps-kube-state-metrics"
+    grants: [secrets-read]
+    reason: "Chart default or not recorded. Owner to confirm the need or narrow it."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-12
+    subject: "ClusterRole/_cluster/loki-clusterrole"
+    grants: [secrets-read]
+    reason: "Chart default or not recorded. Owner to confirm the need or narrow it."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-13
+    subject: "ClusterRole/_cluster/metallb:speaker"
+    grants: [wildcard]
+    reason: "Load balancer: announces service IPs on the LAN; needs host network."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-14
+    subject: "ClusterRole/_cluster/nfs-external-provisioner-role"
+    grants: [secrets-read]
+    reason: "Storage driver: mounts NFS volumes on the node; needs host access."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-15
+    subject: "ClusterRole/_cluster/traefik-kube-system"
+    grants: [secrets-read]
+    reason: "Ingress controller: reads TLS Secrets for published routes."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-16
+    subject: "DaemonSet/crowdsec/crowdsec-agent"
+    grants: [hostPath]
+    reason: "Reads host logs for intrusion detection."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-17
+    subject: "DaemonSet/metallb-system/metallb-speaker"
+    grants: [capability:NET_RAW, hostNetwork]
+    reason: "Load balancer: announces service IPs on the LAN; needs host network."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-18
+    subject: "DaemonSet/monitoring/kps-prometheus-node-exporter"
+    grants: [hostNetwork, hostPID, hostPath]
+    reason: "Node metrics: reads host /proc and /sys."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-19
+    subject: "DaemonSet/nfs-csi/csi-nfs-node"
+    grants: [capability:SYS_ADMIN, hostNetwork, hostPath, privileged]
+    reason: "Storage driver: mounts NFS volumes on the node; needs host access."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-20
+    subject: "Deployment/applemusic-wrapper/applemusic-wrapper"
+    grants: [privileged]
+    reason: "Chart default or not recorded. Owner to confirm the need or narrow it."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-21
+    subject: "Deployment/downloads/octo"
+    grants: [capability:CHOWN]
+    reason: "Chart default or not recorded. Owner to confirm the need or narrow it."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-22
+    subject: "Deployment/downloads/qbittorrent"
+    grants: [capability:NET_ADMIN, hostPath]
+    reason: "Chart default or not recorded. Owner to confirm the need or narrow it."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-23
+    subject: "Deployment/hermes/hermes"
+    grants: [capability:CHOWN, capability:DAC_OVERRIDE, capability:FOWNER, capability:SETGID, capability:SETUID]
+    reason: "Chart default or not recorded. Owner to confirm the need or narrow it."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-24
+    subject: "Deployment/nfs-csi/csi-nfs-controller"
+    grants: [capability:SYS_ADMIN, hostNetwork, hostPath, privileged]
+    reason: "Storage driver: mounts NFS volumes on the node; needs host access."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-26
+    subject: "Namespace/_cluster/applemusic-wrapper"
+    grants: [pss-privileged]
+    reason: "Pod Security privileged level. Reason not recorded (was waiver W-04)."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-27
+    subject: "Namespace/_cluster/cert-manager"
+    grants: [pss-privileged]
+    reason: "Operator: issues certificates and writes their TLS Secrets."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-28
+    subject: "Namespace/_cluster/cnpg-system"
+    grants: [pss-privileged]
+    reason: "Operator: manages database credentials and backup Secrets."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-29
+    subject: "Namespace/_cluster/crowdsec"
+    grants: [pss-privileged]
+    reason: "Reads host logs for intrusion detection."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-30
+    subject: "Namespace/_cluster/downloads"
+    grants: [pss-privileged]
+    reason: "Pod Security privileged level. Reason not recorded (was waiver W-04)."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-31
+    subject: "Namespace/_cluster/metallb-system"
+    grants: [pss-privileged]
+    reason: "Load balancer: announces service IPs on the LAN; needs host network."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-32
+    subject: "Namespace/_cluster/monitoring"
+    grants: [pss-privileged]
+    reason: "Pod Security privileged level. Reason not recorded (was waiver W-04)."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-33
+    subject: "Namespace/_cluster/nfs-csi"
+    grants: [pss-privileged]
+    reason: "Storage driver: mounts NFS volumes on the node; needs host access."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-35
+    subject: "Role/authentik/authentik"
+    grants: [secrets-read]
+    reason: "Identity provider: manages its outpost Secrets."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-36
+    subject: "Role/cert-manager/cert-manager-webhook:dynamic-serving"
+    grants: [secrets-read]
+    reason: "Operator: issues certificates and writes their TLS Secrets."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-37
+    subject: "Role/image-updater/image-updater-argocd-image-updater"
+    grants: [secrets-read]
+    reason: "Reads registry credentials for image updates."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-38
+    subject: "Role/metallb-system/metallb-controller"
+    grants: [secrets-read]
+    reason: "Load balancer: announces service IPs on the LAN; needs host network."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-39
+    subject: "Role/metallb-system/metallb-pod-lister"
+    grants: [secrets-read, wildcard]
+    reason: "Load balancer: announces service IPs on the LAN; needs host network."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-40
+    subject: "Role/monitoring/kps-kube-prometheus-stack-admission"
+    grants: [secrets-read]
+    reason: "Monitoring admission webhook: writes its TLS Secret."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: PM-41
+    subject: "Role/nextcloud/games-mount-scan"
+    grants: [pods-exec]
+    reason: "A scheduled job runs a file scan inside the Nextcloud pod."
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01

@@ -1,0 +1,33 @@
+register: waivers
+kind: exception
+policy: 01-policy.md §18
+# A waiver says which requirement is not met, where, why, the compensating
+# control, and when the owner examines it again. A waiver without a reason is
+# a GAP. Pod Security exceptions are in permissions.yaml, not here.
+entries:
+  - id: W-05
+    requirement: HS-WL-06
+    scope: The Jobs listed in scripts/ci/wait-init-baseline.txt
+    reason: Older than the check. Each needs its own repair.
+    compensating: The check fails on any new Job without a wait.
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-01-31
+  - id: W-06
+    requirement: All high-availability requirements
+    scope: The whole cluster
+    reason: One node by design. Availability impact is LOW (policy §4).
+    compensating: Backups, restore drills and the external watchdog. Does not remove those rules (policy §18.5).
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
+    review_by: 2027-10-01
+  - id: W-07
+    requirement: HS-GIT-03, HS-GIT-04, HS-GIT-10
+    scope: Branch protection on main (required checks, required pull request)
+    reason: The owner decided on 2026-10-06 not to enable branch protection. The owner wants agents to change the homelab while the owner is away.
+    compensating: Agents run the checks before they push (AGENTS.md). CI reports a failure after the push. The reconciler deploys within 3 minutes, so a failing change is live before CI answers. Zone 0 and Zone 1 rules (policy §8) bind agents by instruction and by the harness hook only.
+    status: approved
+    approved_on: 2026-10-06
+    review_by: 2027-10-01

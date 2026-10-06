@@ -3,6 +3,8 @@ kind: Namespace
 metadata:
   name: bitmagnet
   labels:
+    homelab/data-class: c2
+    homelab/criticality: tier-3
     app.kubernetes.io/name: bitmagnet
     app.kubernetes.io/part-of: homelab
     # Baseline enforced (not restricted): the image runs as root (no USER in

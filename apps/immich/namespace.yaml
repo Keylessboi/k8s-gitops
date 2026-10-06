@@ -3,6 +3,8 @@ kind: Namespace
 metadata:
   name: immich
   labels:
+    homelab/data-class: c3
+    homelab/criticality: tier-2
     app.kubernetes.io/name: immich
     app.kubernetes.io/part-of: homelab
     pod-security.kubernetes.io/enforce: baseline

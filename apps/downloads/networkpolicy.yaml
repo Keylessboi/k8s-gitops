@@ -55,9 +55,6 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: remux
-        - namespaceSelector:
-            matchLabels:
               kubernetes.io/metadata.name: navidrome
         - namespaceSelector:
             matchLabels:
