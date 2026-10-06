@@ -12,10 +12,11 @@
 #
 # Shape, following upstream's docker-compose.yml service for service:
 #   notesnook-db      MongoDB 7 single-node replica set (rs0)
-#   notesnook-s3      its OWN MinIO for attachments. Clients upload and download
-#                     attachments directly via presigned URLs, so this API has to
-#                     be public - which is exactly why it is not the NAS MinIO
-#                     that holds the cluster's backups.
+#   notesnook-garage  its OWN Garage (S3) for attachments, replacing a private MinIO
+#                     on 2026-10-06 (MinIO is archived upstream). Clients upload and
+#                     download attachments directly via presigned URLs, so this API
+#                     has to be public - which is exactly why it is not the NAS
+#                     object store that holds the cluster's backups.
 #   identity-server   accounts, login, 2FA (no OIDC upstream, so no Authentik)
 #   notesnook-server  sync API
 #   sse-server        push events to clients
@@ -44,7 +45,6 @@ resources:
   - networkpolicy.yaml
   - config.yaml
   - mongodb.yaml
-  - minio.yaml
   - garage.yaml
   - servers.yaml
   - pvc-keys-tank.yaml

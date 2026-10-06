@@ -57,8 +57,6 @@ vaultwarden-data-backup
 #   games-mount-scan         runs kubectl, so it calls the API server on its first
 #                            action. Wait on the apiserver, or annotate if the
 #                            installed kubectl retries.
-#   notesnook-s3-setup       configures MinIO with the mc client against the MinIO
-#                            Service; wait on MinIO's /minio/health/live.
 #
 # Deleting a line here is the fix.
 # ---------------------------------------------------------------------------
@@ -66,4 +64,3 @@ seed-reaper
 nextcloud-upload-sweep
 beets-replaygain-backfill
 games-mount-scan
-notesnook-s3-setup
