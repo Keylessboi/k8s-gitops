@@ -108,6 +108,7 @@ the literal string you are seeing, then read the entry.
 | A published host answers `404` from Traefik; its Ingress is there but the backend Service is `NotFound` | component disabled, hand-written Ingress left behind — 2026-10-01 (grafana) |
 | An album is downloaded over and over, `Import failed: Item removed by Queue Cleaner`, library never changes | a nightly importer racing a minutes-fast queue cleaner — 2026-10-02 (AppleMusicarr) |
 | `adding IPv6 rule: adding ip rule 101: from all to all table 51820: file exists`; gluetun restarts in the hundreds; Octo previews `502`, yt-dlp `Unable to connect to proxy` | stale WireGuard ip rules in the pod netns — 2026-10-03 |
+| `BackupRestoreDrillFailed` emails repeating for days after a re-run passed | rule matched any failed drill Job still in history — 2026-10-06 |
 | `ERROR:  syntax error at or near "$"` from SQL in a Job/initContainer, where the same SQL runs fine in psql | Kubernetes turns `$$` into `$` in container commands — 2026-10-05 |
 | NAS kernel upgraded, and `/usr/lib/modules/<new kernel>` has no `zfs.ko` (or `zpool import` finds nothing after a reboot) | ZFS hand-built outside DKMS — 2026-10-04 |
 
@@ -150,6 +151,29 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-10-06 — BackupRestoreDrillFailed kept emailing after the drill had passed
+
+**Symptom.** `BackupRestoreDrillFailed` (critical, email) re-sent for days. No drill had failed
+since 2026-10-01; a manual re-run on 2026-10-02 passed (`failures: 0`, CronJob
+`lastSuccessfulTime` 2026-10-02T19:35Z).
+
+**Root cause.** The rule was `kube_job_status_failed{job_name=~"restore-drill-.*"} > 0`: true while
+ANY failed drill Job object exists. The drill runs monthly and the CronJob keeps its last 3 failed
+Jobs, so the 2026-10-01 failure (blinko's TABLE ATTACH miscount, fixed in #66) stayed in history and
+kept the alert firing, and Alertmanager re-sent it on every repeat interval, for up to a month.
+Confirmed with promtool against live data: the only series was `restore-drill-29847080`.
+
+**Fix.** The alert fires only while the newest failed drill started after the newest successful one
+(`max(start_time and failed) > (max(start_time and succeeded) or vector(0))`). Against the same live
+data it returns nothing; a new failure is newer than every success, so it still fires.
+
+**Prevention.** An alert on a Job outcome must look at the latest run, not at whether any failed Job
+object is still retained: Job history outlives the problem, and re-running a job must be able to
+resolve its alert. Check new Job alerts against `failedJobsHistoryLimit` and the schedule.
+
+**Confidence:** CONFIRMED. promtool showed the old rule's only series and the new rule's empty result
+on the same data.
 
 ## 2026-10-05 — immich-extensions failed: Kubernetes ate the `$$` in a DO block
 
