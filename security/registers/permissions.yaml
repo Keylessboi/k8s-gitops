@@ -319,35 +319,3 @@ entries:
     approved_on: 2026-10-06
     approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
     review_by: 2027-10-01
-  - id: PM-50
-    subject: "Job/immich/immich-thumbs-local-migrate"
-    grants: ["capability:CHOWN", "capability:DAC_OVERRIDE", "capability:FOWNER"]
-    reason: "Temporary volume-migration Job: copies files with their ownership. Removed in step 2 of the move to tank."
-    status: approved
-    approved_on: 2026-10-06
-    approval_note: "Added by the agent for a temporary Job; approved on trust under the owner's instruction of 2026-10-06 to move the volumes. Remove with the Job."
-    review_by: 2026-10-31
-  - id: PM-51
-    subject: "Job/nextcloud/nextcloud-config-migrate"
-    grants: ["capability:CHOWN", "capability:DAC_OVERRIDE", "capability:FOWNER"]
-    reason: "Temporary volume-migration Job: copies files with their ownership. Removed in step 2 of the move to tank."
-    status: approved
-    approved_on: 2026-10-06
-    approval_note: "Added by the agent for a temporary Job; approved on trust under the owner's instruction of 2026-10-06 to move the volumes. Remove with the Job."
-    review_by: 2026-10-31
-  - id: PM-52
-    subject: "Job/navidrome/navidrome-data-nas-migrate"
-    grants: ["capability:CHOWN", "capability:DAC_OVERRIDE", "capability:FOWNER"]
-    reason: "Temporary volume-migration Job: copies files with their ownership. Removed in step 2 of the move to tank."
-    status: approved
-    approved_on: 2026-10-06
-    approval_note: "Added by the agent for a temporary Job; approved on trust under the owner's instruction of 2026-10-06 to move the volumes. Remove with the Job."
-    review_by: 2026-10-31
-  - id: PM-53
-    subject: "Job/notesnook/notesnook-garage-migrate"
-    grants: ["capability:CHOWN", "capability:DAC_OVERRIDE", "capability:FOWNER"]
-    reason: "Temporary volume-migration Job: copies files with their ownership. Removed in step 2 of the move to tank."
-    status: approved
-    approved_on: 2026-10-06
-    approval_note: "Added by the agent for a temporary Job; approved on trust under the owner's instruction of 2026-10-06 to move the volumes. Remove with the Job."
-    review_by: 2026-10-31

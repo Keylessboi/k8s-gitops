@@ -12,7 +12,7 @@ metadata:
   annotations:
     secrets.doppler.com/reload: 'true'
 spec:
-  replicas: 0   # migration step 1: copying navidrome-data-nas to tank
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -212,7 +212,7 @@ spec:
             # See apps/navidrome/pvc-data-local.yaml and docs/adr/0009.
             # The nfs-csi claim in pvc-data.yaml still holds the pre-migration
             # copy, so this is a one-line rollback.
-            claimName: navidrome-data-nas
+            claimName: navidrome-data-nas-tank
         - name: music
           persistentVolumeClaim:
             claimName: media-data-nas
