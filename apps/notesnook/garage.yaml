@@ -1,6 +1,6 @@
 ---
 # Notesnook's attachment store: Garage, replacing the private MinIO
-# (minio.yaml). MinIO's community edition is archived upstream (2026-04-25)
+# (removed 2026-10-06 after a 1 GB multipart upload from a real client worked). MinIO's community edition is archived upstream (2026-04-25)
 # and can no longer be kept current; Garage is S3-compatible, maintained,
 # and runs as one small single-node process.
 #

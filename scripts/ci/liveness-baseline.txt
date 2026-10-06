@@ -58,7 +58,6 @@ apps/lidarr/deployment.yaml:lidarr/lidarr
 apps/lidarr/lucida-solver.yaml:lucida-solver/solver
 apps/music/beets.yaml:beets/beets
 apps/navidrome/deployment.yaml:navidrome/navidrome
-apps/notesnook/minio.yaml:notesnook-s3/minio
 apps/notesnook/mongodb.yaml:notesnook-db/mongo
 apps/notesnook/servers.yaml:identity-server/identity-server
 apps/notesnook/servers.yaml:monograph-server/monograph-server

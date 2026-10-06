@@ -19,11 +19,10 @@ spec:
         - {port: 8264, protocol: TCP}
         - {port: 7264, protocol: TCP}
         - {port: 3000, protocol: TCP}
-        - {port: 9000, protocol: TCP}
-        - {port: 3900, protocol: TCP}  # Garage S3 (notesnook-files after cutover)
+        - {port: 3900, protocol: TCP}  # Garage S3 (notesnook-files)
         # cert-manager HTTP-01 solver pods live in this namespace.
         - {port: 8089, protocol: TCP}
-    # The servers call each other and MongoDB/MinIO.
+    # The servers call each other and MongoDB/Garage.
     - from:
         - podSelector: {}
   egress:
