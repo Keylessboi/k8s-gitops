@@ -103,7 +103,7 @@ fails, everything does.
 | authentik | SSO / identity provider (server, worker, Postgres, Redis) | User identities, password hashes, sessions, OIDC client secrets | **C4** | 1 |
 | vaultwarden | Password manager | Users' encrypted vaults (in Postgres), attachments on an NFS claim | **C4** | 1 |
 | crowdsec | Edge detection and blocking | Attacker IPs, decisions | C2 | 1 |
-| accounts | Account-provisioning tool (Authentik + remux) | Handles new users' passwords in transit | C4 | 1 |
+| accounts | Account-provisioning tool (Authentik) | Handles new users' passwords in transit | C4 | 1 |
 | monitoring | Prometheus, Grafana, Loki, Alloy, Alertmanager | Metrics and logs from every node (logs may contain C3) | C3 | 1 |
 | image-updater | ArgoCD Image Updater; commits tag bumps to git | Git write credential | C4 | 1 |
 | immich | Photo library (server, worker, ML) | Personal photos and videos, face data | **C3** | 2 |
@@ -114,8 +114,7 @@ fails, everything does.
 | ghost | Public blog (single pod, SQLite on a PVC) | Published posts (C1), staff accounts and drafts (C3) | C3 | 3 |
 | pelican | Game-server panel (Wings on the nas) | Panel accounts, game-server data | C3 | 3 |
 | navidrome | Music streaming | Library index, users' play history | C3 | 3 |
-| remux | Jellyfin-compatible media server, via AirVPN | Watch history, mirrored accounts | C3 | 3 |
-| lidarr, prowlarr, bitmagnet, flaresolverr, downloads, books, music, kiwix, convertx, hermes, spatial-sidecar, applemusic-wrapper | Media acquisition, processing and serving | Media library, indexer API keys, tracker passkeys | C2 (API keys and passkeys are C4) | 3 |
+| lidarr, prowlarr, bitmagnet, flaresolverr, downloads, books, music, kiwix, hermes, spatial-sidecar, applemusic-wrapper | Media acquisition, processing and serving | Media library, indexer API keys, tracker passkeys | C2 (API keys and passkeys are C4) | 3 |
 
 ### 4.1 Data stores
 

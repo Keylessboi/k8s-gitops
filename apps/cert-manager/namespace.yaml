@@ -3,6 +3,8 @@ kind: Namespace
 metadata:
   name: cert-manager
   labels:
+    homelab/data-class: c4
+    homelab/criticality: tier-0
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/warn: privileged

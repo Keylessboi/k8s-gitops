@@ -4,6 +4,8 @@ kind: Namespace
 metadata:
   name: downloads
   labels:
+    homelab/data-class: c2
+    homelab/criticality: tier-3
     app.kubernetes.io/name: downloads
     app.kubernetes.io/part-of: homelab
     # gluetun needs NET_ADMIN and /dev/net/tun to bring up WireGuard.

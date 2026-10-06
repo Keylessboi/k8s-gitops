@@ -3,6 +3,8 @@ kind: Namespace
 metadata:
   name: cnpg-system
   labels:
+    homelab/data-class: c2
+    homelab/criticality: tier-0
     app.kubernetes.io/name: cloudnative-pg
     app.kubernetes.io/part-of: homelab
     pod-security.kubernetes.io/enforce: privileged

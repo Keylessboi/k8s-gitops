@@ -3,6 +3,8 @@ kind: Namespace
 metadata:
   name: monitoring
   labels:
+    homelab/data-class: c3
+    homelab/criticality: tier-1
     app.kubernetes.io/name: monitoring
     app.kubernetes.io/part-of: homelab
     # node-exporter cannot run under `baseline`: reading host CPU, memory, disk

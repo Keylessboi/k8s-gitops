@@ -3,6 +3,8 @@ kind: Namespace
 metadata:
   name: lidarr
   labels:
+    homelab/data-class: c2
+    homelab/criticality: tier-3
     app.kubernetes.io/name: lidarr
     app.kubernetes.io/part-of: homelab
     pod-security.kubernetes.io/enforce: baseline

@@ -8,7 +8,6 @@ requirement: HS-ACC-01
 entries:
   - {id: A-01, app: authentik, type: shared-admin, account: akadmin, why: product bootstrap, disable: owner rotates the password when an administrator changes}
   - {id: A-02, app: argocd, type: shared-admin, account: admin, why: product default, disable: undefined}
-  - {id: A-03, app: remux, type: per-user-local, account: one per user, plus admin, why: no SSO in the product, disable: undefined}
   - {id: A-04, app: grafana, type: local-admin, account: admin, why: product default, disable: undefined}
   - {id: A-05, app: pelican, type: local-admin, account: seeded administrator, why: product bootstrap, disable: undefined}
   - {id: A-06, app: ghost, type: per-user-local, account: staff accounts, why: no SSO in the product, disable: undefined}
@@ -16,4 +15,3 @@ entries:
   - {id: A-08, app: notesnook, type: per-user-local, account: own identity server, why: product design, disable: undefined}
   - {id: A-09, app: navidrome, type: per-user-local, account: Subsonic password for each user, why: Subsonic clients, disable: undefined}
   - {id: A-10, app: books, type: per-user-local, account: OPDS Basic-auth user, why: OPDS clients, disable: undefined}
-  - {id: A-11, app: convertx, type: per-user-local, account: own account, why: product design, disable: undefined}

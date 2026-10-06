@@ -4,6 +4,8 @@ kind: Namespace
 metadata:
   name: crowdsec
   labels:
+    homelab/data-class: c2
+    homelab/criticality: tier-1
     app.kubernetes.io/name: crowdsec
     app.kubernetes.io/part-of: homelab
     # The agent reads container logs from the host filesystem.

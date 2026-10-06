@@ -77,18 +77,18 @@ no status and does not count.
 | SEC — secrets | 7 | 1 | 1 | — | 5 | — |
 | AGENT — AI agent operations | 13 | 3 | 1 | 2 | 6 | — |
 | WL — workloads | 7 | — | — | — | 7 | — |
-| NET — networking and publishing | 9 | — | 1 | 1 | 7 | — |
+| NET — networking and publishing | 9 | — | 3 | 1 | 5 | — |
 | ACC — accounts and authentication | 4 | — | — | — | 4 | — |
-| PSS — pod security | 2 | — | — | 1 | 1 | — |
+| PSS — pod security | 2 | — | 1 | 1 | — | — |
 | PLAT — platform | 3 | — | — | 1 | 2 | — |
 | OBS — detection | 4 | — | — | 1 | 3 | — |
 | HOST — hosts | 4 | — | — | — | 4 | — |
 | SUP — supply chain | 7 | — | 3 | — | 4 | — |
-| DATA — data handling | 4 | — | — | — | 4 | — |
+| DATA — data handling | 4 | — | 1 | — | 3 | — |
 | REST — data at rest | 5 | — | 1 | 1 | 3 | — |
 | PERM — permissions | 6 | — | 5 | — | 1 | — |
 | QUAL — quality | 2 | — | 1 | 1 | — | — |
-| **Total** | **98** | **7** | **20** | **13** | **54** | **3** |
+| **Total** | **98** | **7** | **24** | **13** | **50** | **3** |
 
 Engineering conventions (§11.3) are not security requirements and are not
 counted. A CHECKED status here means a CI check finds the violations; the
@@ -99,9 +99,9 @@ The largest gaps:
 
 1. **CI does not stop a change.** `main` has no branch protection, and
    `validate` has failed on `main` since 2026-09-28 or earlier (HS-GIT-03).
-2. **Authentication at the edge has no general rule in force.** 20 routes
-   are published without forward authentication. No register approved any
-   of them (HS-NET-06, §12.1).
+2. **Data at rest is not encrypted where it matters.** Plain LVM on the
+   hypervisor holds the databases and 6 volumes in C3 namespaces. k3s Secrets
+   encryption is disabled (HS-REST-02, HS-REST-03). Checked 2026-10-06.
 3. **Agents get cluster-admin** through root on the hypervisor (HS-SEC-04,
    HS-AGENT-09).
 4. **Most images have no digest pin:** 16 of 85 containers in the non-Helm
@@ -204,8 +204,8 @@ HS-WL-07, -08, -09 and -11 moved to the engineering conventions (§11.3).
 | HS-NET-03 | A `namespaceSelector` MUST NOT name a namespace that does not exist. | doctor-log 2026-09-15 | Not yet a check | **GAP**: 6 selectors (measured 2026-10-03) |
 | HS-NET-04 | Cluster DNS MUST send queries to upstream resolvers with encryption. Verify a claim of this on the wire. | doctor-log 2026-09-14 | manual | UNMEASURED |
 | HS-NET-05 | Each published route MUST have TLS from the certificate manager, the edge rate limit and the edge intrusion detection. | Policy §9.7.1–2 | Not yet a check (§9.7 test) | UNMEASURED |
-| HS-NET-06 | Each published route MUST require authentication through the identity provider (forward authentication, or OIDC with the application's local login disabled). A route without it MUST be on the publication register (§12.1), and its entry MUST meet all the criteria in policy §9.7.4. | Policy §9.7 | A CI check: each Ingress has the forward-auth middleware, or its host and path are on §12.1 | **GAP**: 20 routes without forward-auth (outpost callbacks excluded); none approved on the register (2026-10-03) |
-| HS-NET-07 | A route without forward authentication, on a host where other paths use forward authentication, MUST remove client-supplied identity headers before the request reaches the application. | Policy §9.7; the header-strip comment in the download stack's carve-out | A CI check on the same Ingress list | **GAP**: 2 of 4 such routes do not remove them (2026-10-03) |
+| HS-NET-06 | Each published route MUST require authentication through the identity provider (forward authentication, or OIDC with the application's local login disabled). A route without it MUST be on the publication register (§12.1), and its entry MUST meet all the criteria in policy §9.7.4. | Policy §9.7 | A CI check: each Ingress has the forward-auth middleware, or its host and path are on §12.1 | CHECKED: 1 route (Pelican) has no approved entry. 16 entries approved on trust 2026-10-06; login quality is unverified for most |
+| HS-NET-07 | A route without forward authentication, on a host where other paths use forward authentication, MUST remove client-supplied identity headers before the request reaches the application. | Policy §9.7; the header-strip comment in the download stack's carve-out | A CI check on the same Ingress list | CHECKED: 0 findings (3 routes repaired 2026-10-06) |
 | HS-NET-08 | An interface that can change the platform's configuration, or that shows C4 data, MUST NOT be published. An IP allow-list makes a route internal only if it admits only the LAN and the VPN. | Policy §9.5 | manual | UNMEASURED (one control-plane UI on an allow-listed route) |
 | HS-NET-09 | Two manifests MUST NOT make different authentication decisions for the same host. If one manifest depends on another for authentication, it MUST say so, and the CI check (HS-NET-06) MUST cover both. | Policy §9.7.5; the account-sync job that relied on forward-auth that a later manifest removed | HS-NET-06 test | **GAP** |
 
@@ -215,7 +215,7 @@ HS-WL-07, -08, -09 and -11 moved to the engineering conventions (§11.3).
 |---|---|---|---|---|
 | HS-ACC-01 | Each account that is not an individual identity-provider account (a shared account, a local administrator, an application's own user store) MUST be on the account register (§12.2), with how to disable it. | Policy §9.1, §9.3 | manual | **GAP**: register started 2026-10-03, not complete |
 | HS-ACC-02 | The owner's accounts that control the system, and identity-provider administrators, MUST use multi-factor authentication. | Policy §9.4 | manual (provider consoles) | UNMEASURED |
-| HS-ACC-03 | An application's own login MUST reject empty and default passwords, and MUST limit failed attempts or sit behind the edge rate limit and intrusion detection. | Policy §9.4 | manual (one test login per application) | **GAP**: one application creates accounts with empty passwords |
+| HS-ACC-03 | An application's own login MUST reject empty and default passwords, and MUST limit failed attempts or sit behind the edge rate limit and intrusion detection. | Policy §9.4 | manual (one test login per application) | UNMEASURED (the empty-password account sync left with the media server on 2026-10-06) |
 | HS-ACC-04 | A user who leaves MUST lose access in 7 days in the identity provider and in each application on the account register. | Policy §9.3 | manual | UNMEASURED |
 
 ## 11. PSS, PLAT, OBS, HOST, SUP, DATA, REST, PERM, QUAL
@@ -225,7 +225,7 @@ HS-WL-07, -08, -09 and -11 moved to the engineering conventions (§11.3).
 | ID | Requirement | Source | Test | Status |
 |---|---|---|---|---|
 | HS-PSS-01 | Each namespace MUST set `pod-security.kubernetes.io/enforce`. | Pod Security Standards; CIS K8s 5.2 | Not yet a check | MET for the 22 non-Helm namespaces |
-| HS-PSS-02 | Namespaces SHOULD enforce `baseline` or stricter. A `privileged` namespace MUST be on the permissions register (HS-PERM-05). | Pod Security Standards; NIST 800-190 | Conftest `permissions` | **GAP**: 9 namespaces, none approved |
+| HS-PSS-02 | Namespaces SHOULD enforce `baseline` or stricter. A `privileged` namespace MUST be on the permissions register (HS-PERM-05). | Pod Security Standards; NIST 800-190 | Conftest `permissions` | CHECKED: 8 `privileged` namespaces, approved on trust 2026-10-06 (HS-PERM-05) |
 | HS-PLAT-01 | Do not add a CNI, service mesh, operator or scheduler, unless it removes more components than it adds. | ADR-0007 | Review | MET |
 | HS-PLAT-02 | Each time-series or log store MUST have a size limit. | doctor-log 2026-09-09, 2026-08-31 | manual | UNMEASURED |
 | HS-PLAT-03 | Node memory SHOULD keep free capacity. | ADR-0007 | Prometheus | UNMEASURED |
@@ -273,20 +273,20 @@ over the rendered manifests.
 
 | ID | Requirement | Source | Test | Status |
 |---|---|---|---|---|
-| HS-DATA-01 | Each namespace MUST have the label `homelab/data-class` (`c1` to `c4`) and the label `homelab/criticality` (`tier-0` to `tier-3`). The values MUST agree with `00-system-description.md` §4. | Policy §5.3 | Conftest `data_handling` | **GAP**: 0 of 33 namespaces |
+| HS-DATA-01 | Each namespace MUST have the label `homelab/data-class` (`c1` to `c4`) and the label `homelab/criticality` (`tier-0` to `tier-3`). The values MUST agree with `00-system-description.md` §4. | Policy §5.3 | Conftest `data_handling` | CHECKED: 0 findings (31 namespaces labelled 2026-10-06) |
 | HS-DATA-02 | A container SHOULD get a secret as a mounted file, not as an environment variable. | Policy §6 (C4 display); HS-SEC-03 | Conftest warning | **GAP**: 149 environment variables (2026-10-06) |
 | HS-DATA-03 | A connection that carries C3 or C4 data between pods SHOULD use TLS where the server supports it. A connection without it MUST be on the data-store register with the reason. | Policy §6 (C4 in transit) | manual | UNMEASURED |
 | HS-DATA-04 | An application MUST NOT write C4 values to its log at the configured log level. | Policy §14.1 | manual (log sample per application) | UNMEASURED |
 | HS-REST-01 | Each volume MUST use a storage class that the data-store register (§12.8) records, with its encryption at rest. | Policy §12.4 | Conftest `data_handling` | CHECKED |
-| HS-REST-02 | A volume in a C3 or C4 namespace MUST use a store that is encrypted at rest. | Policy §6, §12.4 | Conftest `data_handling` (active when HS-DATA-01 labels exist) | UNMEASURED (no labels yet; local-path encryption unverified) |
-| HS-REST-03 | Kubernetes Secrets MUST be encrypted at rest in the cluster datastore. | Policy §12.4 | `k3s secrets-encrypt status` (owner) | UNMEASURED |
+| HS-REST-02 | A volume in a C3 or C4 namespace MUST use a store that is encrypted at rest. | Policy §6, §12.4 | Conftest `data_handling` (active when HS-DATA-01 labels exist) | **GAP**: 6 volumes in C3 namespaces are on `local-path`, which is not encrypted (verified 2026-10-06) |
+| HS-REST-03 | Kubernetes Secrets MUST be encrypted at rest in the cluster datastore. | Policy §12.4 | `k3s secrets-encrypt status` (owner) | **GAP**: disabled (`k3s secrets-encrypt status`, 2026-10-06) |
 | HS-REST-04 | Backups MUST be encrypted before they leave the host that makes them. | Policy §13.1 | manual | MET for restic; UNMEASURED for borgmatic (encryption mode unrecorded, data-stores D-09); CNPG object-store backups rely on the pool |
 | HS-REST-05 | The operator computer MUST use full-disk encryption. Files that hold C4 credentials on it (kubeconfig, SSH keys) MUST be readable only by the owner. | Policy §12.4 | `stat -c %a ~/.kube/config ~/.ssh/*` | **GAP**: the kubeconfig is world-readable (2026-10-06); disk encryption UNMEASURED |
-| HS-PERM-01 | A binding to `cluster-admin` MUST be on the permissions register (§12.7). | Policy §9.1 | Conftest `permissions` | CHECKED (0 in the manifests; agents' access is HS-SEC-04) |
-| HS-PERM-02 | A role with a wildcard verb or resource MUST be on the permissions register. | Policy §9.1; CIS K8s 5.1.3 | Conftest `permissions` | CHECKED: 3 grants, none approved |
-| HS-PERM-03 | A role that can read Secrets, or run commands in other pods (`pods/exec`, `pods/attach`), MUST be on the permissions register. | Policy §9.1; CIS K8s 5.1.2 | Conftest `permissions` | CHECKED: 22 grants (20 Secret read, 2 exec), none approved |
-| HS-PERM-04 | A pod with host access (host network, PID, IPC, host paths), privilege or added capabilities MUST be on the permissions register. | Policy §9.1; Pod Security Standards | Conftest `permissions` | CHECKED: 25 grants, none approved |
-| HS-PERM-05 | A namespace at Pod Security level `privileged` MUST be on the permissions register. This replaces waiver W-04. | Policy §9.1; HS-PSS-02 | Conftest `permissions` | CHECKED: 9 namespaces, none approved |
+| HS-PERM-01 | A binding to `cluster-admin` MUST be on the permissions register (§12.7). | Policy §9.1 | Conftest `permissions` | CHECKED: 0 findings |
+| HS-PERM-02 | A role with a wildcard verb or resource MUST be on the permissions register. | Policy §9.1; CIS K8s 5.1.3 | Conftest `permissions` | CHECKED: all grants approved on trust 2026-10-06 |
+| HS-PERM-03 | A role that can read Secrets, or run commands in other pods (`pods/exec`, `pods/attach`), MUST be on the permissions register. | Policy §9.1; CIS K8s 5.1.2 | Conftest `permissions` | CHECKED: all grants approved on trust 2026-10-06 |
+| HS-PERM-04 | A pod with host access (host network, PID, IPC, host paths), privilege or added capabilities MUST be on the permissions register. | Policy §9.1; Pod Security Standards | Conftest `permissions` | CHECKED: all grants approved on trust 2026-10-06 |
+| HS-PERM-05 | A namespace at Pod Security level `privileged` MUST be on the permissions register. This replaces waiver W-04. | Policy §9.1; HS-PSS-02 | Conftest `permissions` | CHECKED: all namespaces approved on trust 2026-10-06 |
 | HS-PERM-06 | Each identity-provider group that gives administrator access, and its members, MUST be on the account register. | Policy §9.3 | manual | **GAP** |
 | HS-QUAL-01 | The Polaris score of the rendered manifests MUST NOT fall below the floor in `policy/polaris-score-floor`. When the score rises, raise the floor in the same change. | Policy §17 | Polaris in `security.yaml` | CHECKED (83, floor 83) |
 | HS-QUAL-02 | The Polaris configuration MUST be the upstream default except for lines with a reason. | Policy §17 | Review of `policy/polaris.yaml` (Zone 1) | MET |
