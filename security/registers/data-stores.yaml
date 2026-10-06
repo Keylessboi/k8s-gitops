@@ -1,0 +1,19 @@
+register: data-stores
+kind: inventory
+policy: 01-policy.md §5, §6, §13
+requirement: HS-REST-01
+# Each place that keeps data. at_rest: encrypted | not-encrypted | unverified.
+# backup: the backup layers (00-system-description.md §4.2), or none.
+# storage_classes: the volume classes that land in this store. "static-nfs"
+# and "static-local" are pre-created PersistentVolumes in the repo, by backing.
+entries:
+  - {id: D-01, store: ZFS pool tank, where: nas, class: C4, at_rest: encrypted, verified: "2026-10-06 aes-256-gcm", note: key on the same host (K-01), backup: [zfs-snapshots, borgmatic-offsite]}
+  - {id: D-02, store: CNPG Postgres (databases cluster), where: local-path on the node that runs it, class: C4, at_rest: not-encrypted, verified: "2026-10-06 pve root and data are plain LVM, no LUKS", backup: [cnpg-wal, restic-pgdump]}
+  - {id: D-03, store: MinIO, where: nas on tank, class: C4, at_rest: encrypted, note: through tank, backup: [zfs-snapshots, borgmatic-offsite]}
+  - {id: D-04, store: local-path volumes, where: node local disks, storage_classes: [local-path], class: C4, at_rest: not-encrypted, note: app configs, SQLite, thumbnails, backup: []}
+  - {id: D-05, store: k3s datastore (all Kubernetes objects, Secrets included), where: CT 200, class: C4, at_rest: not-encrypted, note: k3s secrets encryption not verified, verified: "2026-10-06 k3s secrets-encrypt status: Disabled", backup: []}
+  - {id: D-06, store: NFS volumes (nfs-csi), where: nas on tank, storage_classes: [nfs-csi, static-nfs], class: C3, at_rest: encrypted, note: in transit plaintext on the LAN, backup: [zfs-snapshots, borgmatic-offsite]}
+  - {id: D-07, store: Loki and Prometheus, where: cluster volumes, class: C3, at_rest: unverified, backup: []}
+  - {id: D-08, store: agent transcripts, where: operator computer and the model provider, class: C4, at_rest: unverified, note: C4 when a secret was printed, backup: []}
+  - {id: D-09, store: off-site borgmatic repository, where: off-site target (host unverified), class: C4, at_rest: encrypted, note: encryption mode unrecorded, backup: []}
+  - {id: D-10, store: static local volumes on the nas (/extra/nfs-csi), where: nas, storage_classes: [static-local], class: C3, at_rest: encrypted, verified: "2026-10-06 tank/extra aes-256-gcm", backup: [zfs-snapshots, borgmatic-offsite]}

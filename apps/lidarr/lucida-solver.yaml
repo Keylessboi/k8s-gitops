@@ -35,7 +35,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: solver
-          image: python:3.12-alpine3.20
+          image: python:3.14-alpine3.24
           command: ["python3", "/app/solver.py"]
           env:
             - name: FLARESOLVERR

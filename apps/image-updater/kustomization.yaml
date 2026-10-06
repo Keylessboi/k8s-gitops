@@ -1,7 +1,10 @@
 ---
-# ArgoCD Image Updater. Watches the registries behind our images and commits
-# tag bumps back to this repo, so an update is a reviewable commit rather than
-# a manual edit someone remembers to make.
+# ArgoCD Image Updater - RETIRED as an updater on 2026-09-30 (ADR-0013).
+# Renovate now owns every image and chart bump. The ImageUpdater CR that told
+# this controller what to watch has been removed, so the controller runs idle;
+# it covered 8 of ~60 images and only within their current major, and logged
+# `images_updated=0` for weeks. Decommissioning the app itself (namespace,
+# deploy key, DopplerSecret) is a follow-up.
 #
 # Runs in its own namespace, not in argocd. ArgoCD applies cluster-scoped RBAC
 # with `kubectl auth reconcile`, which requires the Application's destination
@@ -44,12 +47,11 @@ labels:
 resources:
   - namespace.yaml
   - networkpolicy.yaml
-  - imageupdaters.yaml
 
 helmCharts:
   - name: argocd-image-updater
     repo: https://argoproj.github.io/argo-helm
-    version: 1.2.4
+    version: 1.3.1
     releaseName: image-updater
     namespace: image-updater
     includeCRDs: true

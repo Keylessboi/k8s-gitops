@@ -3,6 +3,8 @@ kind: Namespace
 metadata:
   name: hermes
   labels:
+    homelab/data-class: c2
+    homelab/criticality: tier-3
     app.kubernetes.io/name: hermes
     app.kubernetes.io/part-of: homelab
     # `baseline`, not `restricted`. The official image runs s6-overlay as PID 1:

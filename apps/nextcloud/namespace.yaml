@@ -3,6 +3,8 @@ kind: Namespace
 metadata:
   name: nextcloud
   labels:
+    homelab/data-class: c3
+    homelab/criticality: tier-2
     app.kubernetes.io/name: nextcloud
     app.kubernetes.io/part-of: homelab
     pod-security.kubernetes.io/enforce: baseline

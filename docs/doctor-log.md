@@ -28,6 +28,7 @@ the literal string you are seeing, then read the entry.
 | `[Unknown Album]` / `[Unknown Artist]` | Navidrome tags — 2026-08-29 |
 | Backups "succeeding" with nothing stored | MinIO zero drives — 2026-08-29 |
 | Everything on the host slow, API server 503 | swap thrash — 2026-08-31 |
+| `connection refused` on 127.0.0.1:6443, k3s restarting, `slow fdatasync` / `leaderelection lost` in its journal | etcd starved of disk I/O by parallel rollouts and pg_dumps — 2026-09-30 |
 | Downloads at ~300 kB/s from anything backed by NFS | NFS readahead — 2026-09-12 |
 | Sequential reads fast locally on the NAS but slow from a pod | NFS readahead — 2026-09-12 |
 | Disk full, or pods evicted for ephemeral storage | disk-pressure churn — 2026-08-31; ganesha.log 26 GB — 2026-08-31; Wings pulls — 2026-08-29 |
@@ -37,6 +38,11 @@ the literal string you are seeing, then read the entry.
 | ArgoCD says Synced but the object is stale | ServerSideDiff bug — 2026-08-31 |
 | Immich slow to browse, database is fine | thumbnails on NFS — 2026-09-12 |
 | Immich CrashLoopBackOff, `Failed to read .../.immich` | missing marker file after a volume move — 2026-09-12 |
+| `RESTORE_DRILL_FAILED` / `BackupRestoreDrillFailed` | drill counted a partition's `TABLE ATTACH` entry as a table (blinko 30 vs 29) — 2026-10-01 |
+| `many-to-many matching not allowed` on a temperature rule | node-exporter rollout overlap, join without `instance` — 2026-10-01 |
+| `qbittorrent login failed` right after "qbittorrent reachable" | qBittorrent 5.2 login body — 2026-09-30 |
+| `must be owner of function …` during an app migration | DB objects owned by `postgres` after a restore — 2026-09-30 (immich) |
+| Apps months behind upstream, no errors anywhere, Renovate PRs piling up | updates never landing — 2026-09-30 (ADR-0013) |
 | Everything on NFS slow, but disks and network test fine | pool IOPS saturated by seeding — 2026-09-12 |
 | A task or commit says a DNS leak is closed / DoT is on | DoT never landed — 2026-09-14 |
 | CoreDNS config or image did not change after a k3s upgrade | coredns.yaml.skip — 2026-09-14 |
@@ -77,6 +83,9 @@ the literal string you are seeing, then read the entry.
 | Pod stuck ContainerCreating, no events, `unmounted volumes=[…]: context deadline exceeded`, but the volume IS mounted | fsGroup chowning a huge NFS volume — 2026-09-09 (**check `fsGroupChangePolicy`**) |
 | A pod recreated every couple of minutes, Deployment revision in the dozens | ArgoCD vs image-updater — 2026-09-05 (gluetun), 2026-09-09 (navidrome) |
 | An alert that has been firing for days and never clears | scraping something k3s does not expose / probes for deleted apps — 2026-09-09 |
+| `ImagePullBackOff` on minio/mc or quay.io/minio/* (`404` / `UNAUTHORIZED`) | MinIO stopped publishing images; the pin lived only in the node cache — 2026-09-30 |
+| k3s restarts with `leaderelection lost`, etcd `apply request took too long`, high iowait during a rollout | concurrent image pulls on k3s-server's disk — 2026-09-30 |
+| Lidarr pod 0/1, log loops `Error starting with plugins enabled` / `Could not load file or assembly` | Lidarr build dropped an assembly a plugin links against — 2026-09-30 (3.1.6) |
 | Lidarr's queue stuck at ~2,500 and never shrinking; qBittorrent at 0 B/s | stalled torrents holding every download slot — 2026-09-21 |
 | A nightly job reports success but the thing it manages never shrinks | truncated fetch window / unreachable rule — 2026-09-21 |
 | Lidarr grabs nothing from a streaming plugin although every search returns releases, with no warnings | disabled delay-profile protocol — 2026-09-23 (applemusicarr) |
@@ -91,6 +100,18 @@ the literal string you are seeing, then read the entry.
 | `cp: can't open '/plugin/…': Permission denied` in an initContainer, or an `Init:Error` pod right after an image bump | a 0600 payload built from disk — 2026-09-28 (applemusicarr plugin) |
 | A rebuilt image at the tag you asked for, containing the previous build's files | the build script read a stale bundle; the upload filename did not match — 2026-09-28 |
 | A queue bulk-delete returns `404`/`500` and clears only some items | one stale id aborts the whole batch — 2026-09-28 (Lidarr) |
+| A dependency died and nothing noticed for hours; pod `Running`, `RESTARTS 0`, Service has no endpoints | readiness is not a liveness probe — 2026-09-30 (applemusic-wrapper) |
+| A release is offered, ranks top, and is never grabbed | its quality definition has a `maxSize` the others do not — 2026-09-30 (AAC-VBR/Atmos) |
+| A kube-state-metrics alert rule never fires, and the metric "does not exist" | the label is `exported_namespace`, not `namespace` — 2026-09-30 |
+| ArgoCD `Synced`, deployed change not live, nothing red, third time | ServerSideDiff silent no-op — check `sync.revision` vs `operationState.finishedAt`; 2026-09-11, 2026-09-30 (lidarr) |
+| A CronJob whose fixed template never runs; `ACTIVE 1`, `LAST SCHEDULE` days ago, an old Job still `Running` in `ImagePullBackOff` | `concurrencyPolicy: Forbid` held by a Job created before the fix — 2026-09-30 (games-mount-scan) |
+| A published host answers `404` from Traefik; its Ingress is there but the backend Service is `NotFound` | component disabled, hand-written Ingress left behind — 2026-10-01 (grafana) |
+| An album is downloaded over and over, `Import failed: Item removed by Queue Cleaner`, library never changes | a nightly importer racing a minutes-fast queue cleaner — 2026-10-02 (AppleMusicarr) |
+| `adding IPv6 rule: adding ip rule 101: from all to all table 51820: file exists`; gluetun restarts in the hundreds; Octo previews `502`, yt-dlp `Unable to connect to proxy` | stale WireGuard ip rules in the pod netns — 2026-10-03 |
+| Notesnook login/2FA fails after an identity-server restart; its log says `IDX10501: Signature validation failed. Unable to match key` | signing key not persisted — 2026-10-06 |
+| `BackupRestoreDrillFailed` emails repeating for days after a re-run passed | rule matched any failed drill Job still in history — 2026-10-06 |
+| `ERROR:  syntax error at or near "$"` from SQL in a Job/initContainer, where the same SQL runs fine in psql | Kubernetes turns `$$` into `$` in container commands — 2026-10-05 |
+| NAS kernel upgraded, and `/usr/lib/modules/<new kernel>` has no `zfs.ko` (or `zpool import` finds nothing after a reboot) | ZFS hand-built outside DKMS — 2026-10-04 |
 
 ### The traps that have bitten more than once
 
@@ -132,6 +153,659 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
+## 2026-10-06 — Notesnook 2FA login failed: identity-server lost its signing key on restart
+
+**Symptom.** Logging in to Notesnook failed at the 2FA step right after identity-server was restarted
+(a rollout to apply `DISABLE_SIGNUPS`). Its log repeated `IDX10501: Signature validation failed.
+Unable to match key` / `Number of keys in TokenValidationParameters: '0'`.
+
+**Root cause.** identity-server (IdentityServer4) generates its token-signing key in `/app/keystore`
+and its ASP.NET data-protection keys in `/app/.aspnet/DataProtection-Keys` on first start. The pod had
+no volumes, so both lived in the container filesystem: every restart minted a new key, and every token
+issued before it - including the half-finished login waiting for the 2FA code - stopped validating.
+Any restart (image bump, node reboot, config change) silently logged every client out.
+
+**Fix.** A 1Gi local-path PVC `identity-server-keys` mounted at both paths (subPaths), a busybox
+initContainer handing it to uid 1000 (`dotnetuser`), and `strategy: Recreate` so one pod owns the
+keys. The first start after this change writes the key that then persists; log in once after it.
+The first attempt also set `strategy: Recreate`; ArgoCD's server-side diff rejected it
+(`spec.strategy.rollingUpdate: Forbidden` - the live object keeps the defaulted rollingUpdate) and
+silently stopped syncing the app with a ComparisonError, so the Deployment never got the volume.
+Recreate was dropped: local-path pins the volume to `nas`, where old and new pods can share it.
+
+**Prevention.** For any self-hosted auth/token server, find where it keeps signing and
+data-protection keys before relying on it, and put them on persistent storage. "Logs out on restart"
+is the symptom to test for: restart the pod once after setup and confirm an existing session survives. Dry-run changes with
+`kubectl apply --server-side --dry-run=server`, the mode ArgoCD diffs with: client-side apply
+accepted this change and server-side apply did not.
+
+**Confidence:** CONFIRMED. The keystore directory's timestamp matched the pod start, the pod had no
+volumes, and the IDX10501 errors began with the restart.
+
+## 2026-10-06 — BackupRestoreDrillFailed kept emailing after the drill had passed
+
+**Symptom.** `BackupRestoreDrillFailed` (critical, email) re-sent for days. No drill had failed
+since 2026-10-01; a manual re-run on 2026-10-02 passed (`failures: 0`, CronJob
+`lastSuccessfulTime` 2026-10-02T19:35Z).
+
+**Root cause.** The rule was `kube_job_status_failed{job_name=~"restore-drill-.*"} > 0`: true while
+ANY failed drill Job object exists. The drill runs monthly and the CronJob keeps its last 3 failed
+Jobs, so the 2026-10-01 failure (blinko's TABLE ATTACH miscount, fixed in #66) stayed in history and
+kept the alert firing, and Alertmanager re-sent it on every repeat interval, for up to a month.
+Confirmed with promtool against live data: the only series was `restore-drill-29847080`.
+
+**Fix.** The alert fires only while the newest failed drill started after the newest successful one
+(`max(start_time and failed) > (max(start_time and succeeded) or vector(0))`). Against the same live
+data it returns nothing; a new failure is newer than every success, so it still fires.
+
+**Prevention.** An alert on a Job outcome must look at the latest run, not at whether any failed Job
+object is still retained: Job history outlives the problem, and re-running a job must be able to
+resolve its alert. Check new Job alerts against `failedJobsHistoryLimit` and the schedule.
+
+**Confidence:** CONFIRMED. promtool showed the old rule's only series and the new rule's empty result
+on the same data.
+
+## 2026-10-05 — immich-extensions failed: Kubernetes ate the `$$` in a DO block
+
+**Symptom.** After #68 moved the Postgres image to `16.15-1.1.1`, the
+`immich-extensions` PostSync job logged `ERROR:  syntax error at or near "$"`
+and kept retrying. `vector` had updated to 0.8.6, but `vchord` stayed at 0.4.1
+while the server now loads the 1.1.1 library. immich-server kept running (it
+was not restarted); on its next start it would refuse to boot, because it
+cannot run `ALTER EXTENSION vchord UPDATE` itself.
+
+**Root cause.** The job's SQL used a PL/pgSQL `DO $$ ... $$` block inside the
+container `command`. Kubernetes expands `$(VAR)` references in command/args,
+and `$$` is its escape for a literal `$`, so Postgres received `DO $ ... $`.
+The change was rehearsed by feeding the same SQL to psql directly, which never
+passes through that expansion.
+
+**Fix.** A named dollar-quote, `DO $vchord$ ... $vchord$`, which Kubernetes
+leaves alone.
+
+**Prevention.** Never write `$$` in a container command or args - use a named
+dollar-quote (`$tag$`) or mount the SQL from a ConfigMap. Rehearse a Job's
+script from the *rendered* manifest (`kubectl kustomize` output, as the pod
+receives it), not from the source YAML.
+
+**Confidence:** CONFIRMED. The job log shows the syntax error at `$`, and the
+rendered command contains `DO $$` that Kubernetes documents as escaping to `$`.
+
+## 2026-10-04 — a kernel upgrade left the NAS with no bootable kernel that has ZFS
+
+**Symptom.** None visible yet: caught before any reboot. A manual `pacman -Syu`
+on the NAS (19:24) upgraded `linux` 7.1.8 -> 7.2.8 and `linux-lts` 6.18.45 ->
+6.18.55. Afterwards `/usr/lib/modules/7.2.8-arch1-2` and `6.18.55-1-lts` had
+no `zfs.ko`, and the 7.1.8 kernel image was gone from `/boot`. The next reboot
+would have come up without `tank`: no MinIO (every backup), no NFS shares.
+
+**Root cause.** ZFS on the NAS was OpenZFS 2.4.99 (git master, because no
+release supported kernel 7.1 at the time) built by hand on 2026-08-22 and
+installed straight into the two kernels' module directories. It was never
+registered with DKMS (`dkms status` empty) and its source tree was deleted
+afterwards, so the dkms pacman hook ran during the upgrade and had nothing to
+build. The `archzfs` repo still configured on the box is stale (2.3.3, built
+for 6.15) and could not have helped. The `lts-zfs` boot entry was no fallback
+either: its zfs.ko sat in a `6.18.45` directory that matches no installed
+kernel's `uname -r`. ZFS itself does support 7.2 (`Linux-Maximum: 7.2` in
+master's META, and in the August build's `zfs_config.h`).
+
+**Fix.**
+1. Reinstalled `linux`/`linux-headers` 7.1.8-arch1-3 from the pacman cache
+   (signatures verified), which matches the loaded module. Verified the
+   kernel image, initramfs and `modules.dep` all name 7.1.8 and include
+   `zfs`/`spl`. Held `IgnorePkg = linux linux-headers`.
+2. Rebuilt ZFS as the AUR `zfs-dkms-git` + `zfs-utils-git` packages
+   (2.4.99.r1185.gf79c81d35b) so pacman owns it and DKMS rebuilds it for every
+   kernel; `dkms status` now shows it installed for 7.1.8 and 6.18.55-lts, so
+   the LTS boot entry is a real fallback for the first time. It stays on git
+   master: the pool has master-only features enabled
+   (`draid_failure_domains`, `physical_rewrite`, `dynamic_gang_header`), so a
+   release build may refuse to import it. The first DKMS build failed on an
+   AUR packaging bug - the PKGBUILD does not ship `scripts/make_gitrev.sh`,
+   which master's Makefile now runs - so the module compiled and DKMS still
+   reported "Bad return status". Fixed locally; the rebuild recipe with the
+   fix is in docs/host-updates.md.
+3. `scripts/host/nas-auto-update`: the weekly unattended upgrade checks every
+   installed kernel for `zfs.ko` afterwards, retries `dkms autoinstall`, and
+   rolls the kernel back from the cache (with an urgent ntfy) if it still has
+   none. See docs/host-updates.md.
+
+**Prevention.** An out-of-tree module the machine cannot boot without must be
+owned by the package manager and registered with DKMS (or an equivalent hook),
+never copied into `/usr/lib/modules` by hand. After any kernel upgrade on a
+box whose storage depends on such a module, verify the module exists for the
+kernel that will boot *before* rebooting, and keep the previous kernel package
+in the cache until that check has passed.
+
+**Confidence:** CONFIRMED. Module presence per kernel, `dkms status`, the
+deleted source tree and the pacman log were all read directly; the reboot was
+never attempted.
+
+## 2026-10-03 — gluetun looped for two days on its own leftover ip rules
+
+**Symptom.** Octo's YouTube previews stopped playing in Feishin while library tracks
+streamed fine. Octo logged `yt-dlp-shim-search ... 502` after 15-20 s; the shim logged
+`yt-dlp timed out` and `Unable to connect to proxy ... vpn-proxy.downloads.svc.cluster.local:8888
+... Connection refused`. The qbittorrent pod showed gluetun at 466 restarts in 2d8h,
+liveness `healthcheck did not run yet`, so qBittorrent and slskd were also without a tunnel.
+
+**Root cause.** gluetun exited uncleanly once (`Shutdown failed: ordered shutdown timed out
+... http proxy: goroutine shutdown timed out`) and did not remove its
+`101: not from all fwmark 0xca6c lookup 51820` rules. A container restart keeps the pod's
+network namespace, so those rules (IPv4 and IPv6, both seen with `ip rule show`) outlived it.
+Every later start failed with `adding IPv6 rule: ... file exists`, retried on a growing
+backoff, never brought the tunnel up, and was killed by the liveness probe; the HTTP proxy
+was down for part of every cycle. `strategy: Recreate` was already set and does not help: it
+only governs rollouts, not in-pod container restarts.
+
+**Fix.** 1ccfa2d wraps gluetun's entrypoint in `sh -c` that deletes every `table 51820` rule
+(v4 and v6) and then `exec`s `/gluetun-entrypoint`. This is gluetun-wiki's Kubernetes fix,
+moved from `postStart` (which races the entrypoint and could delete a live tunnel's rule) to
+before the process starts. The push recreated the pod, which also cleared the stale state.
+
+**Prevention.** A sidecar that writes kernel network state (ip rules, routes, iptables) into a
+shared pod namespace must clean up its own leftovers *at start*, not only at shutdown:
+shutdown cleanup is skipped exactly when it is needed, on a crash or timeout. A restart count
+in the hundreds on a VPN sidecar is an outage, not noise; it should alert.
+
+**Confidence:** CONFIRMED. The stale rule was visible in both `ip rule show` and
+`ip -6 rule show` before the fix; on the new pod gluetun logged `Wireguard setup is complete`
+and exit 23.130.104.134 within seconds, with no `file exists`, and a shim `/search` through
+vpn-proxy returned 200 in 4.6 s while live preview streams answered 206.
+
+## 2026-10-01 — the restore drill failed on a partitioned table it miscounted
+
+**Symptom.** `BackupRestoreDrillFailed` fired (email) after the 2026-10-01 03:20 drill:
+`checked: 20  fully restored: 19  read-only verified: 1  failures: 1`, the one failure being
+`blinko  119KB  30  29  full FAIL`.
+
+**Root cause.** Nothing was missing; the drill miscounted. blinko is the only database with a
+partitioned table (pg-boss's `pgboss.job`, partition `pgboss.job_common`). `pg_dump` writes the
+partition's attachment as its own TOC entry, `TABLE ATTACH pgboss job_common`, and the drill's
+awk (`$4=="TABLE" && $5!="DATA"`) counted it as a table. Checked against the live schema: the
+drill-style count is 30, the extra line is that ATTACH entry, and the database has 29 tables
+(28 regular, 1 partitioned), exactly what the restore produced.
+
+**Fix.** The awk also excludes `$5=="ATTACH"`. blinko stays fully restored in the drill. (An
+earlier draft of this fix skipped blinko's restore instead; that hid the bug and would have let
+it fail the drill again on the next database that gains a partition.) Issue #54 stays open for
+whether to drop the database.
+
+**Prevention.** When a check counts things in a dump or listing, enumerate every TOC/entry kind
+that shares the tag it matches on (`TABLE`, `TABLE DATA`, `TABLE ATTACH`) before trusting the
+count, and before excluding a "failing" object, prove the failure is real by diffing the
+object lists, not just comparing totals.
+
+**Confidence:** CONFIRMED. The drill-style count on the live blinko schema reproduces 30, and
+the one extra entry is the ATTACH line.
+
+## 2026-10-01 — temperature alerts failed to evaluate during a node-exporter rollout
+
+**Symptom.** For about 5 minutes after the kube-prometheus-stack 91.8.2 rollout (#56),
+`TempHostCpuHigh` and `TempHostCpuCritical` were unhealthy rules with
+`many-to-many matching not allowed: matching labels must be unique on one side`.
+
+**Root cause.** Both rules join `node_hwmon_temp_celsius` to `node_hwmon_sensor_label` with
+`on(chip, sensor)`, which leaves `instance` out. When node-exporter rolls, the old and new pods
+both have series inside Prometheus's 5-minute lookback, so each `(chip, sensor)` pair appears
+twice on the label side and the join is ambiguous. The second node would cause the same
+collision if it ever exposed the same chip names.
+
+**Fix.** Join `on(instance, chip, sensor)`, so each exporter's temperatures only match its own
+sensor labels.
+
+**Prevention.** A vector-matching `on(...)` must include every label that identifies the source
+(`instance`, and `job` where several jobs scrape the same thing), not just the labels the two
+metrics happen to share today. Rollouts are now routine (Renovate merges node-exporter bumps
+unattended), so a rule that only works while exactly one copy of each exporter exists will
+break on every update.
+
+**Confidence:** CONFIRMED for the symptom and the cause (the error text names the many-to-many
+join, and it stopped once the old pod's series aged out of the lookback). The fix follows from
+the PromQL matching rules; it hasn't been re-tested against a live rollout.
+
+## 2026-10-01 — grafana.sandstorm.chat answered 404 after Grafana was turned off
+
+**Symptom.** `https://grafana.sandstorm.chat` returned Traefik's `404 page not found`. The
+`grafana` Ingress in `monitoring` was present and admitted, and its `grafana-tls` certificate was
+Ready. `kubectl -n monitoring get svc kps-grafana` returned `NotFound`.
+
+**Root cause.** `grafana.enabled: false` in the kube-prometheus-stack values (set on purpose, to
+reclaim memory) removed the chart's Deployment and Service. `ingress.yaml` is a hand-written
+resource outside the chart, so it stayed, routing the host to a Service that no longer existed.
+Traefik answers a route with no backend with a 404, which looks like a broken app rather than
+an app that was turned off. `edge-probes.yaml` had already dropped the URL with a note, so no
+probe alerted on it.
+
+**Fix.** Removed `apps/monitoring/ingress.yaml` and its `resources:` entry, leaving a comment on how
+to restore it. ArgoCD prunes the Ingress, and cert-manager's owner reference removes the
+Certificate with it. Marked the URL as unpublished in `docs/RUNDOWN.md` and
+`docs/access-procedures.md`. The `grafana.sandstorm.chat` line in `apps/coredns/coredns-custom.yaml`
+is left alone; it only resolves the name.
+
+**Prevention.** Turning a chart component off does not remove the resources written by hand that
+point at it: Ingresses, probes, DNS entries, NetworkPolicy rules. Grep the repo for the
+component's Service and host name, and disable those in the same commit. They are restored
+together when the component is turned back on.
+
+**Confidence:** CONFIRMED. The Ingress backend `kps-grafana` was `NotFound` live, and no other
+Ingress or IngressRoute claims the host.
+
+## 2026-09-30 — games-mount-scan never ran for 19 days, after its image had been fixed
+
+**Symptom.** `games-mount-scan` pods in `ImagePullBackOff` on `bitnami/kubectl:1.31.5`,
+although the CronJob in the repo (and in the cluster) had used `alpine/k8s` since 4b79b25 /
+715b4ba. `kubectl get cronjob` showed `ACTIVE 1` and `LAST SCHEDULE 19d`; the Job
+`games-mount-scan-29819520` was 19 days old and still `Running 0/1`.
+
+**Root cause.** That Job was created from the CronJob template *before* the image fix. Fixing a
+CronJob's template does not touch Jobs that already exist, and a Job whose pod can never pull
+its image never fails: it had no `activeDeadlineSeconds`, `backoffLimit` only counts pod
+failures, and a pod in `ImagePullBackOff` has not failed. With `concurrencyPolicy: Forbid`, the
+one stuck Job blocked every later tick, so the corrected template never ran once.
+
+**Fix.** Deleted the stale Job (it is CronJob-owned, not declared anywhere). Added
+`activeDeadlineSeconds: 600` to the job template, moved the image to `alpine/k8s:1.31.13`
+pinned by digest, and the `scratch-perms` initContainer from `busybox:1.36` to
+`busybox:1.38.0` pinned by digest.
+
+**Prevention.** Every CronJob with `concurrencyPolicy: Forbid` needs `activeDeadlineSeconds`
+in its job template, otherwise one unstartable pod disables the CronJob forever. After fixing a
+CronJob's image, delete its existing Jobs and run it once by hand
+(`kubectl create job --from=cronjob/…`); a correct template proves nothing until a Job built
+from it has completed.
+
+**Confidence:** CONFIRMED. The stuck Job's own spec carried the bitnami image and a creation
+time of 2026-09-12, before the fix; the CronJob status showed it as the one active Job.
+
+## 2026-09-30 — k3s restarted itself three times: etcd starved of disk I/O
+
+- **Symptom:** between 19:48 and 19:50 UTC every `kubectl` returned
+  `The connection to the server 127.0.0.1:6443 was refused`, then
+  `ServiceUnavailable: apiserver not ready`. `systemctl show k3s` on CT 200
+  reported `NRestarts=3`; pods across namespaces were recreated afterwards.
+  Workloads already running (authentik, mid-upgrade) kept serving throughout.
+- **Root cause:** etcd could not get its WAL to disk. The k3s journal shows
+  `slow fdatasync took 4.47s` (expected 1s) and `apply request took too long`
+  up to 5s, then the embedded controller-manager's lease renewal timed out,
+  `"leaderelection lost"`, and k3s exits 1; systemd restarts it. Host
+  `/proc/pressure/io` was `full avg60=26` at the time. Several agents were
+  working in parallel: two full pg_dumps of every database (one is a 2.3 GB
+  bitmagnet dump) plus image pulls for several upgrades at once, with
+  containerd writing ~55 MB/s. Each restart recreated pods, which pulled and
+  wrote more, so it repeated until the dumps finished; after that IO pressure
+  fell to single digits and k3s has not restarted since.
+- **Fix:** none applied; it recovered once the concurrent I/O stopped.
+- **Prevention:** etcd shares one disk with Postgres, containerd and Loki, so
+  the cluster's write budget is shared too. Serialise heavy I/O: one
+  `pgdump` Job at a time (check
+  `kubectl -n databases get pods | grep pgdump` first), and do not merge
+  image-bumping PRs while a dump or another rollout is in progress. Check
+  `/proc/pressure/io` on pve before a deploy; above ~10 avg60, wait. Same
+  class as the 2026-08-31 swap thrash and 2026-09-03 lease-renewal restarts.
+- **Confidence:** PROBABLE. The fdatasync latency and the lease loss are in the
+  journal; which writer contributed most was sampled once, not traced.
+
+## 2026-09-30 — every qBittorrent CronJob said "login failed" after the 5.2 bump
+
+**Symptom.** After #28 (qBittorrent 5.1.2 → 5.2.4), `qbit-protected-forcestart`,
+`qbit-stalled-reaper` and `seed-reaper` failed on every run with `qbittorrent login failed`,
+right after `qbittorrent reachable after 1 attempt(s)`. qBittorrent itself, qui and Lidarr were
+fine.
+
+**Root cause.** The scripts treated a login as successful only if the body contained `"Ok"`.
+qBittorrent 5.1 answered `200 Ok.` / `200 Fails.`. 5.2 answers a good login with an empty body
+and a bad one with `401 Unauthorized`, which urllib raises. So a correct password produced an
+empty string, and the scripts exited.
+
+**Fix.** #38: fail only on an explicit `Fails.` (5.1's bad-login body). A 401 still raises, so a
+wrong password still fails loudly.
+
+**Prevention.** Judge an API call by its status and the session it produced (the SID cookie), not
+by a human-readable body string. Bodies are the first thing a major or minor version reshapes.
+When bumping qBittorrent, run each of its CronJobs once by hand (`kubectl create job --from=cronjob/…`)
+before calling the bump done.
+
+**Confidence:** CONFIRMED. A bad login returns 401 (probed), and after the fix a hand-run
+`qbit-stalled-reaper` logged in, listed 2,328 torrents and completed.
+## 2026-09-30 — Immich v3.2.4 crash-looped: its own trigger functions belonged to `postgres`
+
+**Symptom.** After #23 (v3.1.0 → v3.2.4) the new immich-server pod restarted 58 times in 4.5
+hours. The Application went `Degraded`, but Immich stayed up because the rolling update never
+finished and the v3.1.0 pod kept serving. The log, on every start:
+
+    Migration "1787148183729-ClusterGroups" failed
+    PostgresError: must be owner of function person_delete_audit   (code 42501)
+    microservices worker exited with code 1
+
+**Root cause.** In the immich database, 22 of Immich's own functions (`*_delete_audit`,
+`updated_at`, `immich_uuid_v7`, `f_unaccent`, …) and 6 enum types are owned by `postgres`, not
+`immich`. Tables and indexes are correctly owned by `immich`. The most likely origin is the
+2026-09-04 library restore, which replayed the dump as the superuser. v3.1.0's migrations never
+had to `CREATE OR REPLACE` those functions, so it went unnoticed. `ClusterGroups` does, and only
+an owner may replace a function. Kysely runs the batch in one transaction, so it rolled back
+(`kysely_migrations` still 88) and the schema is intact.
+
+**Fix.** Held the image at v3.1.0 (#39) to stop the crash loop. Still to do, pending the owner's
+OK because it writes to the shared Postgres: reassign the non-extension functions (`pg_depend`
+`deptype <> 'e'`) and the enum types in `public` to `immich`, then re-apply v3.2.4. Leave
+extension-owned objects (vector, vchord, cube, earthdistance, and the `sphere_*` composites) on
+`postgres`.
+
+**Prevention.** A restore has to leave ownership exactly as the app created it: restore with
+`--role=<app>` or `--no-owner` as the app user, then check that `pg_proc` / `pg_type` ownership in
+`public` matches the app role for everything outside an extension. An app whose own objects are
+owned by someone else will run fine until the first migration that rewrites one of them.
+
+**Confidence:** CONFIRMED (the error, the ownership query and the unchanged migration count were
+all observed). The restore as the origin is PROBABLE.
+
+## 2026-09-30 — an image wave took k3s down for a minute, and image GC deleted an image nobody can pull again
+
+**Symptom.** Two things happened during an "update everything" pass (PRs #27 and #28). First, at
+19:48-19:50 UTC the API server stopped answering (`connection refused` on :6443). The k3s journal
+showed etcd `apply request took too long` (2-5 s reads of `/registry/health`), `Failed to update
+lock`, then `"leaderelection lost"`, and the k3s process exited and was restarted by systemd. The
+node showed load ~15 and 65% iowait, with `unpigz` near the top of `top`. Second, between 19:51 and
+19:58 the node went to `DiskPressure` (root at 83-84%), and kubelet image GC removed images
+("Removing image to free bytes"). New pods (qBittorrent, qui) sat Pending on the
+disk-pressure taint until GC freed enough.
+
+**Root cause.** Eight Deployments were merged together, plus other agents' upgrades running at the
+same time. All their image pulls and layer extractions hit k3s-server's single disk, which is also
+etcd's disk. Etcd latency rose past leader-election timeouts. The extra layers then pushed the root
+filesystem over the kubelet threshold, and GC evicted unused images.
+
+One of the evicted images could not come back: `minio/mc:RELEASE.2025-04-16T18-13-26Z`, used by
+`vaultwarden-data-backup`. MinIO stopped publishing images: `minio/mc` and `minio/minio` are 404 on
+Docker Hub, and `quay.io/minio/*` refuses anonymous pulls. The pin had been working only from the
+node cache. The 00:20 run on 2026-10-01 sat in `ImagePullBackOff`, and with `concurrencyPolicy:
+Forbid` that also blocked every later run.
+
+**Fix.** The backup moved to `rclone/rclone` with the same secret, bucket and object keys (PR #33).
+Remaining merges were spaced out, one rollout at a time.
+
+**Prevention.**
+- An image that can no longer be pulled is a time bomb, whatever the pin says. When bumping images,
+  check that the CURRENT pin still resolves (`crane digest <ref>`), not only that a newer one
+  exists. Notesnook's `quay.io/minio/minio` and `quay.io/minio/mc` pins are in the same state and
+  live only in the NAS node's cache.
+- k3s-server's disk is etcd's disk. Do not merge several image-changing PRs back to back: wait for
+  each rollout to settle and the load to drop before the next.
+
+**Confidence:** CONFIRMED for the GC eviction (the image is gone from `crictl images` and the
+CronJob pod is in ImagePullBackOff) and for MinIO's registries (404/401 from three registries).
+PROBABLE for the cause of the leader-election loss (iowait and etcd latency at the same moment;
+not reproduced).
+
+## 2026-09-30 — Lidarr 3.1.6 would not start: a plugin links against an assembly the build dropped
+
+**Symptom.** Minutes after the image moved `testing-3.1.3.4987` -> `testing-3.1.6.5078` (PR #29, part of
+an "update everything" pass), the new Lidarr pod sat at 0/1 Ready. The log repeated, every few
+seconds, without ever getting further:
+
+    [Info] Bootstrap: Starting Lidarr - /app/bin/Lidarr - Version 3.1.6.5078
+    [Warn] Bootstrap: Error starting with plugins enabled
+    System.IO.FileNotFoundException: Could not load file or assembly
+      'System.Security.Cryptography.ProtectedData, Version=8.0.0.0, ...'
+
+The Deployment had already stopped the old pod, so Lidarr was down.
+
+**Root cause.** A plugin loaded from `/config/plugins` (Tubifarry, or the local applemusicarr
+plugin) is compiled against `System.Security.Cryptography.ProtectedData` 8.0, which the 3.1.3
+build shipped and 3.1.6 no longer does. Lidarr resolves plugin types at bootstrap, before it
+touches the database. A `ReflectionTypeLoadException` there aborts the start, and it retries
+forever. It never reached the DB, so no schema migration ran.
+
+**Fix.** The Lidarr image went back to `testing-3.1.3.4987` (PR #35). The other changes in #29
+stayed: bgutil 2.0.0 (an RCE fix) and the helper images. The image line now carries a comment
+saying why 3.1.6 was refused.
+
+**Prevention.** Lidarr on the plugins channel is plugin-bound: a patch bump of the host can break
+the plugins. Before bumping it, check that each installed plugin has a release built against the
+target Lidarr version, and watch the first boot for `Error starting with plugins enabled`. A Ready
+pod is not enough; plugins are why this deployment exists. The general rule: if an app loads
+third-party code into its own process, the host version is pinned by the plugins, not by the
+host's changelog.
+
+**Confidence:** CONFIRMED for the symptom and for the recovery path (the error comes before any
+DB access). PROBABLE for which plugin it was; the stack trace does not name it.
+## 2026-09-30 — nothing had updated in months, and both updaters reported success
+
+**Symptom.** The owner noticed Immich, Authentik and the rest were not getting updates. Every
+Application was `Synced / Healthy`. Authentik ran 2025.12.4 with 2026.8.3 out, ArgoCD v2.12.3,
+Traefik chart 33 against 41, and most plain-manifest images were on the tag they were added with.
+The Renovate Dependency Dashboard listed six open PRs, the oldest a month old. The Image Updater
+logged `images_considered=8 images_updated=0 errors=0` every ~2 minutes.
+
+**Root cause.** No single fault. Three gaps added up to "nothing moves":
+
+1. Renovate's `kubernetes` manager has no default file patterns, so it never saw the ~60 images in
+   plain Deployments and CronJobs. Tags inside Helm `valuesInline` (Immich, Nextcloud) are invisible
+   to every manager. It only ever tracked the 12 Helm charts in `kustomization.yaml`.
+2. `renovate.json` disabled every major, and Authentik's calendar versioning makes each new year a
+   major, so Authentik was frozen at 2025.x. The PRs Renovate did open had no automerge and nobody
+   merged them.
+3. Image Updater was narrowed, one incident at a time, to 8 images in 6 apps, within their current
+   major, excluding every Helm app. It was working correctly and had nothing it was allowed to do.
+
+**Fix.** Renovate is the single updater (ADR-0013): it scans `apps/**/*.yaml`, reads
+`# renovate:` comments for tags inside Helm values, allows majors, and automerges overnight after
+`validate` passes. It holds back majors only for data-migrating apps (Nextcloud, Immich,
+Postgres, Mongo, Redis, MinIO). The ImageUpdater CR is removed. The catch-up to latest was done by
+hand the same day, one app per PR.
+
+**Prevention.** An updater that reports success is not evidence that anything is current. Judge an
+updater by what it has landed, not by its health: `gh pr list --label renovate --state merged`
+should show merges every week. A dashboard full of open PRs means the pipeline is stalled, not
+working. Any image whose tag Renovate cannot see (the Dependency Dashboard's "Detected
+Dependencies" is the list) is an image that will rot.
+
+**Confidence:** CONFIRMED — the gaps are visible in the old `renovate.json` and the Dependency
+Dashboard, and a local `renovate --platform=local --dry-run=lookup` with the new config detects the
+plain-manifest images and proposes their updates.
+
+## 2026-09-30 — ArgoCD said Synced a third time, and lidarr had applied nothing for two days
+
+**Symptom.** None. That is the whole point. The `lidarr` Application read `Synced / Healthy` with
+automated `selfHeal` on, and commits pushed to `apps/lidarr` during the day had not reached the
+cluster. Found sideways while checking something else: a `livenessProbe` added to the
+`applemusic-decryptor` Deployment was in the rendered manifest, in the committed file, and absent
+from the live object.
+
+**How it was caught** — the audit 2026-09-11 prescribes, and the reason that entry exists:
+
+    .status.sync.revision            bb5c07de   <- what ArgoCD last COMPARED
+    .status.operationState.finishedAt 2026-09-28T02:26:25Z   <- what it last APPLIED
+
+Two days apart, on an app whose files had changed several times since. A stale `finishedAt` is
+normal on an app nobody touched; it is only a signal when the app's files did change.
+
+**Root cause.** The ServerSideDiff bug class (2026-08-31, 2026-09-11), silent variant. ArgoCD
+cannot build the predicted live object for some Deployments, so the diff fails to see an ADDED
+probe, concludes the app is in sync, and `selfHeal` therefore never fires. The 2026-09-11 entry
+named the fix - add the app to the `ServerSideDiff=false` list in
+`apps/argocd/root-applicationset.yaml` - and `prowlarr` was added then. `lidarr` was not, and
+nothing makes an app join that list except somebody hitting the bug on it.
+
+This is the third occurrence, so per this file's own rule the prevention has to be read as having
+failed rather than as having been forgotten. A per-app opt-out list is not a prevention; it is a
+toll booth that each app pays once.
+
+**Fix.** `lidarr` added to the opt-out list, the ApplicationSet applied by hand (that path is not
+git-deployed - see 2026-09-27), and because a hard refresh is NOT enough here - it re-compares and
+advances `.status.sync.revision` while still applying nothing, which is what made this look
+handled - an explicit sync operation:
+
+    kubectl patch app -n argocd lidarr --type merge \\
+      -p '{"operation":{"initiatedBy":{"username":"agent"},"sync":{"revision":"HEAD","prune":true}}}'
+
+`finishedAt` moved to 2026-09-30T11:53:09Z, the decryptor picked up its probe and rolled, and both
+CronJob annotations landed.
+
+**Prevention, revisited — and a correction to the 2026-09-11 entry.** The 2026-09-11 prevention was
+"verify the OBJECT, not the Application status, after pushing". That is correct, and it is what
+found this - but it depends on somebody remembering, and it failed for two days because nothing was
+watching.
+
+The obvious automation is WRONG, and that is worth writing down before somebody ships it. Comparing
+`sync.revision` against `operationState.syncResult.revision` looks like the audit, but `sync.revision` advances
+to HEAD on every comparison, so it differs from the applied revision for **every app whose files
+were not in the most recent commit**. Checked live: `monitoring` read compared=`b2c2b96` / applied=`7d72ce3` while
+being perfectly healthy, because the commit that moved HEAD touched `apps/argocd` and nothing else. A
+cluster-wide check on that pair would fire on most of the fleet and be ignored within a day, which
+is the failure this file keeps warning about.
+
+The signal that actually means "this app did not apply its own change" needs the app PATH, so it
+needs the checkout - compare what was applied against the last commit that touched that path:
+
+    for app in $(kubectl -n argocd get app -o name); do
+      path=$(kubectl -n argocd get "$app" -o jsonpath='{.spec.source.path}')
+      applied=$(kubectl -n argocd get "$app" -o jsonpath='{.status.operationState.syncResult.revision}')
+      want=$(git log -1 --format=%H -- "$path")
+      [ "$applied" != "$want" ] && echo "$(basename "$app"): applied=${applied:0:7} expected=${want:0:7}"
+    done
+
+An empty `applied` means the app has never synced. Running that across the fleet is the next
+check worth automating; the field pair alone does not give it to you.
+
+**Confidence:** CONFIRMED (the live object changed on the explicit sync and not before; the
+`compare-options` annotation is now `ServerSideDiff=false` on the app).
+
+## 2026-10-02 — the re-download loop that two correct mechanisms made between them
+
+**Symptom.** Apple Music downloads were deleted and re-downloaded, forever. About 500 grabs
+in 7.4 hours, and 293 of the last 300 download failures read the same line:
+
+    Import failed: Item removed by Queue Cleaner.
+
+Individual albums were grabbed 15-17 times in a few hours and never landed - Ice Spice
+*Big Guy*, Troye Sivan *Got Me Started*, Juice WRLD *Wandered To LA*, and others. Nothing was
+red: Lidarr Healthy, the wrapper serving, and every download genuinely succeeding. The library
+simply never changed.
+
+**Root cause.** Two mechanisms that are each individually correct, raced against each other:
+
+1. Tubifarry's Queue Cleaner removes failed downloads from the queue within minutes. That is
+   what it is for.
+2. The nightly `lidarr-maintenance` CronJob (02:00) is what force-imports borderline album
+   matches: `import_if_match_keywords: ["Album match"]` with `match_import_min: 30`.
+
+By 02:00 there was nothing left to import. Measured, not inferred: the 2026-10-02 run logged
+**zero** Apple Music records out of a 2007-record queue (`grep -ciE "atmos|AppleMusicarr"` on
+the job log -> 0). With the import never happening the album stayed missing, and Lidarr core's
+`RedownloadFailedDownloadService` (`autoRedownloadFailed: true`) pushed a fresh
+`AlbumSearchCommand` for it. That is the re-grab.
+
+Why those imports fail at all, and why a force-import is the right answer: Lidarr's album-match
+bar is 80%, and Apple's metadata for these releases scores 45-79%. Apple credits the single to
+"Juice WRLD & Justin Bieber" where the album is by "Juice WRLD", and titles it "Wandered To LA
+- Single" where Lidarr has "Wandered to LA". Auto-import will never accept those; a manual
+import will.
+
+**Fix.** Excluded AppleMusicarr from the Queue Cleaner's Indexers list (Lidarr database state,
+2026-10-02 19:53 UTC) so Apple Music failures stay in the queue.
+
+Verified: the newest "Item removed by Queue Cleaner" in history is 19:52 and there has been
+none since; seven Apple Music records now sit in the queue as `completed`/`importFailed`
+instead of disappearing. Running the deployed maintenance script's own rules against the 28
+Apple Music downloads waiting there imported **22** immediately (album matches 45-79%, including
+Dr. Dre *Gospel*, Sofi Tukker *COOK* and Ice Spice *Big Guy* - albums the loop had destroyed
+dozens of times) and left **6** refused by the album guard, because those files belong to a
+different album than the one grabbed. The six are remix and version singles: "Playa Grande
+(Uproot Andy remix)" matched album 64631 while Lidarr had grabbed 64630. The guard refusing them
+is correct - without it they would have been written onto the wrong release. They stay queued,
+appear in the script's review list, and fire no further searches.
+
+Undo: empty the Queue Cleaner's Indexers list in Lidarr.
+
+**Prevention.** This is a race between two remediations running on different cadences, and it is
+worth generalising because *neither* was misconfigured:
+
+- A scheduled repair is silently defeated by anything that consumes its input faster than the
+  schedule runs. The failure then surfaces as a **third** symptom - here a re-download loop - so
+  neither mechanism looks broken and nothing points at either one. When scheduling a job, ask
+  what else touches the same records, and how often.
+- The evidence sat in history for two days before anyone looked: 500 failed imports, 293 of them
+  the cleaner's own message. A loop is visible in history long before it is visible anywhere else.
+- The two thresholds are deliberately different numbers - 30% for the script's force-import, 80%
+  for Lidarr's auto-import - and Apple's metadata for collaborations and "- Single" titles sits
+  in the band between them. The fix is to keep the cleaner away from a client whose failures need
+  that band, not to widen either threshold.
+
+**Still open.** The plugin-side cause is unfixed: `ToReleaseInfos` builds the release *title* from
+Apple's artist and album while `AppleMusicarrDownloadClient` builds the download *folder* from
+Lidarr's - `/data/torrents/apple/41/Trick/` versus `41 & Kyle Richh - Trick - Single` - so the
+title is what drags the match under 80%. Changing it needs care: Apple's search returns unrelated
+albums too, and labelling those with the searched album's name is how the wrong album gets grabbed.
+
+**Confidence:** CONFIRMED. The loop stopped at the config change (last cleaner removal 19:52, none
+since), 22 of 28 queued failures imported, and Ice Spice *Big Guy* now holds 1/1 files at custom
+format score 30 (Dolby Atmos).
+## 2026-09-30 — the daemon that died standing up, and the 34 hours nobody noticed
+
+**Symptom.** No Dolby Atmos had arrived in the library for days. Lidarr itself was healthy: pods
+Running, ArgoCD `Synced`, the UI serving - nothing broken you would look at on purpose. The queue
+told the story instead: every Apple Music grab failed a second after it was made:
+
+    RuntimeError: wrapper-lite at http://applemusic-wrapper.applemusic-wrapper.svc.cluster.local:8080
+    is unreachable (URLError: <urlopen error [Errno 111] Connection refused>)
+
+**Root cause.** The `applemusic-wrapper` daemon had wedged at 2026-09-29 00:46 and never
+recovered. Its log's last line was `GET /m3u8?adamId=6771578759`; after that it logged nothing at
+all - not even the readiness probes - while the container stayed **Running with RESTARTS 0** for 34
+hours. The Service therefore had no endpoint, and `Connection refused` is what the sidecar reports
+when a Service has no endpoints.
+
+The Deployment had only a `readinessProbe`. That is the whole bug: readiness decides whether a pod
+receives traffic, and Kubernetes does **nothing else** when it fails. There was no liveness probe to
+restart the process, and no alert to tell anyone.
+
+**Fix.** Two independent things, because either alone leaves a hole:
+
+1. A `livenessProbe` on `/status` (90s initial delay, 30s period, 5 failures = 240s of silence
+   before a restart). `/status` was already the right endpoint for this - it is served from the
+   daemon's own configuration and never consults Apple, so the only way it can fail is a process
+   that has stopped answering. The 240s budget is deliberately longer than the readiness probe's
+   own 130s grace, so the two probes can never disagree about a pod that is merely still starting.
+2. `apps/monitoring/applemusic-alerts.yaml` - `AppleMusicWrapperNotReady` (0 ready replicas for
+   10m) and `AppleMusicWrapperMissing` (`absent()`), routed `AppleMusic.*` -> `smart-email`, which
+   already reaches both ntfy and an inbox.
+
+**Second bug, found while checking why the fix changed nothing.** Even with the daemon answering, an
+Atmos release was still never grabbed. `/api/v1/release?albumId=597` had the honest candidate ranked
+first - `HIT ME HARD AND SOFT [AAC] [VBR] [ATMOS]`, AAC-VBR, format score 30 - marked `rejected: true`:
+
+    263.7 MB is larger than maximum allowed 224.7 MB
+
+The quality definition for **AAC-VBR had `maxSize: 350`**, while **ALAC had `maxSize: null`**. Lidarr
+scales that cap by the album's runtime, so the Atmos tier was size-gated on every album under about
+45 minutes while ALAC could never fail the same check - which is why 1000 consecutive grabs came
+back `[ALAC] [LOSSLESS]` and not one came back `[ATMOS]`. Setting AAC-VBR's `maxSize` to `null`,
+matching ALAC, flips that same release to `rejected: false`.
+
+The reported size is inflated for the same class of reason: every Atmos release reports exactly
+276,480,000 bytes because the album duration always resolves to 2880s (12 x the 240s per-track
+fallback, since Apple's search response carries no track durations). That is a display wart now
+rather than a gate, and belongs fixed in the plugin rather than by loosening Lidarr further.
+
+**Prevention.** A daemon that can hang is a daemon that needs a liveness probe, and *readiness is
+not a substitute* - it moves traffic, it heals nothing, and a pod that is Running with RESTARTS 0
+looks healthy in every dashboard. Ask of each long-running service: if this stops answering without
+exiting, what restarts it, and who is told? If the answer to the first is "nothing", the second
+never happens either.
+
+There is also a gotcha worth carrying for any alert written here: kube-state-metrics on this cluster
+reports the workload's namespace as **`exported_namespace`**, while `namespace` is KSM's own
+namespace. A rule written with `{namespace="applemusic-wrapper"}` matches nothing and looks
+identical to a metric that does not exist. Verify the exact series with a live Prometheus query
+before committing a rule - an alert that can never fire is worse than no alert, because it reads as
+coverage.
+
+**Confidence:** CONFIRMED for the wedge and the liveness fix (the Deployment carries the probe and
+the wrapper is serving). CONFIRMED for the size gate (the release flipped from rejected to accepted
+on that change alone).
 ## 2026-09-28 — the bulk delete that answered 404, deleted one item, and looked like it worked
 
 **Symptom.** Lidarr's queue held ~880 `importFailed` items (all Soulseek — "Has unmatched tracks",

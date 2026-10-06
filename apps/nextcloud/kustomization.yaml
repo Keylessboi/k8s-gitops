@@ -42,16 +42,24 @@ resources:
 helmCharts:
   - name: nextcloud
     repo: https://nextcloud.github.io/helm/
-    version: 6.6.10
+    version: 9.4.0
     releaseName: nextcloud
     namespace: nextcloud
     valuesInline:
       image:
         repository: nextcloud
-        # `stable-fpm` is FastCGI on :9000 and needs a separate nginx sidecar
-        # that was never enabled, so nothing ever served HTTP. `stable` is
-        # apache-based and serves directly.
-        tag: stable
+        # Always an `-apache` tag. `*-fpm` is FastCGI on :9000 and needs a
+        # separate nginx sidecar that was never enabled, so nothing ever served
+        # HTTP. The apache variant serves directly.
+        #
+        # Pinned to an explicit version, NOT the floating `stable`. With
+        # `stable` the running server version was whatever the tag pointed at
+        # on the last pod restart, so a reschedule could silently cross a
+        # Nextcloud major - and Nextcloud cannot skip majors, so a restart after
+        # two upstream majors would leave the instance unable to upgrade.
+        # Step majors one at a time (N -> N+1), each verified before the next.
+        # renovate: datasource=docker depName=nextcloud
+        tag: 35.0.1-apache
       nextcloud:
         host: nextcloud.sandstorm.chat
         # TLS terminates at Traefik, so Nextcloud only ever sees plain HTTP and
@@ -153,6 +161,14 @@ helmCharts:
             <?php
             $CONFIG = array (
               'allow_local_remote_servers' => true,
+            );
+          # Heavy background jobs (trash/version expiry, preview cleanup) run
+          # only in the 4 hours from this UTC hour: 06 UTC = 02:00 New York.
+          # Clears the MaintenanceWindowStart setup warning (#48).
+          maintenance-window.config.php: |
+            <?php
+            $CONFIG = array (
+              'maintenance_window_start' => 6,
             );
         # S3 as PRIMARY storage, which is what the plan asks for: MinIO
         # primary, NFS only as a media-streaming fallback. Nextcloud speaks S3
@@ -293,6 +309,37 @@ helmCharts:
         limits:
           cpu: "2"
           memory: 2Gi
+      # The image upgrades itself in its entrypoint: when the image version is
+      # newer than the one on the volume it rsyncs the code and runs
+      # `occ upgrade` BEFORE Apache starts. The liveness probe (10s delay, 3
+      # failures) would kill the container about 40s in, i.e. in the middle of
+      # a major-version database migration. A startupProbe holds liveness off
+      # until /status.php first answers, allowing up to ~15 minutes.
+      startupProbe:
+        enabled: true
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 90
+        successThreshold: 1
+      # Background jobs (#48). With no cron, Nextcloud fell back to AJAX mode
+      # and ran jobs only while someone had the web UI open - nothing ran
+      # 2026-09-12 -> 2026-10-02: no trash/version expiry, lock cleanup,
+      # activity mail or app update checks. The sidecar runs the image's
+      # /cron.sh (cron.php every 5 min as www-data) in the same pod, with the
+      # same env and volumes. The first CLI run of cron.php switches
+      # backgroundjobs_mode from ajax to cron by itself, so no occ step.
+      # /scratch and /media are added to it in the patch below.
+      cronjob:
+        enabled: true
+        type: sidecar
+        sidecar:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 128Mi
+            limits:
+              memory: 1Gi
       # Use the ONE shared Redis instead of standing up a second one here.
       redis:
         enabled: false
@@ -357,7 +404,7 @@ patches:
           spec:
             initContainers:
               - name: scratch-perms
-                image: busybox:1.36
+                image: busybox:1.38.0@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
                 command: ["sh", "-c", "chmod 1777 /scratch && echo scratch ready"]
                 volumeMounts:
                   - name: nextcloud-scratch
@@ -370,6 +417,14 @@ patches:
                   # readOnly at BOTH the PV and the mount. qBittorrent is
                   # actively seeding these files; Nextcloud showing them must
                   # never risk altering them.
+                  - name: media-data
+                    mountPath: /media
+                    readOnly: true
+              # Background jobs touch the same files as web requests.
+              - name: nextcloud-cron
+                volumeMounts:
+                  - name: nextcloud-scratch
+                    mountPath: /scratch
                   - name: media-data
                     mountPath: /media
                     readOnly: true

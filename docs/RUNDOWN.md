@@ -15,7 +15,7 @@ All of these sit behind Traefik with a Let's Encrypt certificate, and every one 
 | `navidrome.sandstorm.chat` | Music streaming | Navidrome account |
 | `remux.sandstorm.chat` | Remux — Jellyfin-compatible media server (Stremio addons + local files + built-in torrent streaming), deployed in parallel with Jellyfin during owner validation; all egress tunnels through AirVPN | Authentik, then Remux (`admin`, password in Doppler `REMUX_ADMIN_PASSWORD`) |
 | `kiwix.sandstorm.chat` | Offline Wikipedia and other archives | none |
-| `grafana.sandstorm.chat` | Dashboards and metrics | Grafana account |
+| `grafana.sandstorm.chat` | Dashboards and metrics. **Not published while Grafana is disabled** (`grafana.enabled: false` in apps/monitoring; Ingress removed 2026-10-01) | Grafana account |
 | `books.sandstorm.chat` | Calibre-Web Automated — read and manage the library | Authentik, then CWA |
 | `bookdl.sandstorm.chat` | Anna's Archive downloader — the non-P2P book path | Authentik |
 | `lidarr.sandstorm.chat` | Music acquisition | Authentik, then Lidarr |
@@ -99,7 +99,7 @@ The second command must print an AirVPN address. If it prints your home address,
 
 ### Then Wire It Up
 
-1. Open `qui.sandstorm.chat`, sign in through Authentik, and add an instance: host `http://qbittorrent.downloads.svc.cluster.local:8080`. qBittorrent's default credentials are printed in its own log on first start — `kubectl -n downloads logs deploy/qbittorrent -c qbittorrent | grep -i password`. Change them immediately.
+1. Open `qui.sandstorm.chat`, sign in through Authentik, and add an instance: host `http://qbittorrent.downloads.svc.cluster.local:8080`. qBittorrent's default credentials are printed in its own log on first start. **The owner** reads them by hand (`kubectl -n downloads logs deploy/qbittorrent -c qbittorrent | grep -i password`). An agent never runs that, because the value is C4 (`docs/security/01-policy.md` §6). Change them immediately, and put the new ones in Doppler.
 2. In Prowlarr, add your indexers, then add Lidarr and Readarr as applications so Prowlarr pushes indexer config to them automatically.
 3. In Lidarr and Readarr, add qBittorrent as the download client at that same cluster address.
 
@@ -145,7 +145,7 @@ Four layers, each covering the previous one's failure mode:
 
 | What | Where | Cadence |
 |---|---|---|
-| Postgres WAL + base backups | MinIO, `s3://cnpg-backups/app-databases` | continuous WAL, scheduled base |
+| Postgres WAL + base backups | MinIO, `s3://cnpg-backups/app-databases/app-databases-pg18` (PG16 archive kept at `.../app-databases/app-databases`) | continuous WAL, scheduled base |
 | Logical `pg_dump` of every database | MinIO, restic repo, deduplicated and encrypted | daily, kept 8 latest / 7 daily / 4 weekly / 6 monthly |
 | ZFS snapshots of `tank` | On the NAS | sanoid schedule |
 | Off-site | borgmatic over Tailscale | nightly, rate limited to 1 MB/s so it can't saturate the uplink |

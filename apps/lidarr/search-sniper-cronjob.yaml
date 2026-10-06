@@ -46,6 +46,13 @@ spec:
       backoffLimit: 1
       activeDeadlineSeconds: 900
       template:
+        metadata:
+          annotations:
+            # This one DOES lose the race, deliberately, and already handles it: the Lidarr call
+            # at the top of the script is wrapped in a 30-attempt retry with a 5s pause precisely
+            # because the first request can precede kube-router programming this pod's policy and
+            # be refused. A wait-* initContainer would duplicate a loop the script already has.
+            homelab/no-wait-init: "first Lidarr call races kube-router on purpose and retries 30x (see the script's own comment)"
         spec:
           restartPolicy: Never
           securityContext:
@@ -55,7 +62,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: trigger
-              image: python:3.12-alpine3.20
+              image: python:3.14-alpine3.24
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:

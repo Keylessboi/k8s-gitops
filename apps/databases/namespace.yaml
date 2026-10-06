@@ -3,6 +3,8 @@ kind: Namespace
 metadata:
   name: databases
   labels:
+    homelab/data-class: c4
+    homelab/criticality: tier-0
     app.kubernetes.io/name: databases
     app.kubernetes.io/part-of: homelab
     homelab/tier: platform

@@ -34,7 +34,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: accounts
-          image: python:3.12-alpine3.20
+          image: python:3.14-alpine3.24
           command: ["python3", "-u", "/app/app.py"]
           securityContext:
             allowPrivilegeEscalation: false
@@ -49,20 +49,9 @@ spec:
             - name: AUTHENTIK_TOKEN
               valueFrom:
                 secretKeyRef: {name: accounts, key: authentik-api-token}
-            - name: REMUX_URL
-              value: http://remux.remux.svc.cluster.local:3000
-            - name: REMUX_ADMIN_USER
-              value: admin
-            # Prowlarr's key, for configuring remux's torznab addon. remux
-            # cannot use DHT through its TCP-only SOCKS5 proxy, so Torznab is
-            # how it gets sources at all - and this pod already holds the remux
-            # admin credential needed to write that config.
             - name: PROWLARR_API_KEY
               valueFrom:
                 secretKeyRef: {name: accounts, key: prowlarr-api-key}
-            - name: REMUX_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef: {name: accounts, key: remux-admin-password}
             # Second gate, independent of the ingress middleware list.
             - name: REQUIRED_GROUP
               value: "authentik Admins"

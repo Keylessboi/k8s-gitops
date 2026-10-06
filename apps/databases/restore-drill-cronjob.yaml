@@ -89,7 +89,7 @@ spec:
             # five days later because nobody re-read the sentence. Any pod
             # whose first real action is a network connection needs this.
             - name: wait-for-postgres
-              image: ghcr.io/tensorchord/cloudnative-vectorchord:16-0.4.1
+              image: ghcr.io/tensorchord/cloudnative-vectorchord:18.6-1.1.1
               env:
                 - name: PGHOST
                   value: app-databases-rw.databases.svc.cluster.local
@@ -114,7 +114,7 @@ spec:
             # verify step below discover the database list from the dumps
             # themselves instead of carrying a hardcoded copy that drifts.
             - name: fetch
-              image: restic/restic:0.17.3
+              image: restic/restic:0.19.1
               env:
                 - name: RESTIC_REPOSITORY
                   value: s3:http://192.168.1.67:9000/cnpg-backups/restic
@@ -143,7 +143,7 @@ spec:
           containers:
             - name: verify
               # Same image as the cluster so pg_restore matches the server.
-              image: ghcr.io/tensorchord/cloudnative-vectorchord:16-0.4.1
+              image: ghcr.io/tensorchord/cloudnative-vectorchord:18.6-1.1.1
               env:
                 - name: PGHOST
                   value: app-databases-rw.databases.svc.cluster.local
@@ -247,8 +247,11 @@ spec:
                     # In --list output the tag is field 4, and the field after
                     # it is the schema for TABLE and the literal DATA for
                     # TABLE DATA, which separates them unambiguously.
+                    # A partition gets a second entry, TABLE ATTACH, that is
+                    # not a table of its own: counting it made blinko (pg-boss's
+                    # partitioned pgboss.job) "restore 29 of 30" on 2026-10-01.
                     toc_tables=$(pg_restore --list "$dump" 2>/dev/null \
-                      | awk '/^[0-9]+;/ && $4=="TABLE" && $5!="DATA" {n++} END {print n+0}')
+                      | awk '/^[0-9]+;/ && $4=="TABLE" && $5!="DATA" && $5!="ATTACH" {n++} END {print n+0}')
                     toc_tables=${toc_tables:-0}
 
                     # STAGE 2, conditionally: materialise it. Skipped for large

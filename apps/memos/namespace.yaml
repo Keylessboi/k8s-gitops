@@ -3,6 +3,8 @@ kind: Namespace
 metadata:
   name: memos
   labels:
+    homelab/data-class: c3
+    homelab/criticality: tier-2
     app.kubernetes.io/name: memos
     app.kubernetes.io/part-of: homelab
     pod-security.kubernetes.io/enforce: baseline

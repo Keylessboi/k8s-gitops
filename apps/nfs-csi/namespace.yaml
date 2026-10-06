@@ -3,6 +3,8 @@ kind: Namespace
 metadata:
   name: nfs-csi
   labels:
+    homelab/data-class: c2
+    homelab/criticality: tier-0
     app.kubernetes.io/name: nfs-csi
     app.kubernetes.io/part-of: homelab
     pod-security.kubernetes.io/enforce: privileged

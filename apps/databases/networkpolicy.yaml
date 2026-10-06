@@ -47,13 +47,7 @@ spec:
               kubernetes.io/metadata.name: bitmagnet
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: invidious
-        - namespaceSelector:
-            matchLabels:
               kubernetes.io/metadata.name: memos
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: remux
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: databases

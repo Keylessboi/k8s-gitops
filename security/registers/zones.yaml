@@ -1,0 +1,13 @@
+register: zones
+kind: inventory
+policy: 01-policy.md §8
+requirement: HS-AGENT-06
+# Repository paths by zone (glob patterns, first match wins, most specific
+# first). Assets outside the repository are listed in 01-policy.md §8.2.
+# A path that matches nothing is Z1 (policy §8.3.6).
+entries:
+  - {id: Z-01, zone: Z0, paths: [security/registers/**, security/allowed_signers, docs/security/01-policy.md]}
+  - {id: Z-02, zone: Z1, paths: [apps/argocd/**, components/**, .github/**, scripts/ci/**, scripts/security/**, policy/**, renovate.json, .yamllint.yaml, docs/security/**, AGENTS.md, docs/adr/**]}
+  - {id: Z-03, zone: Z1, paths: ["apps/{cnpg,databases,doppler,nfs-csi,metallb,coredns,traefik,cert-manager,authentik,vaultwarden,crowdsec,monitoring,image-updater,accounts}/**"]}
+  - {id: Z-04, zone: Z3, paths: [docs/doctor-log.md]}
+  - {id: Z-05, zone: Z2, paths: [apps/**, scripts/**, docs/**]}

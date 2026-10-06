@@ -48,9 +48,6 @@ from http.server import BaseHTTPRequestHandler
 
 AK_URL = os.environ["AUTHENTIK_URL"].rstrip("/")
 AK_TOKEN = os.environ["AUTHENTIK_TOKEN"]
-RX_URL = os.environ["REMUX_URL"].rstrip("/")
-RX_USER = os.environ["REMUX_ADMIN_USER"]
-RX_PASS = os.environ["REMUX_ADMIN_PASSWORD"]
 REQUIRED_GROUP = os.environ.get("REQUIRED_GROUP", "authentik Admins")
 NTFY_URL = os.environ.get("NTFY_URL", "")
 PORT = int(os.environ.get("PORT", "8080"))
@@ -108,42 +105,8 @@ def authentik_provision(username, email, password):
     return ("created" if created else "existed, password set"), f"id {uid}"
 
 
-# --------------------------------------------------------------------------
-# remux - Jellyfin-compatible. Unlike remux-user-sync, which leaves the
-# password empty because forward-auth is the real gate, this sets a real one:
-# the whole point of the form is that the credential matches everywhere.
-# --------------------------------------------------------------------------
-def remux_provision(username, password):
-    _, auth = call(f"{RX_URL}/Users/AuthenticateByName",
-                   data=json.dumps({"Username": RX_USER, "Pw": RX_PASS}).encode(),
-                   headers={"Content-Type": "application/json",
-                            "X-Emby-Authorization":
-                                'MediaBrowser Client="accounts", Device="accounts",'
-                                ' DeviceId="accounts", Version="1.0"'},
-                   method="POST")
-    H = {"X-Emby-Token": auth["AccessToken"], "Content-Type": "application/json"}
-    _, users = call(f"{RX_URL}/Users", headers=H)
-    for u in users:
-        if u["Name"].strip().lower() == username.lower():
-            # REALIGN rather than skip. Submitting the form again with a new
-            # password is how you change it everywhere, and a target that
-            # silently kept the old one would quietly break the promise this
-            # tool exists to make. An admin may set another user's password
-            # with NewPw alone - CurrentPw is only demanded of a non-admin
-            # changing their own (crates/remux-server/src/api/users.rs).
-            call(f"{RX_URL}/Users/{u['Id']}/Password",
-                 data=json.dumps({"NewPw": password}).encode(),
-                 headers=H, method="POST")
-            return "existed, password set", f"id {u['Id']}"
-    _, u = call(f"{RX_URL}/Users/New",
-                data=json.dumps({"Name": username, "Password": password}).encode(),
-                headers=H, method="POST")
-    return "created", f"id {u.get('Id')}"
-
-
 TARGETS = [
     ("authentik", lambda u, e, p: authentik_provision(u, e, p)),
-    ("remux", lambda u, e, p: remux_provision(u, p)),
 ]
 
 # Shown on the page so the list of what is NOT here is as visible as what is.
@@ -151,7 +114,6 @@ SELF_PROVISIONING = [
     ("Navidrome", "creates the user from the forward-auth header on first page load"),
     ("Immich", "OIDC autoRegister"),
     ("Nextcloud", "OIDC (user_oidc)"),
-    ("ConvertX", "OIDC on first login"),
     ("Calibre-Web", "forward-auth header on first page load"),
     ("Readarr", "no per-user accounts - forward-auth is the gate"),
     ("Vaultwarden", "first SSO login. Cannot be provisioned here: the master "

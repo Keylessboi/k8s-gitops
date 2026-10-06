@@ -1,0 +1,13 @@
+[Unit]
+Description=Weekly NAS package upgrade (Sunday morning)
+
+[Timer]
+# Sunday 05:30 local: after borgmatic's 03:15 run, before anyone is using the
+# media services. Persistent: a run missed while the NAS was down happens at
+# the next boot.
+OnCalendar=Sun *-*-* 05:30:00
+RandomizedDelaySec=20m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

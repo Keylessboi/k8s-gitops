@@ -24,3 +24,4 @@ The **Consequences** section matters most. Particularly the negative ones and th
 | [0009](0009-databases-on-local-path-not-nfs.md) | Postgres first, local-path if unsupported; NFS never for databases | Accepted |
 | [0011](0011-wings-on-the-nas.md) | Wings runs on the NAS, not the k3s-server node | Accepted |
 | [0012](0012-agents-cannot-delete-state.md) | Agents work unattended; stateful objects cannot be pruned and secrets cannot be read | Accepted |
+| [0013](0013-renovate-owns-updates.md) | Renovate owns every update and merges its own PRs | Accepted |

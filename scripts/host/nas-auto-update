@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Weekly unattended `pacman -Syu` for the Arch NAS, guarded for ZFS.
+#
+# Install (on the NAS, as root):
+#   install -m755 scripts/host/nas-auto-update /usr/local/bin/
+#   install -m644 scripts/host/nas-auto-update.{service,timer} /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now nas-auto-update.timer
+#
+# WHY THE GUARD. `tank` (every backup, MinIO, the NFS shares) needs a zfs.ko
+# built for whichever kernel boots next, and ZFS is out of tree: a new kernel
+# only gets one if DKMS builds it. On 2026-10-04 a manual -Syu moved the NAS
+# to linux 7.2.8 while ZFS was a hand build DKMS did not know about; nothing
+# rebuilt it, and the next reboot would have come up with no pool
+# (docs/doctor-log.md). ZFS is now the zfs-dkms-git/zfs-utils-git AUR
+# packages, so the dkms pacman hook builds it for every new kernel - and this
+# script refuses to trust that: after every upgrade it checks each installed
+# kernel for zfs.ko, retries the DKMS build, and if a kernel still has none it
+# reinstalls the previous kernel from the package cache and alerts.
+#
+# What it never does: reboot (it alerts that one is pending), update AUR
+# packages (zfs-*-git, minio - those are deliberate), or edit pacman.conf.
+set -uo pipefail
+
+NTFY=http://100.81.123.74:2586/homelab-alerts   # ntfy on travisbackupserver, over tailscale
+KERNELS=(linux linux-lts)
+CACHE=/var/cache/pacman/pkg
+
+notify() { # title message [priority]
+  curl -fsS -m 15 -H "Title: NAS updates: $1" -H "Priority: ${3:-default}" \
+    -H "Tags: package" -d "$2" "$NTFY" >/dev/null \
+    || echo "ntfy publish failed: $1" >&2
+}
+
+# The modules directory (`uname -r` form) a kernel package installs.
+kver_of() { pacman -Qlq "$1" 2>/dev/null | sed -n 's#^/usr/lib/modules/\([^/]*\)/vmlinuz$#\1#p'; }
+has_zfs() { [ -n "$1" ] && find "/usr/lib/modules/$1" -name 'zfs.ko*' -print -quit 2>/dev/null | grep -q .; }
+pkgver_of() { pacman -Q "$1" 2>/dev/null | awk '{print $2}'; }
+
+if [ -e /var/lib/pacman/db.lck ]; then
+  echo "pacman database is locked; another transaction is running. Skipping this week."
+  notify "skipped" "pacman was locked (another transaction running). Nothing was upgraded." low
+  exit 0
+fi
+if systemctl is-active --quiet borgmatic-backup.service; then
+  echo "borgmatic backup is running; skipping this week rather than upgrading under it."
+  notify "skipped" "borgmatic was mid-backup. Nothing was upgraded; next run is next Sunday." low
+  exit 0
+fi
+
+declare -A before
+for k in "${KERNELS[@]}"; do
+  before[$k]=$(pkgver_of "$k")
+  before[$k-headers]=$(pkgver_of "$k-headers")
+done
+# pacman.log stamps look like [2026-10-04T19:24:21-0400]; compare the first
+# 19 characters, which sort as text.
+start=$(date +%Y-%m-%dT%H:%M:%S)
+
+# Keyring first, so a rotated packager key cannot fail the whole upgrade.
+if ! { pacman -Sy --noconfirm --needed archlinux-keyring && pacman -Su --noconfirm; }; then
+  notify "pacman failed" "pacman -Syu exited non-zero at $start. Nothing was rolled back. Check: journalctl -u nas-auto-update" high
+  exit 1
+fi
+upgraded=$(awk -v s="$start" 'substr($1,2,19) >= s && /\[ALPM\] (upgraded|installed)/' /var/log/pacman.log | wc -l)
+
+problems=()
+for k in "${KERNELS[@]}"; do
+  pacman -Q "$k" >/dev/null 2>&1 || continue
+  kv=$(kver_of "$k")
+  has_zfs "$kv" && continue
+
+  echo "$k ($kv) has no zfs.ko; retrying the DKMS build"
+  dkms autoinstall -k "$kv" || true
+  has_zfs "$kv" && continue
+
+  prev=${before[$k]}; prevh=${before[$k-headers]}
+  if [ "$prev" = "$(pkgver_of "$k")" ]; then
+    problems+=("$k $kv has no zfs.ko and was not upgraded today - investigate before any reboot.")
+    continue
+  fi
+  files=("$CACHE/$k-$prev-x86_64.pkg.tar.zst")
+  [ -n "$prevh" ] && files+=("$CACHE/$k-headers-$prevh-x86_64.pkg.tar.zst")
+  if ls "${files[@]}" >/dev/null 2>&1 && pacman -U --noconfirm "${files[@]}" && has_zfs "$(kver_of "$k")"; then
+    problems+=("$k: DKMS could not build ZFS for $kv, so $k was rolled back to $prev (ZFS verified). Probably the kernel is newer than zfs-dkms-git supports: rebuild zfs-*-git, then let next week's run retry.")
+  else
+    problems+=("$k: no zfs.ko for $kv and the rollback to $prev FAILED. DO NOT REBOOT the NAS - the pool will not import.")
+  fi
+done
+
+running=$(uname -r)
+booting=$(kver_of linux)
+if [ ${#problems[@]} -gt 0 ]; then
+  notify "ZFS guard tripped" "$(printf '%s\n' "${problems[@]}")" urgent
+  exit 1
+fi
+if [ -n "$booting" ] && [ "$running" != "$booting" ]; then
+  notify "reboot pending" "$upgraded packages upgraded. Kernel $booting is installed (running $running); ZFS verified for every installed kernel. Reboot when convenient." low
+elif [ "$upgraded" -gt 0 ]; then
+  echo "$upgraded packages upgraded; no kernel change."
+fi
+exit 0

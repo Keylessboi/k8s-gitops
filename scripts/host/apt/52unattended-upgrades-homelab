@@ -1,0 +1,29 @@
+// Homelab unattended-upgrades policy for the Debian 13 hosts: pve, the k3s
+// LXC (CT 200) and travisbackupserver. See docs/host-updates.md.
+//
+// Install: apt-get install unattended-upgrades, then copy this file and
+// 20auto-upgrades-homelab into /etc/apt/apt.conf.d/.
+//
+// Replaces the stock origin list rather than appending to it.
+#clear Unattended-Upgrade::Origins-Pattern;
+Unattended-Upgrade::Origins-Pattern {
+        // Debian stable, point releases, and security.
+        "origin=Debian,codename=${distro_codename},label=Debian";
+        "origin=Debian,codename=${distro_codename}-updates,label=Debian";
+        "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+        // Tailscale: its Release file has no Origin/Label, so match the host.
+        "site=pkgs.tailscale.com";
+};
+// Deliberately NOT here, so they stay manual:
+//  - Proxmox ("o=Proxmox"): pve-manager, the pve kernel, qemu, lxc. Proxmox
+//    advises against unattended upgrades of these; upgrade with
+//    `apt full-upgrade` and a planned reboot.
+//  - Docker (download.docker.com): an upgrade restarts dockerd and every
+//    container with it (immich-ml on the backup host).
+//  - NVIDIA container toolkit (nvidia.github.io): must move with the driver.
+
+// Never reboot on our own; homelab-reboot-notify sends ntfy instead.
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
+Unattended-Upgrade::SyslogEnable "true";

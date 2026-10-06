@@ -62,9 +62,7 @@ data:
         192.168.1.240 grafana.sandstorm.chat
         192.168.1.240 pelican.sandstorm.chat
         # Added 2026-09-03: all published, none previously resolvable in-cluster.
-        192.168.1.240 remux.sandstorm.chat
         192.168.1.240 bitmagnet.sandstorm.chat
-        192.168.1.240 convertx.sandstorm.chat
         192.168.1.240 blog.sandstorm.chat
         192.168.1.240 obsidian.sandstorm.chat
         192.168.1.240 alertmanager.sandstorm.chat

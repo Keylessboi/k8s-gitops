@@ -34,13 +34,14 @@ permissions:
 
 env:
   # Pinned to EXACTLY what this cluster's ArgoCD repo-server ships
-  # (argocd v2.12.3 -> kustomize v5.4.2, helm v3.15.2). CI that renders with a
-  # different kustomize than the cluster can pass on a manifest ArgoCD then
-  # refuses, or fail on one it would have accepted - which is worse than no CI,
-  # because it trains people to ignore the check. Bump these together with the
-  # ArgoCD version in apps/argocd.
-  KUSTOMIZE_VERSION: "5.4.2"
-  HELM_VERSION: "3.15.2"
+  # (argocd v3.5.3 -> kustomize v5.8.1, helm v4.2.1; from hack/tool-versions.sh
+  # at that tag). CI that renders with a different kustomize than the cluster
+  # can pass on a manifest ArgoCD then refuses, or fail on one it would have
+  # accepted - which is worse than no CI, because it trains people to ignore
+  # the check. Bump these together with ARGOCD_VERSION in
+  # scripts/bootstrap-argocd.sh.
+  KUSTOMIZE_VERSION: "5.8.1"
+  HELM_VERSION: "4.2.1"
   KUBECONFORM_VERSION: "0.6.7"
   # The cluster's actual server version (k3s v1.31.5+k3s1). Validating against
   # a different one is how CI passes a manifest the API server then rejects.
@@ -57,9 +58,9 @@ jobs:
     name: YAML parses
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
 
@@ -100,7 +101,7 @@ jobs:
     name: kustomize build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install pinned helm and kustomize
         run: |
@@ -127,11 +128,11 @@ jobs:
       # both faster and the main defence against the flakiness handled below.
       # Keyed on the kustomization files, so any chart or version change misses
       # the cache and re-pulls.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: apps/*/charts
-          key: helm-charts-${{ hashFiles('apps/*/kustomization.yaml') }}
-          restore-keys: helm-charts-
+          key: helm4-charts-${{ hashFiles('apps/*/kustomization.yaml') }}
+          restore-keys: helm4-charts-
 
       - name: Every apps/* directory must be a kustomization
         run: |
@@ -179,7 +180,7 @@ jobs:
             name="$(basename "$dir")"
             [ -f "${dir}kustomization.yaml" ] || continue
             for attempt in 1 2 3; do
-              if out="$(kustomize build --enable-helm "$dir" 2>&1)"; then
+              if out="$(kustomize build --enable-helm --helm-kube-version "v${K8S_VERSION}" "$dir" 2>&1)"; then
                 printf 'OK    %-14s %6s documents%s\n' \
                   "$name" "$(printf '%s' "$out" | grep -c '^kind:' || true)" \
                   "$([ "$attempt" -gt 1 ] && echo "  (attempt $attempt)")"
@@ -205,9 +206,9 @@ jobs:
     name: yamllint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
 
@@ -240,9 +241,9 @@ jobs:
     name: repo invariants
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
 
@@ -270,7 +271,7 @@ jobs:
     name: kubeconform (strict)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install pinned helm, kustomize and kubeconform
         run: |
@@ -290,11 +291,11 @@ jobs:
           install -m 0755 /tmp/kubeconform "$HOME/bin/kubeconform"
           echo "$HOME/bin" >> "$GITHUB_PATH"
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: apps/*/charts
-          key: helm-charts-${{ hashFiles('apps/*/kustomization.yaml') }}
-          restore-keys: helm-charts-
+          key: helm4-charts-${{ hashFiles('apps/*/kustomization.yaml') }}
+          restore-keys: helm4-charts-
 
       - name: Validate every rendered manifest against the API schema
         run: |
@@ -306,7 +307,7 @@ jobs:
             [ -f "${dir}kustomization.yaml" ] || continue
             # Rendering failures are the kustomize-build job's business; skip
             # quietly here so one root cause does not paint two jobs red.
-            out="$(kustomize build --enable-helm "$dir" 2>/dev/null)" || continue
+            out="$(kustomize build --enable-helm --helm-kube-version "v${K8S_VERSION}" "$dir" 2>/dev/null)" || continue
             # Kept for the protected-state step below, so the charts are
             # rendered once.
             printf '%s\n' "$out" > "/tmp/rendered/$name.yaml"
@@ -360,7 +361,7 @@ jobs:
     name: fix() updates the doctor's log
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Need the base commit to diff against; a shallow clone has neither.
           fetch-depth: 0
