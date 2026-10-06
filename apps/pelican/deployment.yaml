@@ -20,7 +20,7 @@ metadata:
   name: pelican
   namespace: pelican
 spec:
-  replicas: 0   # migration step 1: copying pelican-data to tank (migrate-data.yaml)
+  replicas: 1
   # Recreate, not RollingUpdate: a single RWO PVC cannot attach to two pods,
   # and two panels running migrate/queue against one DB is asking for trouble.
   strategy:
@@ -249,7 +249,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: pelican-data
+            claimName: pelican-data-tank
         - name: ca-bundle
           emptyDir: {}
         - name: wings-ca

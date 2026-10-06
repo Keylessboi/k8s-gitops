@@ -1,0 +1,16 @@
+---
+# Pelican data, moved 2026-10-06 from node-local disk (unencrypted LVM) to the
+# encrypted tank pool. The old claim pelican-data stays declared for rollback.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pelican-data-tank
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+  namespace: pelican
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 5Gi
