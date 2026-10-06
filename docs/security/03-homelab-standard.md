@@ -64,14 +64,14 @@ requirement ENFORCED.
 
 ## 2. Summary
 
-Status counts on 2026-10-03, with PR #21 merged. Each requirement counts by
+Status counts on 2026-10-06, with PR #21 merged. Each requirement counts by
 the first status in its cell. Thus "ENFORCED (Claude Code); GAP (others)"
 counts as ENFORCED. Read the row before you use the count. HS-AGENT-01 has
 no status and does not count.
 
 | Area | Reqs | ENFORCED | CHECKED | MET | GAP / UNMEASURED | WAIVED |
 |---|---|---|---|---|---|---|
-| GIT — change and GitOps | 9 | 1 | 4 | 2 | 2 | — |
+| GIT — change and GitOps | 10 | 1 | 4 | 2 | 3 | — |
 | STATE — data protection | 6 | 2 | 1 | — | 3 | — |
 | REC — backup and recovery | 5 | — | 2 | 3 | — | — |
 | SEC — secrets | 7 | 1 | 1 | — | 5 | — |
@@ -79,15 +79,21 @@ no status and does not count.
 | WL — workloads | 7 | — | — | — | 7 | — |
 | NET — networking and publishing | 9 | — | 1 | 1 | 7 | — |
 | ACC — accounts and authentication | 4 | — | — | — | 4 | — |
-| PSS — pod security | 2 | — | — | 1 | — | 1 |
+| PSS — pod security | 2 | — | — | 1 | 1 | — |
 | PLAT — platform | 3 | — | — | 1 | 2 | — |
 | OBS — detection | 4 | — | — | 1 | 3 | — |
 | HOST — hosts | 4 | — | — | — | 4 | — |
-| SUP — supply chain | 4 | — | — | — | 4 | — |
-| **Total** | **77** | **7** | **10** | **11** | **47** | **1** |
+| SUP — supply chain | 7 | — | 3 | — | 4 | — |
+| DATA — data handling | 4 | — | — | — | 4 | — |
+| REST — data at rest | 5 | — | 1 | 1 | 3 | — |
+| PERM — permissions | 6 | — | 5 | — | 1 | — |
+| QUAL — quality | 2 | — | 1 | 1 | — | — |
+| **Total** | **98** | **7** | **20** | **13** | **57** | **0** |
 
 Engineering conventions (§11.3) are not security requirements and are not
-counted.
+counted. A CHECKED status here means a CI check finds the violations; the
+row says how many it found. Until branch protection exists (HS-GIT-03,
+HS-GIT-10), nothing stops a change that fails a check.
 
 The largest gaps:
 
@@ -99,7 +105,10 @@ The largest gaps:
 3. **Agents get cluster-admin** through root on the hypervisor (HS-SEC-04,
    HS-AGENT-09).
 4. **Most images have no digest pin:** 16 of 85 containers in the non-Helm
-   applications (HS-WL-01).
+   applications (HS-WL-01). Two images use the moving tag `stable`
+   (HS-SUP-06).
+5. **No grant beyond least privilege is approved:** 59 permission findings,
+   each a proposed entry on the permissions register (HS-PERM).
 
 ## 3. GIT — change management and GitOps
 
@@ -209,14 +218,14 @@ HS-WL-07, -08, -09 and -11 moved to the engineering conventions (§11.3).
 | HS-ACC-03 | An application's own login MUST reject empty and default passwords, and MUST limit failed attempts or sit behind the edge rate limit and intrusion detection. | Policy §9.4 | manual (one test login per application) | **GAP**: one application creates accounts with empty passwords |
 | HS-ACC-04 | A user who leaves MUST lose access in 7 days in the identity provider and in each application on the account register. | Policy §9.3 | manual | UNMEASURED |
 
-## 11. PSS, PLAT, OBS, HOST, SUP
+## 11. PSS, PLAT, OBS, HOST, SUP, DATA, REST, PERM, QUAL
 
 ### 11.1 Requirements
 
 | ID | Requirement | Source | Test | Status |
 |---|---|---|---|---|
 | HS-PSS-01 | Each namespace MUST set `pod-security.kubernetes.io/enforce`. | Pod Security Standards; CIS K8s 5.2 | Not yet a check | MET for the 22 non-Helm namespaces |
-| HS-PSS-02 | Namespaces SHOULD enforce `baseline` or stricter. A `privileged` namespace MUST have a waiver with its own reason. | Pod Security Standards; NIST 800-190 | manual | WAIVED (W-04, reasons missing) |
+| HS-PSS-02 | Namespaces SHOULD enforce `baseline` or stricter. A `privileged` namespace MUST be on the permissions register (HS-PERM-05). | Pod Security Standards; NIST 800-190 | Conftest `permissions` | **GAP**: 9 namespaces, none approved |
 | HS-PLAT-01 | Do not add a CNI, service mesh, operator or scheduler, unless it removes more components than it adds. | ADR-0007 | Review | MET |
 | HS-PLAT-02 | Each time-series or log store MUST have a size limit. | doctor-log 2026-09-09, 2026-08-31 | manual | UNMEASURED |
 | HS-PLAT-03 | Node memory SHOULD keep free capacity. | ADR-0007 | Prometheus | UNMEASURED |
@@ -231,7 +240,7 @@ HS-WL-07, -08, -09 and -11 moved to the engineering conventions (§11.3).
 | HS-SUP-01 | The dependency updater MUST NOT apply a major version, or a change to a Z1 item, automatically. | Policy §15 | `renovate.json` | **GAP**: automerge rules cover some Z1 components (SSP SA-4) |
 | HS-SUP-02 | Build each custom image from a clean context. Verify its content after the push. | doctor-log 2026-09-28 | manual | GAP (process only) |
 | HS-SUP-03 | Custom images SHOULD have a CycloneDX SBOM. | SLSA; CycloneDX | Not yet a check | GAP |
-| HS-SUP-04 | Scan images for known vulnerabilities every month, and before each digest change. | Policy §17; NIST 800-190 | `trivy image` | UNMEASURED |
+| HS-SUP-04 | Scan images for known vulnerabilities every month, and before each digest change. | Policy §17; NIST 800-190 | Trivy in `security.yaml` (weekly); before a digest change: manual | CHECKED (weekly) |
 
 HS-PSS-03 and HS-OBS-05 moved to the engineering conventions (§11.3).
 
@@ -256,115 +265,108 @@ doctor log as well.
 | If a Deployment has 0 ready pods and no pod exists, read the ReplicaSet's `ReplicaFailure` condition first. | doctor-log 2026-09-10, 2026-09-27 |
 | `scripts/doctor.sh <app>` is the first step of a diagnosis. Each doctor-log entry gets a line in the symptom index. | doctor-log header |
 
+### 11.4 Data handling, data at rest, permissions and quality
+
+Added 2026-10-06. The test column names the check in
+`.github/workflows/security.yaml`. "Conftest" means a rule in `policy/`
+over the rendered manifests.
+
+| ID | Requirement | Source | Test | Status |
+|---|---|---|---|---|
+| HS-DATA-01 | Each namespace MUST have the label `homelab/data-class` (`c1` to `c4`) and the label `homelab/criticality` (`tier-0` to `tier-3`). The values MUST agree with `00-system-description.md` §4. | Policy §5.3 | Conftest `data_handling` | **GAP**: 0 of 33 namespaces |
+| HS-DATA-02 | A container SHOULD get a secret as a mounted file, not as an environment variable. | Policy §6 (C4 display); HS-SEC-03 | Conftest warning | **GAP**: 149 environment variables (2026-10-06) |
+| HS-DATA-03 | A connection that carries C3 or C4 data between pods SHOULD use TLS where the server supports it. A connection without it MUST be on the data-store register with the reason. | Policy §6 (C4 in transit) | manual | UNMEASURED |
+| HS-DATA-04 | An application MUST NOT write C4 values to its log at the configured log level. | Policy §14.1 | manual (log sample per application) | UNMEASURED |
+| HS-REST-01 | Each volume MUST use a storage class that the data-store register (§12.8) records, with its encryption at rest. | Policy §12.4 | Conftest `data_handling` | CHECKED |
+| HS-REST-02 | A volume in a C3 or C4 namespace MUST use a store that is encrypted at rest. | Policy §6, §12.4 | Conftest `data_handling` (active when HS-DATA-01 labels exist) | UNMEASURED (no labels yet; local-path encryption unverified) |
+| HS-REST-03 | Kubernetes Secrets MUST be encrypted at rest in the cluster datastore. | Policy §12.4 | `k3s secrets-encrypt status` (owner) | UNMEASURED |
+| HS-REST-04 | Backups MUST be encrypted before they leave the host that makes them. | Policy §13.1 | manual | MET for restic; UNMEASURED for borgmatic (encryption mode unrecorded, data-stores D-09); CNPG object-store backups rely on the pool |
+| HS-REST-05 | The operator computer MUST use full-disk encryption. Files that hold C4 credentials on it (kubeconfig, SSH keys) MUST be readable only by the owner. | Policy §12.4 | `stat -c %a ~/.kube/config ~/.ssh/*` | **GAP**: the kubeconfig is world-readable (2026-10-06); disk encryption UNMEASURED |
+| HS-PERM-01 | A binding to `cluster-admin` MUST be on the permissions register (§12.7). | Policy §9.1 | Conftest `permissions` | CHECKED (0 in the manifests; agents' access is HS-SEC-04) |
+| HS-PERM-02 | A role with a wildcard verb or resource MUST be on the permissions register. | Policy §9.1; CIS K8s 5.1.3 | Conftest `permissions` | CHECKED: 3 grants, none approved |
+| HS-PERM-03 | A role that can read Secrets, or run commands in other pods (`pods/exec`, `pods/attach`), MUST be on the permissions register. | Policy §9.1; CIS K8s 5.1.2 | Conftest `permissions` | CHECKED: 22 grants (20 Secret read, 2 exec), none approved |
+| HS-PERM-04 | A pod with host access (host network, PID, IPC, host paths), privilege or added capabilities MUST be on the permissions register. | Policy §9.1; Pod Security Standards | Conftest `permissions` | CHECKED: 25 grants, none approved |
+| HS-PERM-05 | A namespace at Pod Security level `privileged` MUST be on the permissions register. This replaces waiver W-04. | Policy §9.1; HS-PSS-02 | Conftest `permissions` | CHECKED: 9 namespaces, none approved |
+| HS-PERM-06 | Each identity-provider group that gives administrator access, and its members, MUST be on the account register. | Policy §9.3 | manual | **GAP** |
+| HS-QUAL-01 | The Polaris score of the rendered manifests MUST NOT fall below the floor in `policy/polaris-score-floor`. When the score rises, raise the floor in the same change. | Policy §17 | Polaris in `security.yaml` | CHECKED (83, floor 83) |
+| HS-QUAL-02 | The Polaris configuration MUST be the upstream default except for lines with a reason. | Policy §17 | Review of `policy/polaris.yaml` (Zone 1) | MET |
+| HS-SUP-05 | Each GitHub Action MUST be pinned by commit SHA. Each tool that CI downloads MUST be pinned by version and sha256. | Policy §15; the 2025 tj-actions incident | Review; `install-tools.sh` | **GAP**: `validate.yaml` pins actions by tag |
+| HS-SUP-06 | A container image MUST NOT use a moving tag (`latest`, `stable`, `main` and similar). | Policy §15 | Conftest `supply` | CHECKED: 2 images (2026-10-06) |
+| HS-SUP-07 | Each deployed image MUST be scanned every week. A fixable CRITICAL in an internet-facing image MUST be patched in 14 days (policy §17). | Policy §17 | Trivy in `security.yaml` (weekly) | CHECKED (first full run pending) |
+| HS-GIT-10 | The policy checks (`security.yaml`) MUST pass before a merge to `main`, together with `validate` (HS-GIT-03). | Policy §11.3 | Branch protection | **GAP**: not required; 150 Conftest failures (2026-10-06) |
+
 ## 12. Registers
 
-A register is a list that a rule refers to. Each register is in Z0 (policy
-§8.2): only the owner adds, changes or removes an entry. An agent MAY propose
-an entry in a pull request. The owner reviews all registers every 12 months
-(policy §19).
+A register is a list that a rule refers to. The registers are files in
+`security/registers/`, so that CI, Conftest and agents can read them. This
+section says what each file is for. The files hold the entries.
 
-### 12.1 Publication register
-
-Routes that are published without the identity provider (policy §9.7.4). An
-entry is **APPROVED** only when it meets all six criteria and has the owner's
-approval date. A route that is published without the identity provider and
-is not APPROVED here is a violation of HS-NET-06.
-
-Criteria (policy §9.7.4): 1 reason, 2 data, 3 login quality, 4 accounts on
-§12.2, 5 no anonymous work on uploads or server resources, 6 owner approval.
-
-Measured on 2026-10-03 from the Ingress manifests. "OIDC" means the
-application logs in through the identity provider by itself. Those routes
-meet HS-NET-06 only if the application's local login is disabled. The
-callback paths of the identity provider's outposts are part of the identity
-provider and are not listed.
-
-| ID | Route | Reason given in the manifest | Criteria not met or not verified | Status |
-|---|---|---|---|---|
-| P-01 | `blog.sandstorm.chat/` | Public web content. The admin path has the application's own staff login. | 3 (staff login quality), 6 | PROPOSED |
-| P-02 | `kiwix.sandstorm.chat/` | Public reference content, read-only | 6 | PROPOSED |
-| P-03 | `remux.sandstorm.chat/` API paths | Media clients cannot follow a login redirect | **3 fails** (empty passwords until PR #20), 4, 6. Also HS-NET-07. | **NOT ELIGIBLE** |
-| P-04 | `convertx.sandstorm.chat/` | The application keeps its own account | **5 fails** (processes uploaded files), 3, 4, 6. The manifest's comments disagree with each other. | **NOT ELIGIBLE** |
-| P-05 | `books.sandstorm.chat/opds` | E-reader clients use HTTP Basic | 3, 4, 6. Also HS-NET-07. | PROPOSED |
-| P-06 | `navidrome.sandstorm.chat/rest`, `/share` | Subsonic clients use the application's own password | 3, 4, 6 | PROPOSED |
-| P-07 | `octo.sandstorm.chat/rest` | Client API | 3, 4, 6 | PROPOSED |
-| P-08 | `vaultwarden.sandstorm.chat/` | Password-manager clients cannot use forward-auth; local login is on | 3, 4, 6 | PROPOSED |
-| P-09 | `notesnook-{api,auth,events,files,mono}.sandstorm.chat/` | The application has its own identity server | 3, 4, 6 | PROPOSED |
-| P-10 | `pelican.sandstorm.chat/` | Not forward-auth "deliberately" (manifest comment) | 1, 3, 4, 6 | PROPOSED |
-| P-11 | `immich`, `nextcloud`, `notes` (Memos), `grafana` | OIDC | Local login disabled? | UNMEASURED |
-| P-12 | `authentik.sandstorm.chat/` | The identity provider itself | — | Not applicable |
-| P-13 | `argocd.sandstorm.chat/` | IP allow-list (LAN and VPN) | Is it internal only? (HS-NET-08) | UNMEASURED |
-
-### 12.2 Shared and local account register
-
-Accounts that are not individual identity-provider accounts (policy §9.1,
-§9.3). Each entry needs a disable procedure for a user who leaves. Source:
-SSP AC-2 (2026-10-01..03), not yet complete.
-
-| ID | Application | Account type | Why it exists | Disable procedure |
-|---|---|---|---|---|
-| A-01 | Identity provider | Shared administrator (`akadmin`) | Product bootstrap | Owner only; rotate on a change of administrator |
-| A-02 | GitOps reconciler | Shared administrator | Product default | — (to be decided) |
-| A-03 | Media server (remux) | Shared administrator, and one local account for each user | No SSO in the product | Not defined: the sync job only adds accounts |
-| A-04 | Metrics UI (Grafana) | Local administrator | Product default | — |
-| A-05 | Game-server panel (Pelican) | Seeded administrator | Product bootstrap | — |
-| A-06 | Blog (Ghost) | Staff accounts | No SSO in the product | — |
-| A-07 | Password vault (Vaultwarden) | Local login for each user | Clients need it | — |
-| A-08 | Notes sync (Notesnook) | Own identity server, one account for each user | Product design | — |
-| A-09 | Music server (Navidrome) | Subsonic password for each user | Subsonic clients | — |
-| A-10 | E-book server (CWA) | OPDS Basic-auth account for each user | OPDS clients | — |
-| A-11 | File converter (ConvertX) | Own account | Product design | — |
-
-### 12.3 Out-of-band register
-
-State or configuration that is not in git (HS-GIT-02).
-
-| ID | Item | Reason | Plan |
+| § | File | Kind | Rule |
 |---|---|---|---|
-| O-01 | Identity-provider applications, providers, flows and stages | Managed in the admin UI and `ak shell`. **No reason recorded.** | Move to identity-provider blueprints (POA&M item 13). Review 2027-01-01. |
-| O-02 | A stray `metallb` namespace (the real one, `metallb-system`, is in git) | Left from an earlier ApplicationSet that made namespaces | Owner decides: delete it or declare it. Review 2026-12-01. |
-| O-03 | `apps/argocd/` | The reconciler does not manage itself. Applied by hand (HS-GIT-08). | Permanent |
-| O-04 | Host configuration of the hypervisor, the storage node and the backup server; the heartbeat receiver | Not yet in git | POA&M item 21 |
+| 12.1 | `publication.yaml` | exception | Routes published without the identity provider (policy §9.7; HS-NET-06) |
+| 12.2 | `accounts.yaml` | inventory | Shared and local accounts, with how to disable each (policy §9.1, §9.3; HS-ACC-01) |
+| 12.3 | `out-of-band.yaml` | exception | State and configuration outside the repository (HS-GIT-02) |
+| 12.4 | `waivers.yaml` | exception | Waivers (policy §18) |
+| 12.5 | `keys.yaml` | inventory | C4 keys outside the secrets store (policy §12.1) |
+| 12.6 | `zones.yaml` | inventory | Repository paths by zone (policy §8.2) |
+| 12.7 | `permissions.yaml` | exception | Grants beyond least privilege (policy §9.1; HS-PERM) |
+| 12.8 | `data-stores.yaml` | inventory | Each data store, its class and its encryption at rest (HS-REST) |
 
-### 12.4 Waiver register
+All registers are in Z0 (policy §8.2).
 
-A waiver says which requirement is not met, where, why, and when the owner
-examines it again (policy §18). A waiver without a reason is a GAP.
+- **An exception entry takes effect only when the owner approves it**
+  (§12.9). An entry without approval has no effect. A route, grant or waiver
+  that has no approved entry is a violation, and CI reports it.
+- **An inventory entry is a record.** It takes effect when it is merged.
+  The owner reviews all registers every 12 months (policy §19).
 
-| ID | Requirement | Scope | Reason | Review by |
-|---|---|---|---|---|
-| W-04 | HS-PSS-02 | `privileged` namespaces: applemusic-wrapper, cert-manager, cnpg, crowdsec, downloads, metallb, monitoring, nfs-csi, remux | **No reason recorded.** Some need it (nfs-csi, metallb). Each namespace needs its own line. | 2026-11-01 |
-| W-05 | HS-WL-06 | The 4 Jobs in `scripts/ci/wait-init-baseline.txt` | Older than the check. Each needs its own repair. | See that file |
-| W-06 | All requirements for high availability | The whole cluster | One node by design. Does not remove backup, restore or monitoring rules (policy §18.5). | Permanent |
+### 12.9 How the owner approves an entry
 
-W-01, W-02 and W-03 are now entries O-01, O-02 and O-03 in §12.3.
+An approval is an SSH signature over the entry. An agent cannot make one.
 
-### 12.5 Key register
+1. Make a hardware approval key one time:
+   `ssh-keygen -t ed25519-sk -O verify-required -C register-approval`.
+   Put its public half in `security/allowed_signers` on a line that starts
+   with `owner namespaces="homelab-register"`. Do the same for a second
+   security key as the escrow copy (keys register K-08).
+2. Read the entry. Decide whether it meets the criteria of its rule.
+3. Run `scripts/security/registers.py approve <register> <id> --key
+   ~/.ssh/id_ed25519_sk`. The script shows the entry, asks for
+   confirmation, sets `status: approved` and `approved_on`, and writes
+   `security/registers/approvals/<register>.<id>.sig`. The security key
+   needs a touch and its PIN.
+4. Commit the changed register and the signature file in a pull request, and
+   merge it.
 
-C4 keys and credentials that are not only in the secrets store (policy
-§12.1).
+To reject an entry, set `status: rejected` and fix the cause in the
+manifest. To withdraw an approval, delete the signature file.
 
-| Key or credential | Kept in | Escrow copy | Rotation (policy §12.3) |
-|---|---|---|---|
-| Storage-pool encryption key | Storage node, `/etc/zfs/keys/tank.key` | Secrets store, project `proxmox` | After a compromise (Z0, owner) |
-| Off-site backup passphrase | Storage node, `/etc/borgmatic/passphrase` | Secrets store, project `proxmox` | After a compromise. Test the escrow copy every 6 months. |
-| Logical-backup repository password | Secrets store, then a cluster Secret | **[UNVERIFIED]** copy outside the cluster | After a compromise |
-| Cluster server token, kubeconfig client certificates | Cluster host, operator computer | Secrets store, project `kubernetes` | After a compromise; certificates as the cluster rotates them |
-| Operator SSH key | Operator computer | **[UNVERIFIED]** | 24 months, and after a compromise or device loss |
-| Secrets-store service tokens | Each host; the secrets operator's Secret | Issue again from the secrets store | 12 months, and after a compromise |
-| Object-store root credential | Secrets store, project `proxmox` | — | 12 months, and after a compromise |
+Why this is safe from agents:
 
-### 12.6 Zone map
+- The signature covers the whole entry except `status`. If anyone edits an
+  approved entry, the signature fails, and the entry stops taking effect.
+- An entry that says `approved` without a valid signature fails CI.
+- CI accepts only FIDO2 keys as signers. An agent cannot use a security key
+  without a touch on the device. If an agent adds its own software key to
+  `allowed_signers`, CI rejects the file. (`REGISTER_ALLOW_SOFTWARE_KEYS=1`
+  turns this off. Use it only for a test.)
 
-The zone criteria are in policy §8.2. This map applies them. An item that is
-not on the map is Z1 (policy §8.3.6).
+### 12.10 How agents use the registers
 
-| Zone | Paths and assets |
-|---|---|
-| **Z0** | Secrets-store projects, configs and tokens; the storage pool, its datasets, keys, snapshots and snapshot schedule; hypervisor and container configuration, BIOS settings, hypervisor storage; backup repositories and their configuration; identity-provider objects; personal content of service users; repository settings, branch protection, deploy keys, GitHub Apps; VPN access lists and device approvals; public DNS and the registrar; `~/.claude/settings.json`, `~/.claude/hooks/`; the normative text of `01-policy.md`; the registers in this section |
-| **Z1** | `apps/argocd/`, `components/`, `.github/`, `scripts/ci/`, `renovate.json`, `.yamllint.yaml`; the Tier 0 and Tier 1 applications (`apps/{cnpg,databases,doppler,nfs-csi,metallb,coredns,traefik,cert-manager,authentik,vaultwarden,crowdsec,monitoring,image-updater,accounts}`); any change that adds or removes a volume, namespace, storage class or database, or changes `storageClassName`; any NetworkPolicy that permits more; any Ingress that publishes a route or removes authentication; any Pod Security label change; `docs/security/` (except typing errors), `AGENTS.md`, `docs/adr/`; any check exception (`homelab/no-wait-init`, `wait-init-baseline.txt`); removal of `components/protect-state` |
-| **Z2** | All other `apps/*` paths; `scripts/` except `scripts/ci/`; runbooks outside `docs/security/` |
-| **Z3** | New doctor-log entries; new notes and runbooks; files outside the repository; read-only diagnosis |
+- When a Conftest rule fails, read the message. It names the register and
+  the rule.
+- If the right action is an exception (for example, a client that cannot
+  follow a login redirect), add an entry with `status: proposed`, give the
+  facts in `reason` and `criteria`, and stop. Ask the owner (policy §10.4).
+- An agent MUST NOT:
+  - set `status: approved`;
+  - create, edit or delete a file in `security/registers/approvals/`;
+  - edit `security/allowed_signers`;
+  - edit an approved entry;
+  - change a rule in `policy/` or `policy/polaris.yaml` to make a finding go
+    away (HS-AGENT-12).
+- Run the checks before you push:
+  `scripts/security/render-all.sh /tmp/r && scripts/security/policy-check.sh /tmp/r`.
 
 ## 13. External references
 

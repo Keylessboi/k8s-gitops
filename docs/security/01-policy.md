@@ -14,9 +14,11 @@
 
 This policy gives **rules**. It does not name an application unless the
 application is part of the rule's subject (for example, Authentik is the
-identity provider). Lists of specific items are in **registers** in
-`03-homelab-standard.md` §12. A rule says which register applies. Findings
-about specific applications are in `ssp/` and `04-poam.md`.
+identity provider). Lists of specific items are in **registers**: files in
+`security/registers/`, described in `03-homelab-standard.md` §12. A rule
+says which register applies. An exception in a register takes effect only
+when the owner signs it (`03` §12.9). Findings about specific applications
+are in `ssp/` and `04-poam.md`.
 
 The text follows ASD-STE100 Simplified Technical English where it can:
 
@@ -173,10 +175,10 @@ Each item of information has one class.
 
 ### 5.3 Labels
 
-- Each namespace SHOULD have the label `homelab/data-class` (`c1` to `c4`)
+- Each namespace MUST have the label `homelab/data-class` (`c1` to `c4`)
   and the label `homelab/criticality` (`tier-0` to `tier-3`). The values MUST
-  agree with `00-system-description.md` §4. CI can then apply the rules for
-  each class automatically.
+  agree with `00-system-description.md` §4. CI uses the labels to apply the
+  rules for each class (HS-DATA-01, HS-REST-02).
 - Do not commit a document that contains C3 or C4 data to this repository.
   All content in this repository is C1.
 
@@ -314,6 +316,12 @@ outside the repository, and read-only diagnosis.
   product that cannot operate without one. Record each exception in the
   shared and local account register (`03` §12.2).
 - **Each machine identity has a name and a limited scope** (§9.3).
+- **Grants beyond least privilege need an approved register entry.** These
+  are: a binding to `cluster-admin`; a wildcard in a role; reading Secrets;
+  running commands in other pods; host network, PID, IPC or paths;
+  privileged containers and added capabilities; a namespace at Pod Security
+  level `privileged`. Each one MUST be on the permissions register
+  (`03` §12.7) with its reason. A chart default is not a reason by itself.
 
 ### 9.2 Access matrix (target state)
 
@@ -412,8 +420,9 @@ internet.
    5. **Risk of the function:** the route does not let an anonymous person
       start work that uses server resources or processes uploaded files.
       Example: a file converter does not meet this criterion.
-   6. **Approval:** the owner approves the entry, with a date. The entry gets
-      a review at the 12-month policy review.
+   6. **Approval:** the owner signs the entry (`03` §12.9). The signature
+      records the date. The entry gets a review at the 12-month policy
+      review.
 5. A code comment is not an approval. If a manifest says that a route is an
    exception, and the route is not on the register, the route is a
    violation.
@@ -575,6 +584,18 @@ the key register (`03` §12.5). Each entry gives:
 | Application credentials (OIDC client secrets, database passwords, API keys) | After a compromise, and when a consumer is removed |
 | TLS private keys | Automatically, at each certificate renewal |
 
+### 12.4 Data at rest
+
+1. Each place that keeps data MUST be on the data-store register
+   (`03` §12.8), with its class and its encryption at rest.
+2. C3 and C4 data MUST be on storage that is encrypted at rest. If the
+   encryption of a store is not verified, treat the store as not encrypted.
+3. Kubernetes Secrets MUST be encrypted at rest in the cluster datastore.
+4. Backups MUST be encrypted before they leave the host that makes them.
+5. A device that holds C4 credentials (the operator computer) MUST use
+   full-disk encryption. The credential files on it MUST be readable only
+   by the owner.
+
 ## 13. Retention, deletion and disposal
 
 ### 13.1 Backup rule
@@ -644,12 +665,16 @@ Record each disposal (serial number, method, date) in the hardware log.
    `00-system-description.md` §2.2, with the data that goes to it.
 2. For each external service, the owner SHOULD know the exit plan: how to get
    the data out, and what stops if the service stops.
-3. Pin each container image by digest (HS-WL-01).
-4. The dependency updater MUST NOT apply a major version change
+3. Pin each container image by digest (HS-WL-01). Never use a moving tag
+   such as `latest` or `stable` (HS-SUP-06).
+4. Pin each CI action by commit SHA, and each tool that CI downloads by
+   version and checksum (HS-SUP-05). A security tool's own release is part
+   of the supply chain.
+5. The dependency updater MUST NOT apply a major version change
    automatically. It MUST NOT merge a change to a Z1 item automatically.
-5. Build each custom image from a clean context, and verify its content after
+6. Build each custom image from a clean context, and verify its content after
    the push (HS-SUP-02).
-6. An AI model provider receives all that an agent reads. This is the reason
+7. An AI model provider receives all that an agent reads. This is the reason
    for the agent rules in §6 and §10.
 
 ## 16. Incident management
@@ -746,7 +771,9 @@ If an agent breaks a rule in §10.2, or a guardrail did not stop it:
 | Cluster software | Stay within one minor version of a supported release (HS-HOST-03) |
 | Host operating systems | Install security updates at least every month. A kernel or storage-driver update is a Normal change. |
 | Benchmarks | Run the CIS Kubernetes benchmark and a CIS Linux Level 1 scan every year (HS-HOST-01, HS-HOST-02). Repair each finding, or get a waiver. |
-| Scanning | Scan internet-facing images every month, and each image before a digest change (HS-SUP-04) |
+| Scanning | Scan all deployed images every week, and each image before a digest change (HS-SUP-04, HS-SUP-07) |
+| Policy checks | Check the rendered manifests against the rules in `policy/` on each push (HS-GIT-10). A finding is repaired, or the owner approves a register entry for it. |
+| Quality | Measure the manifests with a static analysis tool (Polaris) on each push. The score MUST NOT fall below its recorded floor. Raise the floor when the score rises (HS-QUAL-01). |
 
 ## 18. Exceptions and waivers
 
@@ -772,6 +799,7 @@ If an agent breaks a rule in §10.2, or a guardrail did not stop it:
 | Measure the statuses in `03-homelab-standard.md` again | Every 3 months, and after a change that affects them | Updated statuses and summary |
 | Account and access review (§9.3) | Every 90 days | Unnecessary accounts removed |
 | Registers review (`03` §12) | Every 12 months, with the policy review | Each entry confirmed or removed |
+| Image vulnerability scan (§17) | Every week (automatic) | Findings patched within §17's times |
 | Timed restore exercise (§7) | Every 6 months, one tier each time | Measured RTO and RPO |
 | Escrow test (§12.2) | Every 6 months | Each escrow copy proved usable |
 | POA&M review | Every month | Items closed, or planned again with a reason |
@@ -802,7 +830,7 @@ Each term has one meaning in this policy.
 | Exposure | A C4 or C3 value in a location that §6 does not permit |
 | Guardrail | A mechanism that prevents or finds a breach of policy: hooks, settings, CI checks, annotations, branch protection |
 | Publish | To make a host or a path reachable from the internet (§9.7) |
-| Register | A list in `03-homelab-standard.md` §12 that a rule refers to. A register is in Z0. |
+| Register | A file in `security/registers/` that a rule refers to (`03` §12). A register is in Z0. An exception entry takes effect only with the owner's signature. |
 | State | Data that you cannot make again from the repository: volume contents, databases, object stores, the identity provider's database |
 | Zone | The change-control class of an item (§8) |
 

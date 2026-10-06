@@ -71,6 +71,23 @@ intended. Do not work around it:
   PVC, PV, Namespace, database Cluster or Application yourself. Removing an
   app from git is fine; the final `kubectl delete` is the owner's.
 
+## Policy checks and registers
+
+CI (`.github/workflows/security.yaml`) checks the rendered manifests
+against `policy/*.rego` (Conftest) and the Polaris score floor. Exceptions
+live in `security/registers/*.yaml`, and an exception counts only when the
+owner has signed it with a hardware key. Run the checks before you push:
+
+```sh
+scripts/security/render-all.sh /tmp/r && scripts/security/policy-check.sh /tmp/r
+```
+
+When a check fails, fix the manifest, or add a register entry with
+`status: proposed` and ask the owner. Never set `status: approved`, never
+touch `security/registers/approvals/` or `security/allowed_signers`, never
+edit an approved entry, and never change a rule to make a finding go away.
+Details: `docs/security/03-homelab-standard.md` §12.10.
+
 ## Where things are
 
 | You need | Look at |

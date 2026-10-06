@@ -22,6 +22,15 @@ them.
 | 04 | [Plan of action and milestones (POA&M)](04-poam.md) | What is not done, how risky is that, and when will it be fixed? | Tracked findings |
 | ssp/ | [Control implementations](ssp/) | For each of the 287 MODERATE controls: disposition, parameters, how it is met here, evidence, gaps | One file per control family |
 
+The machine-readable parts live outside this directory:
+
+| Path | What it is |
+|---|---|
+| `security/registers/` | The registers that rules refer to. Exceptions take effect only with the owner's hardware-key signature (`03` §12.9). |
+| `policy/` | Policy as code: Conftest rules over the rendered manifests, the Polaris quality config and its score floor |
+| `scripts/security/` | Render, check, approve and scan scripts, used by CI and by hand |
+| `.github/workflows/security.yaml` | The CI that runs them; weekly Trivy image scans |
+
 ## How to use it
 
 **If you are an AI agent working in this repository:** read `01-policy.md`

@@ -22,7 +22,7 @@ checks:
   cpuLimitsMissing: warning
   memoryRequestsMissing: warning
   memoryLimitsMissing: warning
-  
+
   # security
   automountServiceAccountToken: warning
   hostIPCSet: danger
