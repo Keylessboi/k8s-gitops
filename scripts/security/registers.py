@@ -43,7 +43,10 @@ REQUIRED = {
     "keys": ["id", "key", "kept", "escrow", "rotate"],
     "data-stores": ["id", "store", "where", "class", "at_rest", "backup"],
     "zones": ["id", "zone", "paths"],
+    "secrets": ["id", "secret", "keys", "origin", "rotatable", "method", "reload", "period_months", "last_rotated"],
 }
+ROTATABLE = {"yes", "coupled", "external", "no"}
+RELOAD = {"auto", "per-run", "operator", "manual", "none"}
 STATUSES = {"proposed", "approved", "rejected"}
 
 
@@ -110,6 +113,19 @@ def check(regs):
             if e.get("id") in ids:
                 errors.append(f"{where}: duplicate id")
             ids.add(e.get("id"))
+            if name == "secrets":
+                if e.get("rotatable") not in ROTATABLE:
+                    errors.append(f"{where}: rotatable must be one of {sorted(ROTATABLE)}")
+                if e.get("reload") not in RELOAD:
+                    errors.append(f"{where}: reload must be one of {sorted(RELOAD)}")
+                lr, pm = e.get("last_rotated"), e.get("period_months", 0)
+                if e.get("rotatable") != "no" and pm:
+                    if not isinstance(lr, datetime.date):
+                        warnings.append(f"{where}: {e.get('secret')} has no recorded rotation date (HS-ROT-03)")
+                    elif (today - lr).days > pm * 30.5:
+                        warnings.append(f"{where}: {e.get('secret')} was last rotated {lr}, more than {pm} months ago (HS-ROT-03)")
+                if e.get("reload") == "none":
+                    warnings.append(f"{where}: {e.get('secret')} has no consumer in the repository (HS-ROT-04)")
             if doc.get("kind") != "exception":
                 continue
             st = e.get("status")
@@ -181,6 +197,16 @@ def main():
         n = sum(len(d.get("entries") or []) for d in regs.values())
         print(f"{len(regs)} registers, {n} entries; {len(errors)} error(s), {len(warnings)} warning(s)")
         sys.exit(1 if errors else 0)
+    if cmd == "rotation":
+        es = (regs.get("secrets") or {}).get("entries") or []
+        n = len(es)
+        c = {k: sum(1 for e in es if e["rotatable"] == k) for k in ("yes", "coupled", "external", "no")}
+        auto = sum(1 for e in es if e["reload"] in ("auto", "per-run", "operator"))
+        pct = lambda x: f"{100 * x // n}%"
+        print(f"{n} secrets. Rotatable by Doppler alone: {c['yes']} ({pct(c['yes'])}). With one more step: {c['coupled']}. Provider console: {c['external']}. Not rotatable: {c['no']}.")
+        print(f"Rotatable, Doppler alone or with one more step: {c['yes'] + c['coupled']} ({pct(c['yes'] + c['coupled'])}); target 80% (HS-ROT-05).")
+        print(f"Consumers reload without a person: {auto} ({pct(auto)}).")
+        return
     if cmd == "data":
         data(regs, sys.argv[2])
     elif cmd == "approve":

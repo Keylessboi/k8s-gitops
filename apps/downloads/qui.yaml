@@ -10,6 +10,8 @@ kind: Deployment
 metadata:
   name: qui
   namespace: downloads
+  annotations:
+    secrets.doppler.com/reload: 'true'
 spec:
   replicas: 1
   strategy:

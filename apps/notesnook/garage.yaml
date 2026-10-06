@@ -75,6 +75,8 @@ kind: Deployment
 metadata:
   name: notesnook-garage
   namespace: notesnook
+  annotations:
+    secrets.doppler.com/reload: 'true'
 spec:
   replicas: 1
   strategy:

@@ -48,6 +48,8 @@ jobs:
       - run: pip install --disable-pip-version-check "PyYAML==6.0.2"
       - name: Check every register and owner signature
         run: python3 scripts/security/registers.py check
+      - name: Secret rotation summary
+        run: python3 scripts/security/registers.py rotation | tee -a "$GITHUB_STEP_SUMMARY"
 
   policy:
     name: policy and quality

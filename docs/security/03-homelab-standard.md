@@ -88,7 +88,8 @@ no status and does not count.
 | REST — data at rest | 5 | — | 1 | 1 | 3 | — |
 | PERM — permissions | 6 | — | 5 | — | 1 | — |
 | QUAL — quality | 2 | — | 1 | 1 | — | — |
-| **Total** | **98** | **7** | **24** | **13** | **50** | **3** |
+| ROT — secret rotation | 5 | — | 2 | — | 3 | — |
+| **Total** | **103** | **7** | **26** | **13** | **53** | **3** |
 
 Engineering conventions (§11.3) are not security requirements and are not
 counted. A CHECKED status here means a CI check finds the violations; the
@@ -295,6 +296,19 @@ over the rendered manifests.
 | HS-SUP-07 | Each deployed image MUST be scanned every week. A fixable CRITICAL in an internet-facing image MUST be patched in 14 days (policy §17). | Policy §17 | Trivy in `security.yaml` (weekly) | CHECKED (first full run pending) |
 | HS-GIT-10 | The policy checks (`security.yaml`) MUST pass before a merge to `main`, together with `validate` (HS-GIT-03). | Policy §11.3 | Branch protection | WAIVED (W-07); 150 Conftest failures (2026-10-06) |
 
+### 11.5 Secret rotation
+
+Added 2026-10-06. Rules: `01-policy.md` §12.3. Measure with
+`scripts/security/registers.py rotation`.
+
+| ID | Requirement | Source | Test | Status |
+|---|---|---|---|---|
+| HS-ROT-01 | Each Doppler-managed Secret MUST be on the secrets register (§12.11) with its rotation class. | Policy §12.3 | Conftest `rotation` | CHECKED: 0 findings (47 secrets) |
+| HS-ROT-02 | A Deployment that uses a secret marked `reload: auto` MUST have the annotation `secrets.doppler.com/reload: 'true'`. | Policy §12.3 | Conftest `rotation` | CHECKED: 0 findings. 18 Deployments annotated 2026-10-06. 7 secrets used by Helm-rendered workloads are `reload: manual`. |
+| HS-ROT-03 | Each secret MUST be rotated within its period, and its `last_rotated` date MUST be recorded. | Policy §12.3, §16.5 | `registers.py check` (warning per overdue or undated secret) | **GAP**: 0 of 47 have a date |
+| HS-ROT-04 | A secret with no consumer in the repository MUST be checked, and removed if unused. | Policy §12.3 | `registers.py check` (warning) | **GAP**: 8 secrets have no consumer in the repository |
+| HS-ROT-05 | At least 80% of secrets SHOULD be rotatable: class *yes* or *coupled*. | Policy §12.3 | `registers.py rotation` | **GAP**: 65% (17 yes, 14 coupled, 15 external, 1 no) |
+
 ## 12. Registers
 
 A register is a list that a rule refers to. The registers are files in
@@ -311,6 +325,7 @@ section says what each file is for. The files hold the entries.
 | 12.6 | `zones.yaml` | inventory | Repository paths by zone (policy §8.2) |
 | 12.7 | `permissions.yaml` | exception | Grants beyond least privilege (policy §9.1; HS-PERM) |
 | 12.8 | `data-stores.yaml` | inventory | Each data store, its class and its encryption at rest (HS-REST) |
+| 12.11 | `secrets.yaml` | inventory | Each Doppler-managed Secret: origin, rotation class, reload mode, last rotation (policy §12.3; HS-ROT) |
 
 All registers are in Z0 (policy §8.2).
 

@@ -11,6 +11,8 @@ kind: Deployment
 metadata:
   name: accounts
   namespace: accounts
+  annotations:
+    secrets.doppler.com/reload: 'true'
 spec:
   replicas: 1
   # One at a time: two replicas racing the same "create if absent" against

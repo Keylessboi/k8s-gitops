@@ -4,6 +4,8 @@ kind: Deployment
 metadata:
   name: ghost
   namespace: ghost
+  annotations:
+    secrets.doppler.com/reload: 'true'
 spec:
   replicas: 1
   # Recreate, not the default RollingUpdate: Ghost keeps the site content AND

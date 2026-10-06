@@ -4,6 +4,7 @@ package policy_test
 import data.data_handling
 import data.permissions
 import data.publish
+import data.rotation
 import rego.v1
 
 fa := "kube-system-authentik-forward-auth@kubernetescrd"
@@ -100,6 +101,40 @@ test_c4_volume_on_unencrypted_store_is_denied if {
 		with data.registers["data-stores"] as [{"id": "D-04", "storage_classes": ["local-path"], "at_rest": "unverified"}]
 	some m in d
 	startswith(m, "HS-REST-02 PVC v/data")
+}
+
+ds(ns, name) := {
+	"kind": "DopplerSecret",
+	"metadata": {"name": name},
+	"spec": {"managedSecret": {"namespace": ns, "name": name}},
+}
+
+dep(ns, name, sname, ann) := {
+	"kind": "Deployment",
+	"metadata": {"namespace": ns, "name": name, "annotations": ann},
+	"spec": {"template": {"spec": {"containers": [{"name": "c", "image": "x", "envFrom": [{"secretRef": {"name": sname}}]}]}}},
+}
+
+test_unregistered_doppler_secret_is_denied if {
+	d := rotation.deny with input as wrap([ds("a", "s")]) with data.registers.secrets as []
+	count(d) == 1
+}
+
+test_registered_doppler_secret_passes if {
+	d := rotation.deny with input as wrap([ds("a", "s")]) with data.registers.secrets as [{"secret": "a/s", "reload": "manual"}]
+	count(d) == 0
+}
+
+test_auto_reload_needs_the_annotation if {
+	d := rotation.deny with input as wrap([ds("a", "s"), dep("a", "app", "s", {})])
+		with data.registers.secrets as [{"secret": "a/s", "reload": "auto"}]
+	count(d) == 1
+}
+
+test_annotated_deployment_passes if {
+	d := rotation.deny with input as wrap([ds("a", "s"), dep("a", "app", "s", {"secrets.doppler.com/reload": "true"})])
+		with data.registers.secrets as [{"secret": "a/s", "reload": "auto"}]
+	count(d) == 0
 }
 
 test_unknown_storage_class_is_denied if {

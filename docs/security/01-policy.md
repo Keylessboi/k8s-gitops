@@ -573,7 +573,49 @@ the key register (`03` §12.5). Each entry gives:
    have a second copy outside the system that it protects. A test MUST prove
    that the copy operates (§19). Do not assume that it operates.
 
-### 12.3 Rotation periods
+### 12.3 Rotation
+
+The aim is a cluster where most secrets can be rotated without a person
+touching a pod and without losing data.
+
+**Rules**
+
+1. **Register.** Each secret that the secrets operator manages MUST be on the
+   secrets register (`03` §12.11), with its origin, its rotation class and how
+   its consumers get the new value. CI fails if one is missing (HS-ROT-01).
+2. **Classes.** Each register entry has one rotation class:
+   - **yes**: change the value in the secrets store, and nothing else is
+     needed;
+   - **coupled**: also change the value in one other system (the
+     application, the identity provider, a database role);
+   - **external**: change the value in a provider's console, then in the
+     secrets store;
+   - **no**: rotation would destroy data. The entry says why, and what
+     protects the secret instead.
+3. **Reload.** A Deployment that uses a secret of class *yes* or *coupled* MUST
+   restart by itself when the secret changes. Use the annotation
+   `secrets.doppler.com/reload: 'true'` (HS-ROT-02). A Job reads the secret
+   each time it starts. A consumer that cannot reload is marked
+   `reload: manual` on the register, with a POA&M item.
+4. **Periods.** Rotate each secret at or before the period on the register:
+   12 months, or 24 months for a deploy key. Rotate at once after an exposure
+   (§16.5). Record the date in `last_rotated`. CI warns when a secret is
+   overdue or has no date (HS-ROT-03).
+5. **Unused secrets.** A secret with no consumer in the repository MUST be
+   checked. If nothing uses it, remove it from the secrets store and from the
+   repository (HS-ROT-04).
+6. **Design for rotation.** A new secret MUST be of class *yes* or *coupled*
+   if the application allows it. If the application only allows class
+   *external* or *no*, the pull request MUST say so. At least 80% of all
+   secrets SHOULD be of class *yes* or *coupled* (HS-ROT-05).
+7. **Two systems, one source.** When two namespaces need the same value (for
+   example a database password), both secrets MUST come from the same key in
+   the secrets store. Never copy a value by hand.
+8. **Procedure.** Follow `docs/security/rotation-runbook.md`. An agent MAY
+   rotate a secret of class *yes* only when the owner asks, and MUST NOT read
+   the old or the new value (§6, §10.2).
+
+**Periods for other credentials**
 
 | Credential type | Rotate |
 |---|---|
@@ -581,7 +623,6 @@ the key register (`03` §12.5). Each entry gives:
 | Object-store root credentials, secrets-store service tokens | Every 12 months, and after a compromise |
 | SSH keys of the operator | Every 24 months, and after a compromise or the loss of a device |
 | Cluster tokens and client certificates | After a compromise, and as the cluster software rotates them |
-| Application credentials (OIDC client secrets, database passwords, API keys) | After a compromise, and when a consumer is removed |
 | TLS private keys | Automatically, at each certificate renewal |
 
 ### 12.4 Data at rest
