@@ -1,0 +1,30 @@
+register: out-of-band
+kind: exception
+policy: 01-policy.md §8
+requirement: HS-GIT-02
+# State or configuration that is not in git, with the reason.
+entries:
+  - id: O-01
+    item: Identity-provider applications, providers, flows and stages
+    reason: Managed in the admin UI and with ak shell. No reason recorded for keeping them out of git.
+    plan: Move to identity-provider blueprints (POA&M item 13).
+    status: proposed
+    review_by: 2027-01-01
+  - id: O-02
+    item: A stray metallb namespace (the real one, metallb-system, is in git)
+    reason: Left from an earlier ApplicationSet that created namespaces.
+    plan: Owner decides to delete it or declare it.
+    status: proposed
+    review_by: 2026-12-01
+  - id: O-03
+    item: apps/argocd/
+    reason: The reconciler does not manage itself. Applied by hand (HS-GIT-08).
+    plan: Permanent.
+    status: proposed
+    review_by: 2027-10-01
+  - id: O-04
+    item: Host configuration of pve, nas and travisbackupserver, including the heartbeat receiver
+    reason: Not yet in git.
+    plan: POA&M item 21.
+    status: proposed
+    review_by: 2027-03-31

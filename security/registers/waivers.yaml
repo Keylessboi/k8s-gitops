@@ -1,0 +1,21 @@
+register: waivers
+kind: exception
+policy: 01-policy.md §18
+# A waiver says which requirement is not met, where, why, the compensating
+# control, and when the owner examines it again. A waiver without a reason is
+# a GAP. Pod Security exceptions are in permissions.yaml, not here.
+entries:
+  - id: W-05
+    requirement: HS-WL-06
+    scope: The Jobs listed in scripts/ci/wait-init-baseline.txt
+    reason: Older than the check. Each needs its own repair.
+    compensating: The check fails on any new Job without a wait.
+    status: proposed
+    review_by: 2027-01-31
+  - id: W-06
+    requirement: All high-availability requirements
+    scope: The whole cluster
+    reason: One node by design. Availability impact is LOW (policy §4).
+    compensating: Backups, restore drills and the external watchdog. Does not remove those rules (policy §18.5).
+    status: proposed
+    review_by: 2027-10-01

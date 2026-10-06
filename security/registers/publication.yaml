@@ -1,0 +1,195 @@
+register: publication
+kind: exception
+policy: 01-policy.md §9.7
+requirement: HS-NET-06
+# An entry lets one Ingress publish its listed routes without the identity
+# provider. It takes effect only with status "approved" and a valid owner
+# signature (scripts/security/approve.py). An agent MAY add or edit an entry
+# with status "proposed". It cannot approve one. Editing an approved entry
+# breaks its signature, so the entry stops taking effect until the owner signs
+# it again. Criteria values: met | not-met | unverified.
+entries:
+  - id: P-01
+    ingress: ghost/ghost
+    routes: [blog.sandstorm.chat/]
+    basis: public
+    reason: Public web content. The admin path /ghost has the application's own staff login.
+    criteria: {reason: met, data: met, login: unverified, accounts: met, function: met}
+    status: proposed
+    review_by: 2027-10-01
+  - id: P-02
+    ingress: kiwix/kiwix
+    routes: [kiwix.sandstorm.chat/]
+    basis: public
+    reason: Public reference content, read-only. No accounts.
+    criteria: {reason: met, data: met, login: met, accounts: met, function: met}
+    status: proposed
+    review_by: 2027-10-01
+  - id: P-03
+    ingress: remux/remux-api
+    routes:
+      - remux.sandstorm.chat/QuickConnect
+      - remux.sandstorm.chat/Users
+      - remux.sandstorm.chat/System
+      - remux.sandstorm.chat/Branding
+      - remux.sandstorm.chat/Items
+      - remux.sandstorm.chat/UserItems
+      - remux.sandstorm.chat/UserViews
+      - remux.sandstorm.chat/Shows
+      - remux.sandstorm.chat/Videos
+      - remux.sandstorm.chat/Audio
+      - remux.sandstorm.chat/Artists
+      - remux.sandstorm.chat/Albums
+      - remux.sandstorm.chat/Genres
+      - remux.sandstorm.chat/MusicGenres
+      - remux.sandstorm.chat/Persons
+      - remux.sandstorm.chat/Studios
+      - remux.sandstorm.chat/Library
+      - remux.sandstorm.chat/Sessions
+      - remux.sandstorm.chat/Playback
+      - remux.sandstorm.chat/DisplayPreferences
+      - remux.sandstorm.chat/Plugins
+      - remux.sandstorm.chat/LiveTv
+      - remux.sandstorm.chat/socket
+      - remux.sandstorm.chat/emby
+    basis: app-login
+    reason: >-
+      Media clients cannot follow a login redirect. The carve-out includes
+      administrative API paths (/System, /Plugins, /Users), not only playback.
+    criteria: {reason: met, data: met, login: not-met, accounts: not-met, function: unverified}
+    status: proposed
+    notes: >-
+      login not-met: the account-sync job creates accounts with an empty
+      password (PR #20 changes this). accounts not-met: the sync job only
+      adds accounts. Also fails HS-NET-07 (no identity-header removal).
+    review_by: 2027-10-01
+  - id: P-04
+    ingress: convertx/convertx
+    routes: [convertx.sandstorm.chat/]
+    basis: app-login
+    reason: The application keeps its own account.
+    criteria: {reason: unverified, data: met, login: unverified, accounts: not-met, function: not-met}
+    status: proposed
+    notes: function not-met — it processes uploaded files. Not eligible under policy §9.7.4.5.
+    review_by: 2027-10-01
+  - id: P-05
+    ingress: books/books-opds
+    routes: [books.sandstorm.chat/opds]
+    basis: app-login
+    reason: E-reader clients use HTTP Basic and cannot follow a login redirect.
+    criteria: {reason: met, data: met, login: unverified, accounts: not-met, function: met}
+    status: proposed
+    notes: Also fails HS-NET-07 (no identity-header removal).
+    review_by: 2027-10-01
+  - id: P-06
+    ingress: navidrome/navidrome-subsonic
+    routes: [navidrome.sandstorm.chat/rest, navidrome.sandstorm.chat/share]
+    basis: app-login
+    reason: Subsonic clients use the application's own password.
+    criteria: {reason: met, data: met, login: unverified, accounts: not-met, function: met}
+    status: proposed
+    review_by: 2027-10-01
+  - id: P-07
+    ingress: downloads/octo-subsonic
+    routes: [octo.sandstorm.chat/rest]
+    basis: app-login
+    reason: Subsonic client API.
+    criteria: {reason: met, data: unverified, login: unverified, accounts: not-met, function: unverified}
+    status: proposed
+    review_by: 2027-10-01
+  - id: P-08
+    ingress: vaultwarden/vaultwarden
+    routes: [vaultwarden.sandstorm.chat/]
+    basis: app-login
+    reason: Password-manager clients cannot use forward authentication. Local login is on.
+    criteria: {reason: met, data: met, login: unverified, accounts: not-met, function: met}
+    status: proposed
+    review_by: 2027-10-01
+  - id: P-09
+    ingress: notesnook/notesnook-api
+    routes: [notesnook-api.sandstorm.chat/]
+    basis: app-login
+    reason: The application has its own identity server. Clients cannot use forward authentication.
+    criteria: {reason: met, data: met, login: unverified, accounts: not-met, function: met}
+    status: proposed
+    review_by: 2027-10-01
+  - id: P-10
+    ingress: notesnook/notesnook-auth
+    routes: [notesnook-auth.sandstorm.chat/]
+    basis: app-login
+    reason: The application's own identity server.
+    criteria: {reason: met, data: met, login: unverified, accounts: not-met, function: met}
+    status: proposed
+    review_by: 2027-10-01
+  - id: P-11
+    ingress: notesnook/notesnook-events
+    routes: [notesnook-events.sandstorm.chat/]
+    basis: app-login
+    reason: Sync events for the application's clients.
+    criteria: {reason: met, data: met, login: unverified, accounts: not-met, function: met}
+    status: proposed
+    review_by: 2027-10-01
+  - id: P-12
+    ingress: notesnook/notesnook-files
+    routes: [notesnook-files.sandstorm.chat/]
+    basis: app-login
+    reason: Encrypted attachments for the application's clients.
+    criteria: {reason: met, data: met, login: unverified, accounts: not-met, function: unverified}
+    status: proposed
+    review_by: 2027-10-01
+  - id: P-13
+    ingress: notesnook/notesnook-mono
+    routes: [notesnook-mono.sandstorm.chat/]
+    basis: app-login
+    reason: Shared-note publishing for the application's clients.
+    criteria: {reason: met, data: unverified, login: unverified, accounts: not-met, function: met}
+    status: proposed
+    review_by: 2027-10-01
+  - id: P-14
+    ingress: pelican/pelican
+    routes: [pelican.sandstorm.chat/]
+    basis: unverified
+    reason: The manifest says forward authentication is off on purpose. No reason is recorded.
+    criteria: {reason: not-met, data: unverified, login: unverified, accounts: not-met, function: unverified}
+    status: proposed
+    review_by: 2027-10-01
+  - id: P-15
+    ingress: immich/immich
+    routes: [immich.sandstorm.chat/]
+    basis: oidc
+    reason: Logs in through the identity provider with OIDC. Meets HS-NET-06 only if local password login is off.
+    criteria: {reason: met, data: met, login: unverified, accounts: met, function: met}
+    status: proposed
+    review_by: 2027-10-01
+  - id: P-16
+    ingress: nextcloud/nextcloud
+    routes: [nextcloud.sandstorm.chat/]
+    basis: oidc
+    reason: Logs in through the identity provider with OIDC. Meets HS-NET-06 only if local password login is off.
+    criteria: {reason: met, data: met, login: unverified, accounts: met, function: met}
+    status: proposed
+    review_by: 2027-10-01
+  - id: P-17
+    ingress: memos/memos
+    routes: [notes.sandstorm.chat/]
+    basis: oidc
+    reason: Logs in through the identity provider with OIDC. Meets HS-NET-06 only if local password login is off.
+    criteria: {reason: met, data: met, login: unverified, accounts: met, function: met}
+    status: proposed
+    review_by: 2027-10-01
+  - id: P-18
+    ingress: monitoring/grafana
+    routes: [grafana.sandstorm.chat/]
+    basis: oidc
+    reason: Logs in through the identity provider with OIDC. A local administrator exists (accounts register A-04).
+    criteria: {reason: met, data: met, login: unverified, accounts: met, function: met}
+    status: proposed
+    review_by: 2027-10-01
+  - id: P-19
+    ingress: authentik/authentik
+    routes: [authentik.sandstorm.chat/]
+    basis: idp
+    reason: The identity provider itself.
+    criteria: {reason: met, data: met, login: met, accounts: met, function: met}
+    status: proposed
+    review_by: 2027-10-01

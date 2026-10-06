@@ -1,0 +1,14 @@
+register: keys
+kind: inventory
+policy: 01-policy.md §12
+# C4 keys and credentials that are not only in the secrets store. Never put a
+# value here. escrow: where the second copy is, or "none" / "unverified".
+entries:
+  - {id: K-01, key: storage-pool encryption key (tank), kept: nas /etc/zfs/keys/tank.key, escrow: Doppler project proxmox, rotate: after compromise}
+  - {id: K-02, key: off-site backup passphrase (borgmatic), kept: nas /etc/borgmatic/passphrase, escrow: Doppler project proxmox, rotate: after compromise; test escrow every 6 months}
+  - {id: K-03, key: logical-backup repository password (restic), kept: Doppler then a cluster Secret, escrow: unverified, rotate: after compromise}
+  - {id: K-04, key: k3s server token and kubeconfig client certificates, kept: CT 200 and the operator computer, escrow: Doppler project kubernetes, rotate: after compromise; certificates as k3s rotates them}
+  - {id: K-05, key: operator SSH key (worker_key), kept: operator computer, escrow: unverified, rotate: 24 months; after compromise or device loss}
+  - {id: K-06, key: Doppler service tokens, kept: each host and the Doppler operator Secret, escrow: issue again from Doppler, rotate: 12 months; after compromise}
+  - {id: K-07, key: object-store root credential (MinIO), kept: Doppler project proxmox, escrow: none, rotate: 12 months; after compromise}
+  - {id: K-08, key: register approval key (FIDO2), kept: owner's security key, escrow: a second security key, rotate: on loss; update security/allowed_signers}
