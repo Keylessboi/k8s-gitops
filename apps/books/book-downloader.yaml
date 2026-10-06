@@ -12,6 +12,8 @@ kind: Deployment
 metadata:
   name: book-downloader
   namespace: books
+  annotations:
+    secrets.doppler.com/reload: 'true'
 spec:
   replicas: 1
   strategy:

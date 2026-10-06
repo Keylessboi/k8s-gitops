@@ -19,6 +19,8 @@ kind: Deployment
 metadata:
   name: pelican
   namespace: pelican
+  annotations:
+    secrets.doppler.com/reload: 'true'
 spec:
   replicas: 1
   # Recreate, not RollingUpdate: a single RWO PVC cannot attach to two pods,

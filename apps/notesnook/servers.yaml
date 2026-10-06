@@ -40,6 +40,8 @@ kind: Deployment
 metadata:
   name: identity-server
   namespace: notesnook
+  annotations:
+    secrets.doppler.com/reload: 'true'
 spec:
   replicas: 1
   selector:
@@ -137,6 +139,8 @@ kind: Deployment
 metadata:
   name: notesnook-server
   namespace: notesnook
+  annotations:
+    secrets.doppler.com/reload: 'true'
 spec:
   replicas: 1
   selector:
@@ -219,6 +223,8 @@ kind: Deployment
 metadata:
   name: sse-server
   namespace: notesnook
+  annotations:
+    secrets.doppler.com/reload: 'true'
 spec:
   replicas: 1
   selector:
@@ -282,6 +288,8 @@ kind: Deployment
 metadata:
   name: monograph-server
   namespace: notesnook
+  annotations:
+    secrets.doppler.com/reload: 'true'
 spec:
   replicas: 1
   selector:

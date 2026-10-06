@@ -22,6 +22,8 @@ kind: Deployment
 metadata:
   name: memos
   namespace: memos
+  annotations:
+    secrets.doppler.com/reload: 'true'
 spec:
   replicas: 1
   strategy:
