@@ -168,10 +168,16 @@ Any restart (image bump, node reboot, config change) silently logged every clien
 **Fix.** A 1Gi local-path PVC `identity-server-keys` mounted at both paths (subPaths), a busybox
 initContainer handing it to uid 1000 (`dotnetuser`), and `strategy: Recreate` so one pod owns the
 keys. The first start after this change writes the key that then persists; log in once after it.
+The first attempt also set `strategy: Recreate`; ArgoCD's server-side diff rejected it
+(`spec.strategy.rollingUpdate: Forbidden` - the live object keeps the defaulted rollingUpdate) and
+silently stopped syncing the app with a ComparisonError, so the Deployment never got the volume.
+Recreate was dropped: local-path pins the volume to `nas`, where old and new pods can share it.
 
 **Prevention.** For any self-hosted auth/token server, find where it keeps signing and
 data-protection keys before relying on it, and put them on persistent storage. "Logs out on restart"
-is the symptom to test for: restart the pod once after setup and confirm an existing session survives.
+is the symptom to test for: restart the pod once after setup and confirm an existing session survives. Dry-run changes with
+`kubectl apply --server-side --dry-run=server`, the mode ArgoCD diffs with: client-side apply
+accepted this change and server-side apply did not.
 
 **Confidence:** CONFIRMED. The keystore directory's timestamp matched the pod start, the pod had no
 volumes, and the IDX10501 errors began with the restart.
