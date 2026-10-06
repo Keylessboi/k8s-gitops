@@ -188,7 +188,7 @@ spec:
             limits: {cpu: 50m, memory: 32Mi}
       containers:
         - name: cors
-          image: amazon/aws-cli:2.31.6@sha256:495f4dc29b6db9cedb08ea84051294b6cf20e0034221ce00a17a2167cf50bab2
+          image: amazon/aws-cli:2.37.9@sha256:92de75724b6a746951f0e8b915d86bbccd7cb55aff96cd0cb4f7017272160780
           command: ["sh", "-c"]
           args:
             - |
