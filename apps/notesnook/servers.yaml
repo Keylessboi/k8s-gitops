@@ -30,6 +30,11 @@ spec:
       app.kubernetes.io/name: identity-server
   template:
     metadata:
+      annotations:
+        # notesnook-env is a plain ConfigMap read via envFrom, so editing it
+        # does not restart anything. Bump this when a value identity-server
+        # reads (DISABLE_SIGNUPS) changes, so the change actually applies.
+        homelab/env-revision: "2026-10-06 signups closed"
       labels:
         app.kubernetes.io/name: identity-server
     spec:
