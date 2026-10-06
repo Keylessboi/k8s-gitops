@@ -123,10 +123,15 @@ entries:
   - id: P-14
     ingress: pelican/pelican
     routes: [pelican.sandstorm.chat/]
-    basis: unverified
-    reason: The manifest says forward authentication is off on purpose. No reason is recorded.
-    criteria: {reason: not-met, data: unverified, login: unverified, accounts: not-met, function: unverified}
-    status: proposed
+    basis: oidc
+    reason: >-
+      Pelican has its own Authentik login (OIDC). Forward authentication would break the
+      client API (/api/*, bearer tokens) and the Wings daemon callbacks (/api/remote/*),
+      which are not browsers and cannot follow a login redirect.
+    criteria: {reason: met, data: unverified, login: unverified, accounts: not-met, function: met}
+    status: approved
+    approved_on: 2026-10-06
+    approval_note: "Approved by the owner in the session of 2026-10-06 (\"I approve\"). Open questions: is local password login off, and is /api/* reachable by anonymous callers? Narrowing the route to /api/* only is the stricter option."
     review_by: 2027-10-01
   - id: P-15
     ingress: immich/immich

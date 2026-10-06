@@ -14,7 +14,7 @@ for dir in apps/*/; do
   name="$(basename "$dir")"
   [ -f "${dir}kustomization.yaml" ] || continue
   for attempt in 1 2 3; do
-    if "${KUSTOMIZE:-kustomize}" build --enable-helm --helm-command "${HELM:-helm}" "$dir" >"$out/$name.yaml" 2>"$out/$name.err"; then
+    if "${KUSTOMIZE:-kustomize}" build --enable-helm --helm-kube-version "v${K8S_VERSION:-1.31.5}" --helm-command "${HELM:-helm}" "$dir" >"$out/$name.yaml" 2>"$out/$name.err"; then
       rm -f "$out/$name.err"
       break
     fi
