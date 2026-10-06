@@ -41,7 +41,7 @@ metadata:
   name: identity-server
   namespace: notesnook
 spec:
-  replicas: 1
+  replicas: 0   # migration step 1: copying the keys to tank (migrate-keys.yaml)
   selector:
     matchLabels:
       app.kubernetes.io/name: identity-server
