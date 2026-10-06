@@ -33,7 +33,6 @@ labels:
 
 resources:
   - pvc-nextcloud-config-tank.yaml
-  - migrate-nextcloud-config.yaml
   - namespace.yaml
   - pvc-config.yaml
   - pvc-scratch.yaml
@@ -300,7 +299,7 @@ helmCharts:
         # Application code only. User data is in S3 above, so nextcloud-data
         # is no longer mounted.
         enabled: true
-        existingClaim: nextcloud-config
+        existingClaim: nextcloud-config-tank
       nodeSelector:
         kubernetes.io/os: linux
         homelab/node-class: compute

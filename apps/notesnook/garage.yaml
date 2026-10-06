@@ -78,7 +78,7 @@ metadata:
   annotations:
     secrets.doppler.com/reload: 'true'
 spec:
-  replicas: 0   # migration step 1: copying notesnook-garage to tank
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -155,7 +155,7 @@ spec:
             name: notesnook-garage
         - name: data
           persistentVolumeClaim:
-            claimName: notesnook-garage
+            claimName: notesnook-garage-tank
 ---
 # CORS for browser uploads. A PostSync hook so it re-applies on every sync of
 # this app; put-bucket-cors replaces the whole policy, so it is idempotent.

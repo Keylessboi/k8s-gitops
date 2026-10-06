@@ -33,7 +33,6 @@ labels:
 
 resources:
   - pvc-immich-thumbs-local-tank.yaml
-  - migrate-immich-thumbs-local.yaml
   - namespace.yaml
   - pvc.yaml
   - pvc-thumbs-local.yaml
@@ -159,7 +158,7 @@ helmCharts:
         thumbs:
           enabled: true
           type: persistentVolumeClaim
-          existingClaim: immich-thumbs-local
+          existingClaim: immich-thumbs-local-tank
           globalMounts:
             - path: /data/thumbs
 
