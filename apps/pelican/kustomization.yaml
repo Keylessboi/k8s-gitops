@@ -31,7 +31,6 @@ labels:
 resources:
   - namespace.yaml
   - networkpolicy.yaml
-  - pvc.yaml
   - deployment.yaml
   - ingress.yaml
   - admin-job.yaml

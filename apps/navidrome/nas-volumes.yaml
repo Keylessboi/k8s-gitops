@@ -44,17 +44,3 @@ spec:
   resources:
     requests:
       storage: 500Gi
----
-# local-path on the NAS's NVMe root disk (820 GB free), not the HDD pool -
-# navidrome.db is SQLite, see docs/adr/0009.
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: navidrome-data-nas
-  namespace: navidrome
-spec:
-  accessModes: [ReadWriteOnce]
-  storageClassName: local-path
-  resources:
-    requests:
-      storage: 5Gi
