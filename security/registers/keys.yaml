@@ -12,3 +12,4 @@ entries:
   - {id: K-06, key: Doppler service tokens, kept: each host and the Doppler operator Secret, escrow: issue again from Doppler, rotate: 12 months; after compromise}
   - {id: K-07, key: object-store root credential (MinIO), kept: Doppler project proxmox, escrow: none, rotate: 12 months; after compromise}
   - {id: K-08, key: register approval key (FIDO2), kept: owner's security key, escrow: a second security key, rotate: on loss; update security/allowed_signers}
+  - {id: K-09, key: k3s Secrets encryption key (AES-CBC, in the k3s server data directory on CT 200), kept: CT 200 /var/lib/rancher/k3s/server/cred, escrow: none, rotate: "k3s secrets-encrypt rotate-keys, every 12 months and after a compromise. LOSING THIS KEY MAKES SECRETS IN ETCD SNAPSHOTS UNREADABLE: the owner must store a copy outside the cluster (Z0)."}
