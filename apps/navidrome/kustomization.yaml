@@ -36,7 +36,6 @@ resources:
   - namespace.yaml
   - media-data-pv.yaml
   - pvc-data.yaml
-  - pvc-data-local.yaml
   - nas-volumes.yaml
   - networkpolicy.yaml
   - deployment.yaml

@@ -85,11 +85,11 @@ no status and does not count.
 | HOST — hosts | 4 | — | — | — | 4 | — |
 | SUP — supply chain | 7 | — | 3 | — | 4 | — |
 | DATA — data handling | 4 | — | 1 | — | 3 | — |
-| REST — data at rest | 5 | — | 1 | 1 | 3 | — |
+| REST — data at rest | 5 | — | 2 | 1 | 2 | — |
 | PERM — permissions | 6 | — | 5 | — | 1 | — |
 | QUAL — quality | 2 | — | 1 | 1 | — | — |
 | ROT — secret rotation | 5 | — | 2 | — | 3 | — |
-| **Total** | **103** | **7** | **26** | **13** | **53** | **3** |
+| **Total** | **103** | **7** | **27** | **13** | **52** | **3** |
 
 Engineering conventions (§11.3) are not security requirements and are not
 counted. A CHECKED status here means a CI check finds the violations; the
@@ -100,9 +100,10 @@ The largest gaps:
 
 1. **CI does not stop a change.** `main` has no branch protection, and
    `validate` has failed on `main` since 2026-09-28 or earlier (HS-GIT-03).
-2. **Data at rest is not encrypted where it matters.** Plain LVM on the
-   hypervisor holds the databases and 6 volumes in C3 namespaces. k3s Secrets
-   encryption is disabled (HS-REST-02, HS-REST-03). Checked 2026-10-06.
+2. **Databases and cluster Secrets are still not encrypted at rest.** The
+   file volumes moved to the encrypted `tank` pool on 2026-10-06 (HS-REST-02).
+   The Postgres and Mongo databases stay on plain LVM, because ADR-0009 keeps
+   databases off NFS. k3s Secrets encryption is disabled (HS-REST-03).
 3. **Agents get cluster-admin** through root on the hypervisor (HS-SEC-04,
    HS-AGENT-09).
 4. **Most images have no digest pin:** 16 of 85 containers in the non-Helm
@@ -279,7 +280,7 @@ over the rendered manifests.
 | HS-DATA-03 | A connection that carries C3 or C4 data between pods SHOULD use TLS where the server supports it. A connection without it MUST be on the data-store register with the reason. | Policy §6 (C4 in transit) | manual | UNMEASURED |
 | HS-DATA-04 | An application MUST NOT write C4 values to its log at the configured log level. | Policy §14.1 | manual (log sample per application) | UNMEASURED |
 | HS-REST-01 | Each volume MUST use a storage class that the data-store register (§12.8) records, with its encryption at rest. | Policy §12.4 | Conftest `data_handling` | CHECKED |
-| HS-REST-02 | A volume in a C3 or C4 namespace MUST use a store that is encrypted at rest. | Policy §6, §12.4 | Conftest `data_handling` (active when HS-DATA-01 labels exist) | **GAP**: 8 volumes in C3 namespaces are on `local-path`, which is not encrypted (verified 2026-10-06) |
+| HS-REST-02 | A volume in a C3 or C4 namespace MUST use a store that is encrypted at rest. | Policy §6, §12.4 | Conftest `data_handling` (active when HS-DATA-01 labels exist) | CHECKED: 0 findings (2026-10-06). Seven old claims on unencrypted `local-path` still exist in the cluster, no longer declared in git, until the owner deletes them. |
 | HS-REST-03 | Kubernetes Secrets MUST be encrypted at rest in the cluster datastore. | Policy §12.4 | `k3s secrets-encrypt status` (owner) | **GAP**: disabled (`k3s secrets-encrypt status`, 2026-10-06) |
 | HS-REST-04 | Backups MUST be encrypted before they leave the host that makes them. | Policy §13.1 | manual | MET for restic; UNMEASURED for borgmatic (encryption mode unrecorded, data-stores D-09); CNPG object-store backups rely on the pool |
 | HS-REST-05 | The operator computer MUST use full-disk encryption. Files that hold C4 credentials on it (kubeconfig, SSH keys) MUST be readable only by the owner. | Policy §12.4 | `stat -c %a ~/.kube/config ~/.ssh/*` | **GAP**: the kubeconfig is world-readable (2026-10-06); disk encryption UNMEASURED |

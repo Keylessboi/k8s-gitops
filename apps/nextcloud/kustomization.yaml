@@ -34,7 +34,6 @@ labels:
 resources:
   - pvc-nextcloud-config-tank.yaml
   - namespace.yaml
-  - pvc-config.yaml
   - pvc-scratch.yaml
   - media-data-pv.yaml
   - networkpolicy.yaml

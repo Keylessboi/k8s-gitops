@@ -56,20 +56,6 @@ spec:
       port: 3903
       targetPort: admin
 ---
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: notesnook-garage
-  namespace: notesnook
-spec:
-  accessModes: [ReadWriteOnce]
-  # local-path on the NAS, like MinIO's: Garage keeps a sqlite metadata DB,
-  # which must never sit on NFS (ADR-0009).
-  storageClassName: local-path
-  resources:
-    requests:
-      storage: 20Gi
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:

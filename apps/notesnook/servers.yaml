@@ -18,23 +18,6 @@ spec:
       port: 8264
       targetPort: http
 ---
-# identity-server's token-signing key (/app/keystore) and ASP.NET
-# data-protection keys are generated on first start and were kept only in
-# the container filesystem, so every restart minted a new signing key and
-# invalidated every Notesnook session - found 2026-10-06 when a config
-# rollout broke an in-progress 2FA login (doctor-log). Persisted here.
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: identity-server-keys
-  namespace: notesnook
-spec:
-  accessModes: [ReadWriteOnce]
-  storageClassName: local-path
-  resources:
-    requests:
-      storage: 1Gi
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
