@@ -679,7 +679,7 @@ helmCharts:
   # behaviour and is left at the new default.
   - name: loki
     repo: https://grafana-community.github.io/helm-charts
-    version: 18.13.7
+    version: 18.13.8
     releaseName: loki
     namespace: monitoring
     includeCRDs: true
