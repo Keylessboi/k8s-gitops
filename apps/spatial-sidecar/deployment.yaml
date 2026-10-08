@@ -85,7 +85,7 @@ spec:
             - --staging-dir=/scratch/staging
             - --remote-dir=/spatial
             - --backup-dir=/backup
-            - --max-queue=400
+            - --max-queue=600
           ports:
             - {name: http, containerPort: 8080}
           readinessProbe:
