@@ -43,7 +43,7 @@ spec:
         # the PC's last sync: one new Atmos album (30 tracks, rendered here) and 18 replaced
         # non-Atmos files.
         - name: seed-state
-          image: spatial-sidecar:0.1.0
+          image: spatial-sidecar:0.1.1
           imagePullPolicy: Never
           command: ["/bin/sh", "-c"]
           args:
@@ -68,7 +68,8 @@ spec:
           # rhythm-spatial-audio docs/research/in-cluster-rendering.md section 2, and bump the tag
           # (here and in seed-state) on every build.
           # 0.1.0 = rhythm-spatial-audio 4fe499befe0badaaa64f245f31fca880d837f960.
-          image: spatial-sidecar:0.1.0
+          # 0.1.1 = rhythm-spatial-audio 5a0e3607d83da8498f47190f6861cd4f7492c973 (#182: re-probe probe_failed rows).
+          image: spatial-sidecar:0.1.1
           imagePullPolicy: Never
           # `serve` renices itself to 10 (--nice): renders are batch work, Navidrome wins.
           args:
@@ -84,7 +85,7 @@ spec:
             - --staging-dir=/scratch/staging
             - --remote-dir=/spatial
             - --backup-dir=/backup
-            - --max-queue=100
+            - --max-queue=400
           ports:
             - {name: http, containerPort: 8080}
           readinessProbe:
