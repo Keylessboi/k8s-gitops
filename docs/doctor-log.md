@@ -188,7 +188,7 @@ files (0600 -> 0664) and 668 directories (+g+rwx) under `torrents/apple` and `me
 250 m4a so the sidecar re-probes them; one of them opened fine as uid 1001 in the sidecar. NOT yet
 observed: a real download coming out 0664 with `shared N path(s) with the group` in the decryptor log
 (none was in flight), and the sidecar's `probe_failed=236 permission_denied=236` falling to 0 (its next
-6-hourly reconcile, ~2026-10-10 00:00 local). Confirm both before treating this as closed.
+6-hourly reconcile, ~23:20 EDT tonight). Confirm both before treating this as closed.
 
 ## 2026-10-06 — Notesnook 2FA / sign-up emails failed: SMTP TLS handshake could not fetch the CRL
 
