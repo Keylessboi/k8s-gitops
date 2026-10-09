@@ -113,6 +113,7 @@ the literal string you are seeing, then read the entry.
 | `BackupRestoreDrillFailed` emails repeating for days after a re-run passed | rule matched any failed drill Job still in history — 2026-10-06 |
 | `ERROR:  syntax error at or near "$"` from SQL in a Job/initContainer, where the same SQL runs fine in psql | Kubernetes turns `$$` into `$` in container commands — 2026-10-05 |
 | NAS kernel upgraded, and `/usr/lib/modules/<new kernel>` has no `zfs.ko` (or `zpool import` finds nothing after a reboot) | ZFS hand-built outside DKMS — 2026-10-04 |
+| Atmos albums missing from the spatial library; sidecar `probe_failed` / permission denied on `media/music` m4a; files mode `-rw-------` | amdl writes 0600 and Lidarr copies it — 2026-10-09 (decryptor 0.3.3) |
 
 ### The traps that have bitten more than once
 
@@ -153,6 +154,33 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-10-09 — Atmos albums missing: the spatial sidecar could not read files amdl wrote 0600
+
+**Symptom.** Dolby Atmos albums were absent from the spatial library and the sidecar logged
+`probe_failed` for their sources. The files existed in `media/music`, but as `-rw-------`
+(uid 1000 `media`, gid 1000 `travis`); the sidecar runs as uid 1001, gid 1000, with the tree mounted
+read-only, so it could not open them. About 835 files in `torrents/apple` and about 250 m4a in
+`media/music` (ctime 10-08/10-09) were mode 600.
+
+**Root cause.** The decryptor's amdl writes every track and cover through Go `os.CreateTemp` plus a
+rename. `CreateTemp` hard-codes 0600, so the process umask never applies. Lidarr then copies the file
+into `media/music` with the mode intact (.NET `File.Copy` keeps source permissions).
+
+**Why the earlier one-off chmods failed.** They fixed the files that existed at the time; every new
+download arrived 0600 again, so the library regressed on the next grab. Only the writer can fix this.
+
+**Fix.** `share_with_group()` in the decryptor (image 0.3.3, `apps/lidarr/applemusic-decryptor.yaml`)
+widens every file to 0664 and every directory to 0775 after the last rename and tag write, and logs
+`shared N path(s) with the group`; the process also sets `umask(0o002)`. One-off cleanup chmodded the
+existing 600 files, then touched the recent m4a so the sidecar's size+mtime check re-probes them.
+
+**Prevention.** A permissions fix applied to data is not a fix while the writer still produces the
+wrong mode; fix the producer, then clean up what it already made. When a file-producing tool uses
+`CreateTemp`/`mkstemp`, assume 0600 regardless of umask.
+
+**Confidence:** CONFIRMED for the cause (modes and ownership observed live). Fix verification: PENDING,
+see the line below once a new download has been observed.
 
 ## 2026-10-06 — Notesnook 2FA / sign-up emails failed: SMTP TLS handshake could not fetch the CRL
 

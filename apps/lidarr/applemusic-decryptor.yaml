@@ -60,7 +60,8 @@ spec:
           # scores the artist component of an import from exactly that tag, so those downloads landed
           # just under its 80% album-match bar and were not imported on arrival. The track artist tag
           # keeps its featured credits and no country tag is written. See docs/doctor-log.md 2026-10-02.
-          image: applemusic-decryptor:0.3.2
+          # 0.3.3: group-readable output (0664/0775) so the spatial sidecar can read it.
+          image: applemusic-decryptor:0.3.3
           imagePullPolicy: IfNotPresent
           command: ["python3", "/app/app.py"]
           env:
