@@ -182,6 +182,14 @@ wrong mode; fix the producer, then clean up what it already made. When a file-pr
 **Confidence:** CONFIRMED for the cause (modes and ownership observed live). Fix verification: PENDING,
 see the line below once a new download has been observed.
 
+**Verification (2026-10-09).** Rollout of 0.3.3 reached Ready; `share_with_group` confirmed present in the
+running pod and, run on a scratch tree there, turned 0600 files into 0664. One-off cleanup chmodded 1085
+files (0600 -> 0664) and 668 directories (+g+rwx) under `torrents/apple` and `media/music`, then touched
+250 m4a so the sidecar re-probes them; one of them opened fine as uid 1001 in the sidecar. NOT yet
+observed: a real download coming out 0664 with `shared N path(s) with the group` in the decryptor log
+(none was in flight), and the sidecar's `probe_failed=236 permission_denied=236` falling to 0 (its next
+6-hourly reconcile, ~2026-10-10 00:00 local). Confirm both before treating this as closed.
+
 ## 2026-10-06 — Notesnook 2FA / sign-up emails failed: SMTP TLS handshake could not fetch the CRL
 
 **Symptom.** The Notesnook app showed an error sending the 2FA code at login. identity-server logged
