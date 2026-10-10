@@ -308,8 +308,8 @@ Added 2026-10-06. Rules: `01-policy.md` §12.3. Measure with
 | HS-ROT-01 | Each Doppler-managed Secret MUST be on the secrets register (§12.11) with its rotation class. | Policy §12.3 | Conftest `rotation` | CHECKED: 0 findings (47 secrets) |
 | HS-ROT-02 | A Deployment that uses a secret marked `reload: auto` MUST have the annotation `secrets.doppler.com/reload: 'true'`. | Policy §12.3 | Conftest `rotation` | CHECKED: 0 findings. 18 Deployments annotated 2026-10-06. 7 secrets used by Helm-rendered workloads are `reload: manual`. |
 | HS-ROT-03 | Each secret MUST be rotated within its period, and its `last_rotated` date MUST be recorded. | Policy §12.3, §16.5 | `registers.py check` (warning per overdue or undated secret) | **GAP**: 0 of 47 have a date |
-| HS-ROT-04 | A secret with no consumer in the repository MUST be checked, and removed if unused. | Policy §12.3 | `registers.py check` (warning) | **GAP**: 8 secrets have no consumer in the repository |
-| HS-ROT-05 | At least 80% of secrets SHOULD be rotatable: class *yes* or *coupled*. | Policy §12.3 | `registers.py rotation` | **GAP**: 65% (17 yes, 14 coupled, 15 external, 1 no) |
+| HS-ROT-04 | A secret with no consumer in the repository MUST be checked, and removed if unused. | Policy §12.3 | `registers.py check` (warning) | **GAP**: 4 secrets have no consumer anywhere (`books/readarr-db`, `lidarr/lidarr-db`, `immich/immich-api`, `obsidian/couchdb`; checked 2026-10-10). The other 4 that the scan reported have consumers it cannot see and are now recorded |
+| HS-ROT-05 | At least 80% of secrets SHOULD be rotatable: class *yes* or *coupled*. | Policy §12.3 | `registers.py rotation` | **GAP**: 68% (17 yes, 15 coupled, 14 external, 1 no; re-measured 2026-10-10). The remaining gap is provider credentials: removing the four unused secrets lowers the share to 65%, and the best case without changing the measure is about 72% |
 
 ## 12. Registers
 
