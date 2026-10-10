@@ -20,7 +20,7 @@ cd "$(dirname "$0")/.."
 # Bump together with KUSTOMIZE_VERSION / HELM_VERSION in
 # .github/workflows/validate.yaml (hack/tool-versions.sh at this tag).
 # renovate: datasource=github-releases depName=argoproj/argo-cd
-ARGOCD_VERSION=v3.5.3
+ARGOCD_VERSION=v3.5.4
 # Rollback: ARGOCD_VERSION_OVERRIDE=v2.12.3 ./scripts/bootstrap-argocd.sh
 ARGOCD_VERSION="${ARGOCD_VERSION_OVERRIDE:-$ARGOCD_VERSION}"
 INSTALL_URL="https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
