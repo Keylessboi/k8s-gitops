@@ -62,7 +62,7 @@ spec:
           # (core/server/data/db/connection.js), so the env below is unchanged.
           # The 5.x database was copied first (VACUUM INTO) to
           # content/data/preupgrade-backups-20260930/ghost-5.130.6.db.
-          image: ghost:6.68.0-alpine
+          image: ghost:6.69.0-alpine
           securityContext:
             allowPrivilegeEscalation: false
             # Ghost and its sharp image pipeline expect a writable container
