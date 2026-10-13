@@ -326,7 +326,7 @@ jobs:
       # must carry Prune=false,Delete=false (components/protect-state adds it).
       # Checked on the rendered output, not the source, because Helm charts
       # create PVCs the source never names. See ADR-0012.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: always()
         with:
           python-version: "3.14"
