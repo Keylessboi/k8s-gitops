@@ -67,7 +67,7 @@ spec:
               # (scheme://KEY:SECRET@host:port), split below into rclone's
               # env-var remote config. Same bucket, same object keys as the old
               # `mc mirror`, so the existing versioned backup continues.
-              image: rclone/rclone:1.75.1
+              image: rclone/rclone:1.75.2
               env:
                 - name: MC_HOST_backup
                   valueFrom:
