@@ -62,7 +62,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: Install PyYAML
         run: pip install --disable-pip-version-check "PyYAML==6.0.2"
@@ -210,7 +210,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: Install yamllint
         run: pip install --disable-pip-version-check "yamllint==1.38.0"
@@ -245,7 +245,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: Install PyYAML
         run: pip install --disable-pip-version-check "PyYAML==6.0.2"
@@ -329,7 +329,7 @@ jobs:
       - uses: actions/setup-python@v5
         if: always()
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: Stateful objects are protected from prune
         if: always()
