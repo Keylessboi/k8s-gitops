@@ -40,7 +40,7 @@ helmCharts:
     # The chart no longer ships the Gateway API CRDs. Nothing here uses the
     # Gateway API (the provider is off), so ArgoCD prunes the copies this app
     # used to own; install them separately before enabling that provider.
-    version: 41.6.1
+    version: 41.7.1
     releaseName: traefik
     namespace: kube-system
     # CRDs are rendered into the manifest set and applied by ArgoCD with
