@@ -46,7 +46,7 @@ spec:
       # share; this init container will then leave it alone.
       initContainers:
         - name: seed-zim
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
