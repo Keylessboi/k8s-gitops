@@ -1,0 +1,32 @@
+# imessage-files.sandstorm.chat: attachment downloads, /dl/ only.
+#
+# NO forward-auth, deliberately: the link carries an HMAC signature and a 30 minute expiry,
+# and the chat clients (and people behind them) must be able to fetch it. crowdsec and
+# rate-limit stay, as on every public host here (see apps/memos/ingress.yaml). The API on
+# :8790 is not reachable through this Ingress or any Service.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: imessage-files
+  namespace: imessage
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - imessage-files.sandstorm.chat
+      secretName: imessage-files-tls
+  rules:
+    - host: imessage-files.sandstorm.chat
+      http:
+        paths:
+          - path: /dl/
+            pathType: Prefix
+            backend:
+              service:
+                name: imessage-files
+                port:
+                  number: 80

@@ -1,7 +1,7 @@
 # Default deny both ways, then the flows the bridge needs. Each cross-namespace flow is
 # declared on both sides (CONTRIBUTING rule 5); the ejabberd half is in apps/ejabberd.
 #   out: DNS, and the XMPP component link to ejabberd on 5347.
-# Not yet allowed, add with the workload: imessage-server's egress to Apple, and any ingress.
+#   in: the namespace itself, and Traefik to the files port only (attachment downloads).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -14,6 +14,16 @@ spec:
   ingress:
     - from:
         - podSelector: {}
+    # Traefik (kube-system) may reach ONLY the signed-download listener (8791). 8790 (the
+    # unauthenticated API) is deliberately not in this list. 8089 is the cert-manager HTTP-01
+    # solver pod for imessage-files.sandstorm.chat; nothing in the app pod listens on it.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: TCP, port: 8791}
+        - {protocol: TCP, port: 8089}
   egress:
     - to:
         - podSelector: {}

@@ -1,0 +1,12 @@
+# The signed-download listener only. The unauthenticated API on :8790 has NO Service on
+# purpose (the bridge reaches it over localhost); never add one.
+apiVersion: v1
+kind: Service
+metadata:
+  name: imessage-files
+  namespace: imessage
+spec:
+  selector:
+    app.kubernetes.io/name: imessage
+  ports:
+    - {name: files, port: 80, targetPort: files}
