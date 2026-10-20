@@ -1,0 +1,162 @@
+# ejabberd as an XMPP *component host* for the iMessage bridge. See docs/ejabberd.md.
+#
+# Exactly 1 replica: Mnesia is single-node, and the s2s Service is a single MetalLB address.
+# Recreate so the old pod releases the PVC and the 5269 listener before the new one starts.
+#
+# Worst case (CONTRIBUTING rule 6): idle VM ~90 MiB; no accounts, no archive, no c2c traffic
+# beyond bridge messages, so 384 MiB / 500m is a ceiling it should never see.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ejabberd
+  namespace: ejabberd
+  annotations:
+    # The component secret comes from Doppler; a rotation restarts the pod.
+    secrets.doppler.com/reload: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ejabberd
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ejabberd
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 9000
+        runAsGroup: 9000
+        fsGroup: 9000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        # Turns the Doppler value into an ejabberd macro in a memory-backed volume, so the
+        # secret is never an environment variable (HS-DATA-02) or in git. Doppler holds the
+        # bare value; it is restricted to [A-Za-z0-9_-] so it cannot break the YAML quoting.
+        - name: render-secret
+          image: &image ghcr.io/processone/ejabberd@sha256:ec5cf7bc85627fd9bde47309a34600d6c16895e9808807ec9ff57426f2508115
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              v="$(cat /secret/secret)"
+              case "$v" in
+                ""|*[!A-Za-z0-9_-]*) echo "EJABBERD_COMPONENT_SECRET must be non-empty [A-Za-z0-9_-]" >&2; exit 1;;
+              esac
+              umask 077
+              printf 'define_macro:\n  COMPONENT_SECRET: "%s"\n' "$v" > /run/ejabberd-secret/component.yml
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi, ephemeral-storage: 16Mi}
+          volumeMounts:
+            - {name: component-secret, mountPath: /secret, readOnly: true}
+            - {name: rendered-secret, mountPath: /run/ejabberd-secret}
+      containers:
+        - name: ejabberd
+          image: *image
+          ports:
+            - {name: s2s, containerPort: 5269}
+            - {name: s2s-tls, containerPort: 5270}
+            - {name: component, containerPort: 5347}
+            - {name: health, containerPort: 5280}
+          readinessProbe:
+            tcpSocket: {port: health}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: health}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 4
+          resources:
+            requests: {cpu: 25m, memory: 128Mi, ephemeral-storage: 128Mi}
+            limits: {cpu: 500m, memory: 384Mi, ephemeral-storage: 512Mi}
+          # The Erlang VM binary carries a file capability (cap_net_bind_service), so with
+          # `drop: ALL` alone it fails to exec ("erlexec: Error 1 executing beam.smp").
+          # NET_BIND_SERVICE is the one add PSA `restricted` allows. Verified 2026-10-20.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_BIND_SERVICE"]
+          volumeMounts:
+            - {name: config, mountPath: /opt/ejabberd/conf/ejabberd.yml, subPath: ejabberd.yml, readOnly: true}
+            - {name: tls, mountPath: /etc/ejabberd-tls, readOnly: true}
+            - {name: rendered-secret, mountPath: /run/ejabberd-secret, readOnly: true}
+            - {name: mnesia, mountPath: /opt/ejabberd/database}
+            - {name: logs, mountPath: /opt/ejabberd/logs}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: config
+          configMap: {name: ejabberd-config}
+        - name: tls
+          secret: {secretName: imessage-s2s-tls}
+        - name: component-secret
+          secret: {secretName: ejabberd-component}
+        - name: rendered-secret
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+        - name: mnesia
+          persistentVolumeClaim: {claimName: ejabberd-mnesia}
+        - name: logs
+          emptyDir: {sizeLimit: 128Mi}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+# No accounts and no archive, so Mnesia holds only s2s/route bookkeeping and is rebuilt on
+# start. A PVC anyway, as requested; local-path per ADR-0009 (never a database on NFS).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ejabberd-mnesia
+  namespace: ejabberd
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Cluster-internal: the bridge's component link (5347) and the health listener.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ejabberd
+  namespace: ejabberd
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ejabberd
+  ports:
+    - {name: component, port: 5347, targetPort: component}
+    - {name: health, port: 5280, targetPort: health}
+---
+# The only public port. A dedicated MetalLB address rather than a Traefik entrypoint: S2S is
+# STARTTLS (no SNI to route on), and this leaves the frozen Traefik layer (ADR-0007) alone.
+# `Local` keeps the real peer address, so the NetworkPolicy and logs see who connected.
+# Router: forward public TCP 5269 -> 192.168.1.241:5269 (and optionally 5270, direct-TLS S2S).
+# k3s's own ServiceLB also creates svclb-ejabberd-s2s here, exactly as it does for Traefik;
+# both paths reach the same pod and the MetalLB address is the one the router should use.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ejabberd-s2s
+  namespace: ejabberd
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: 192.168.1.241
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: ejabberd
+  ports:
+    - {name: s2s, port: 5269, targetPort: s2s}
+    - {name: s2s-tls, port: 5270, targetPort: s2s-tls}

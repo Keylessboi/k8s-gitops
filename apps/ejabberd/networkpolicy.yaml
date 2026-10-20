@@ -1,0 +1,48 @@
+# Default deny both ways, then exactly three flows in:
+#   5269/5270 from anywhere  S2S (STARTTLS / direct TLS). Who may federate is decided by the s2s ACL in ejabberd.yml, and
+#                       by the router's source allowlist if the owner sets one.
+#   5347 from `imessage` the bridge only (its egress half is in the imessage namespace's policy).
+#   5280 from kube-system  probes/diagnostics only.
+# Out: DNS, and S2S to federated servers on 5269.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: ejabberd
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - ipBlock: {cidr: 0.0.0.0/0}
+      ports:
+        - {protocol: TCP, port: 5269}
+        - {protocol: TCP, port: 5270}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: imessage
+      ports:
+        - {protocol: TCP, port: 5347}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: TCP, port: 5280}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    # Outbound S2S: public addresses only, never the LAN or the pod/service ranges.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports:
+        - {protocol: TCP, port: 5269}
+        - {protocol: TCP, port: 5270}
