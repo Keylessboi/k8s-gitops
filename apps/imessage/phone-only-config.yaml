@@ -1,0 +1,27 @@
+# A PLACEHOLDER Apple ID for imessage-server-rustpush. This is not a credential.
+#
+# The server's config loader insists on an Apple ID (gsa.plist or IMESSAGE_APPLE_ID) at boot
+# even though this deployment never logs in: the number is a phone-only `P:` identity restored
+# from /data/state.plist ("reusing saved IDS state (no Apple ID login needed)"). The user is a
+# reserved-invalid address and the hash is 32 zero bytes, so even if a login were ever
+# attempted it could only fail. A real Apple ID must never be put here: this file is in git.
+#
+# Without it the server exits at start with "no Apple ID: expected /data/gsa.plist ...".
+# The proper fix is making the Apple ID optional in the relay repo's imessage-server config.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: imessage-phone-only
+  namespace: imessage
+data:
+  gsa.plist: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    <plist version="1.0">
+    <dict>
+    	<key>user</key>
+    	<string>phone-only@invalid</string>
+    	<key>pass</key>
+    	<data>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</data>
+    </dict>
+    </plist>

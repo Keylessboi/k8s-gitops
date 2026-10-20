@@ -57,6 +57,7 @@ the literal string you are seeing, then read the entry.
 | A Tubifarry task is enabled but never runs on its own | plugin drops it at startup — 2026-09-17 |
 | Tubifarry YouTube errors `Sign in to confirm you’re not a bot` | cookie-less YouTube — 2026-09-17 |
 | Lidarr has no Soulseek/YouTube/Lucida clients, /api/v1/plugin 404s | Tubifarry lost in a config restore — 2026-09-15 |
+| `Error: no Apple ID: expected /data/gsa.plist or the IMESSAGE_APPLE_ID ...` from imessage-server, pod CrashLoopBackOff | phone-only deployment still needs a placeholder Apple ID — 2026-10-20 (imessage) |
 | `Waiting for HTTP-01 challenge propagation: wrong status code '502'` on a new app's Certificate | default-deny NetworkPolicy blocked Traefik from the ACME solver pod — 2026-10-20 (ejabberd) |
 | Tracks all play at different volumes | no ReplayGain tags — 2026-09-15 |
 | A database is slow but sequential file reads are fine | storage, not the app — 2026-09-12 |
@@ -155,6 +156,29 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-10-20 — imessage server CrashLoopBackOff: "no Apple ID" although the number needs none
+
+**Symptom.** After the cutover, pod `imessage` was `1/2 CrashLoopBackOff`. The `server` container
+logged only `Error: no Apple ID: expected /data/gsa.plist or the IMESSAGE_APPLE_ID /
+IMESSAGE_APPLE_PASSWORD[_SHA256] env vars`; the `bridge` container was healthy (ejabberd logged
+`XEP-0114 component handshake accepted`) and retried the API forever.
+
+**Root cause.** `imessage-server`'s config loader (`load_gsa`) requires an Apple ID at start even
+when the registration is a phone-only `P:` identity restored from `state.plist`, which never logs
+in. On the laptop the systemd unit set `IMESSAGE_APPLE_ID`/`IMESSAGE_APPLE_PASSWORD`, so the
+requirement was invisible; the cluster pod had no such variables.
+
+**Fix.** A ConfigMap mounts a placeholder `gsa.plist` (reserved-invalid user, all-zero hash; not a
+credential) at `/data/gsa.plist`, and `IMESSAGE_LOGIN_RETRY_SECS=0` stops any login retry.
+
+**Prevention.** When moving a service off a workstation, list the unit's environment *names*
+(`systemctl --user show -p Environment`) and account for every one in the manifest before
+scaling up; a variable that is "unused" on the workstation may still be required at boot. The
+durable fix is making the Apple ID optional in the relay repo's config loader.
+
+**Confidence.** CONFIRMED for the cause (exact error text and the source of `load_gsa`); the fix
+is verified once the server container stays up.
 
 ## 2026-10-20 — ejabberd certificate stuck Pending: the ACME solver was blocked by the app's own NetworkPolicy
 
