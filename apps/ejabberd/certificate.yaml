@@ -1,0 +1,30 @@
+# The S2S certificate for the component domain. Peers open STARTTLS on 5269 and verify this
+# name, so it must be a publicly trusted cert (Let's Encrypt).
+#
+# Challenge: HTTP-01 through the existing letsencrypt-prod issuer, NOT DNS-01. sandstorm.chat's
+# DNS is at Porkbun, which cert-manager has no built-in DNS-01 solver for (it would need a
+# third-party webhook plus Porkbun API keys in Doppler). HTTP-01 works because
+# imessage.sandstorm.chat points at the same public IP as every other host, and Traefik
+# already serves :80. To move to DNS-01 later, add a solver to a new ClusterIssuer and change
+# issuerRef only.
+#
+# rotationPolicy: Never keeps the private key across renewals, so a DANE TLSA record
+# (3 1 1, hash of the public key) published for _5269._tcp.imessage.sandstorm.chat stays valid
+# for the life of the key. Generate it with the command in docs/ejabberd.md.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: imessage-s2s
+  namespace: ejabberd
+spec:
+  secretName: imessage-s2s-tls
+  dnsNames:
+    - imessage.sandstorm.chat
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Never
+  usages: [digital signature, key encipherment, server auth, client auth]

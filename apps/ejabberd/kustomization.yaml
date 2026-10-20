@@ -1,0 +1,29 @@
+# ejabberd as a component host for the iMessage bridge (federates over S2S, no accounts).
+# Design, DNS/router steps and the DANE record: docs/ejabberd.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: ejabberd
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+namespace: ejabberd
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/component: messaging
+      homelab/tier: apps
+resources:
+  - namespace.yaml
+  - certificate.yaml
+  - networkpolicy.yaml
+  - deployment.yaml
+
+configMapGenerator:
+  - name: ejabberd-config
+    files:
+      - ejabberd.yml
+
+# Prune/Delete protection for PVCs, PVs, Namespaces and CNPG Clusters, so a
+# manifest dropped from git never deletes live data. See ADR-0012.
+components:
+  - ../../components/protect-state
