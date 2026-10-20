@@ -57,6 +57,7 @@ the literal string you are seeing, then read the entry.
 | A Tubifarry task is enabled but never runs on its own | plugin drops it at startup — 2026-09-17 |
 | Tubifarry YouTube errors `Sign in to confirm you’re not a bot` | cookie-less YouTube — 2026-09-17 |
 | Lidarr has no Soulseek/YouTube/Lucida clients, /api/v1/plugin 404s | Tubifarry lost in a config restore — 2026-09-15 |
+| `Waiting for HTTP-01 challenge propagation: wrong status code '502'` on a new app's Certificate | default-deny NetworkPolicy blocked Traefik from the ACME solver pod — 2026-10-20 (ejabberd) |
 | Tracks all play at different volumes | no ReplayGain tags — 2026-09-15 |
 | A database is slow but sequential file reads are fine | storage, not the app — 2026-09-12 |
 | `Unrecognized host/PassKey` or `ASN mismatch` from MAM | session locked to the wrong ASN — 2026-09-12 |
@@ -154,6 +155,28 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-10-20 — ejabberd certificate stuck Pending: the ACME solver was blocked by the app's own NetworkPolicy
+
+**Symptom.** `Certificate imessage-s2s` stayed `Ready: False`; the Challenge sat in
+`pending` with `Waiting for HTTP-01 challenge propagation: wrong status code '502',
+expected '200'`. The ejabberd pod waited in `Init` because its TLS Secret did not exist.
+
+**Root cause.** cert-manager runs the HTTP-01 solver as a pod (`cm-acme-http-solver`, port
+8089) in the *Certificate's* namespace. The new `ejabberd` namespace has a default-deny
+ingress policy that admitted `kube-system` (Traefik) only on 5280, so Traefik could not reach
+the solver and answered 502. Other apps never hit this because their policies admit
+`kube-system` on all ports.
+
+**Fix.** Allow `kube-system` to port 8089 in `apps/ejabberd/networkpolicy.yaml`.
+
+**Prevention.** Any namespace with a default-deny policy that also owns a Certificate (HTTP-01)
+must admit Traefik to the solver port 8089, or issuance and every renewal fail. Check the
+Challenge's `status.reason` first; a 502 from the solver URL means the path to the solver pod,
+not Let's Encrypt.
+
+**Confidence.** CONFIRMED for the cause (502 on the challenge, solver pod in a default-deny
+namespace); the fix is verified once the Certificate turns Ready.
 
 ## 2026-10-09 — Atmos albums missing: the spatial sidecar could not read files amdl wrote 0600
 
