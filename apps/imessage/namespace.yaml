@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: imessage
+  labels:
+    # c4: imessage-server keeps Apple registration state and the bridge relays message content.
+    # Any PVC added here must be on storage that is encrypted at rest (HS-REST-02).
+    homelab/data-class: c4
+    homelab/criticality: tier-3
+    app.kubernetes.io/name: imessage
+    app.kubernetes.io/part-of: homelab
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

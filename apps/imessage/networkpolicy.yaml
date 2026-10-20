@@ -1,0 +1,32 @@
+# Default deny both ways, then the flows the bridge needs. Each cross-namespace flow is
+# declared on both sides (CONTRIBUTING rule 5); the ejabberd half is in apps/ejabberd.
+#   out: DNS, and the XMPP component link to ejabberd on 5347.
+# Not yet allowed, add with the workload: imessage-server's egress to Apple, and any ingress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: imessage
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  # Pods in this namespace talk to each other (the bridge calls imessage-server).
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ejabberd
+      ports:
+        - {protocol: TCP, port: 5347}
