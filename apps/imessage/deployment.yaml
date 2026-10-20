@@ -57,10 +57,16 @@ spec:
             - {name: data, mountPath: /data}
       containers:
         - name: server
-          image: localhost/imessage-server:0.2.1
+          image: localhost/imessage-server:0.2.2
           imagePullPolicy: Never
           env:
             - {name: IMESSAGE_DATA_DIR, value: /data}
+            # Real iPhone identity for IDS re-registration: the synthetic Mac profile gets
+            # status 6004 at id-register. The relay is the owner's laptop container, over
+            # Tailscale; it answers only while the owner's iPhone is online. The code is a
+            # file (REGISTRATION_RELAY_CODE_FILE), never an env var.
+            - {name: REGISTRATION_RELAY_URL, value: "http://100.109.34.35:8000"}
+            - {name: REGISTRATION_RELAY_CODE_FILE, value: /run/relay/relay-code}
             # 0.0.0.0, not 127.0.0.1: kubelet probes connect to the pod address. The
             # NetworkPolicy admits only this namespace (the bridge is a sibling container).
             - {name: LISTEN, value: "0.0.0.0:8790"}
@@ -100,6 +106,7 @@ spec:
             # state.plist. Mounted over /data, so it must come after the /data mount.
             - {name: data, mountPath: /data/attachments, subPath: attachments}
             - {name: files-hmac, mountPath: /run/files/files-hmac-key, subPath: files-hmac-key, readOnly: true}
+            - {name: relay-code, mountPath: /run/relay/relay-code, subPath: relay-code, readOnly: true}
             - {name: phone-only, mountPath: /data/gsa.plist, subPath: gsa.plist, readOnly: true}
             - {name: tmp, mountPath: /tmp}
         - name: bridge
@@ -144,6 +151,9 @@ spec:
           # 0444, not 0440: the pod has no fsGroup, so a 0440 file would be root:root and unreadable
           # by uid 10001. The volume is tmpfs inside this pod only.
           secret: {secretName: imessage-files-hmac, defaultMode: 0444}
+        - name: relay-code
+          # optional: the pod must still start (on the cached identity) when the key is absent.
+          secret: {secretName: imessage-relay-code, defaultMode: 0444, optional: true}
         - name: phone-only
           configMap: {name: imessage-phone-only, defaultMode: 0444}
         - name: tmp

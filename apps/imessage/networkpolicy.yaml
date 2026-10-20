@@ -40,6 +40,14 @@ spec:
               kubernetes.io/metadata.name: ejabberd
       ports:
         - {protocol: TCP, port: 5347}
+    # The owner's registration relay (laptop container, Tailscale 100.109.34.35:8000): gives the
+    # server the real iPhone identity IDS re-registration needs. One host, one port; the
+    # 100.64.0.0/10 exception below stays for everything else.
+    - to:
+        - ipBlock:
+            cidr: 100.109.34.35/32
+      ports:
+        - {protocol: TCP, port: 8000}
     # imessage-server to Apple: APNs (5223, 443 fallback, 2197), the IDS/Albert HTTPS endpoints
     # (443) and the public anisette server (443). Apple's APNs hosts are in 17.0.0.0/8 but IDS
     # and anisette are not, so this is public addresses only, never the LAN or the pod and

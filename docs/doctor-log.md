@@ -58,6 +58,7 @@ the literal string you are seeing, then read the entry.
 | Tubifarry YouTube errors `Sign in to confirm you’re not a bot` | cookie-less YouTube — 2026-09-17 |
 | Lidarr has no Soulseek/YouTube/Lucida clients, /api/v1/plugin 404s | Tubifarry lost in a config restore — 2026-09-15 |
 | `failed to connect to socket HTTP error ... http://init-p01st.push.apple.com/bag ... Network is unreachable` from imessage-server | egress to Apple missed TCP 80 (plain-HTTP APNs bag) — 2026-10-20 (imessage) |
+| `Failed to generate resource Registration Error Please try again (6004)` / `No identity for payload!` / `Reregistering now!` repeating, from imessage-server | no real device identity (relay not configured, Mac fallback rejected by Apple) — 2026-10-20 (imessage re-registration) |
 | `Error: no Apple ID: expected /data/gsa.plist or the IMESSAGE_APPLE_ID ...` from imessage-server, pod CrashLoopBackOff | phone-only deployment still needs a placeholder Apple ID — 2026-10-20 (imessage) |
 | `Waiting for HTTP-01 challenge propagation: wrong status code '502'` on a new app's Certificate | default-deny NetworkPolicy blocked Traefik from the ACME solver pod — 2026-10-20 (ejabberd) |
 | Tracks all play at different volumes | no ReplayGain tags — 2026-09-15 |
@@ -157,6 +158,32 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-10-20 — imessage re-registration fails with "Registration Error ... (6004)": the pod has no real device identity
+
+**Symptom.** FaceTime calls and joins failed with `Do not retry Failed to generate resource
+Registration Error Please try again (6004); retrying in 600s` and `No identity for payload!`.
+The log showed `Reregistering now!` / `registering!` at 20:35 and 20:40 UTC, each followed by
+the retry backoff (300 s, 600 s, doubling to a day, unlimited). Plain iMessage sends kept working
+on the cached identity, and an occasional send timed out (503 `Send timeout`).
+
+**Root cause.** The number was registered as a real `iPhone10,6` through the owner's registration
+relay. The pod has no `REGISTRATION_RELAY_URL`, so it falls back to the synthetic Mac profile
+(`hwconfig.plist`), and Apple rejects a Mac profile at `id-register` with status 6004 (the repo's
+README records the same rejection at the first registration). FaceTime reads the same stored
+identity failure, so it is a symptom, not a separate bug.
+
+**Fix.** Point the server at the relay (owner's laptop container over Tailscale), with the relay
+code as a mounted secret file and a one-host egress rule; the identity is cached on the PVC.
+The phone must be online during each registration (validation data comes from it).
+
+**Prevention.** Any time the log says `Reregistering now!`, confirm the next line is a success and
+not a retry. A deployment that registers a phone number must carry the relay settings, not only the
+state. Alert on `Failed to generate resource` repeating more than twice.
+
+**Confidence.** PROBABLE: the cause fits the README and the code (no relay env, no `device identity:`
+log line); not yet proven until a re-registration through the relay succeeds. The lapse time of the
+current registration is unknown.
 
 ## 2026-10-20 — imessage server could not reach Apple: the egress policy omitted TCP 80
 
