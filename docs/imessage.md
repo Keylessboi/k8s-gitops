@@ -23,7 +23,9 @@ without an iPhone online.
 |---|---|
 | Namespace, default-deny NetworkPolicy, Apple-only egress | `apps/imessage` |
 | Server + bridge (one pod, `replicas: 0` until the cutover) | `apps/imessage/deployment.yaml` |
-| Registration state | PVC `imessage-data` (1 Gi, `nfs-csi`) |
+| Registration state | PVC `imessage-data` (1 Gi, `nfs-csi`); attachments share it under subPath `attachments` |
+| Attachment downloads | Service `imessage-files` (:80 -> :8791), Ingress `imessage-files.sandstorm.chat` (`/dl/` only) |
+| Download-link key | Doppler `IMESSAGE_FILE_HMAC_KEY` -> Secret `imessage/imessage-files-hmac` (key `files-hmac-key`), mounted as a file (`IMESSAGE_FILE_HMAC_KEY_FILE`) |
 | Component secret | Doppler `EJABBERD_COMPONENT_SECRET` -> Secret `imessage/ejabberd-component`, mounted as a file (`COMPONENT_SECRET_FILE`) |
 | Images | `localhost/imessage-server:<tag>`, `localhost/imessage-bridge:<tag>`, built on the NAS and imported into its containerd (no registry); pod pinned to `nas`, `imagePullPolicy: Never` |
 
@@ -44,7 +46,7 @@ ssh nas '~/build/imessage/nas-build.sh <tag>'     # podman build x2, import into
 `nas-build.sh` builds `ctx/openbubbles-relay/bridge` and `ctx/openbubbles-relay/deploy/docker/server.Dockerfile`,
 then `podman save | k3s ctr images import` and leaves the tarballs in
 `/var/lib/rancher/k3s/agent/images/` so k3s re-imports them after a restart. Bump the tag in
-`apps/imessage/deployment.yaml` on every build.
+`apps/imessage/deployment.yaml` on every build (currently 0.2.0 for both).
 
 ## Rules specific to this app
 
@@ -58,6 +60,39 @@ then `podman save | k3s ctr images import` and leaves the tarballs in
 - **OMEMO is off.** The bridge refuses OMEMO in component mode (a component has no device
   identity), so traffic is plaintext inside the S2S TLS hop. OMEMO needs the bridge in client
   mode with a real account, which is a different ejabberd design (see `docs/ejabberd.md`).
+
+## Attachments (server/bridge 0.2.0)
+
+The server downloads inbound iMessage attachments to `/data/attachments` and mints signed,
+short-lived links (`https://imessage-files.sandstorm.chat/dl/<id>?exp=..&sig=..`) that the
+bridge sends over XMPP. Design and threat notes: `docs/k8s-attachments.md` in the relay repo.
+
+- **Hostname:** `imessage-files.sandstorm.chat`, Ingress `imessage-files`, routes `/dl/` only,
+  crowdsec + rate-limit, **no forward-auth** (the HMAC signature is the gate; chat clients
+  must be able to fetch it). Publication register entry `P-20` is `proposed` and needs the
+  owner's signature (HS-NET-06); CI's publish check fails until then.
+- **DNS:** nothing to add. The `*.sandstorm.chat` wildcard at Porkbun already resolves every
+  subdomain to the public IP (as for `imessage.sandstorm.chat`, `docs/ejabberd.md`), and the
+  same IP serves the cert-manager HTTP-01 challenge for `imessage-files-tls`.
+- **Key:** Doppler `kubernetes/prd` `IMESSAGE_FILE_HMAC_KEY` (C4: with it anyone can mint
+  links for files on the PVC). Never read it. Register entry `S-50`.
+- **Rotation:** change the value in Doppler, then restart the pod (the key is read at start;
+  the Secret resyncs in 5 minutes). Effect: every outstanding download link stops working;
+  files and registration are untouched. Without the key the feature is off (no downloads,
+  nothing listens on 8791).
+- **Network:** the NetworkPolicy admits `kube-system` (Traefik) to TCP 8791 only (plus 8089
+  for the ACME solver pod). :8790 stays intra-namespace; there is still no Service for it.
+- **Storage:** the server quota is 2 GiB (`IMESSAGE_ATTACH_QUOTA_BYTES`, default) and the PVC
+  request is 1 Gi. NFS does not enforce the request, and eviction is oldest-first on the
+  server's own accounting, but the number is nominal; raise `pvc.yaml` (and check the
+  `nfs-csi` class allows expansion) if you want the claim to match. The `data-perms` init
+  container creates `attachments/` so it is owned by uid 10001.
+- **Bridge:** `PUBLIC_FILE_BASE_URL=https://imessage-files.sandstorm.chat`. `LOG_LEVEL` is
+  `DEBUG` for now to capture client call stanzas; set it back to `INFO` afterwards. OMEMO
+  stays off.
+- **Rollback:** revert the PR. The 0.1.1 server and 0.1.0 bridge images stay imported in the
+  NAS's containerd, so the old pod starts without a rebuild. Files already under
+  `/data/attachments` are harmless and can be left or deleted by the owner.
 
 ## Cutover (done 2026-10-20) and how to repeat it
 

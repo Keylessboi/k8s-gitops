@@ -44,7 +44,9 @@ spec:
         # NFS, so hand /data to the app uid first (same pattern as notesnook's keys-perms).
         - name: data-perms
           image: busybox:1.38.0@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
-          command: ["sh", "-c", "chown -R 10001:10001 /data && chmod 0700 /data"]
+          # attachments/ is created here, not by the kubelet's subPath handling, which would make it
+          # root-owned on NFS and unwritable for uid 10001.
+          command: ["sh", "-c", "mkdir -p /data/attachments && chown -R 10001:10001 /data && chmod 0700 /data"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -55,7 +57,7 @@ spec:
             - {name: data, mountPath: /data}
       containers:
         - name: server
-          image: localhost/imessage-server:0.1.1
+          image: localhost/imessage-server:0.2.0
           imagePullPolicy: Never
           env:
             - {name: IMESSAGE_DATA_DIR, value: /data}
@@ -65,8 +67,13 @@ spec:
             - {name: RUST_LOG, value: info}
             # Never retry an Apple ID login: there is none (see phone-only-config.yaml).
             - {name: IMESSAGE_LOGIN_RETRY_SECS, value: "0"}
+            # Attachments: signed download links on :8791 (Ingress imessage-files, /dl/ only).
+            # The HMAC key comes from Doppler as a file; without it the feature is off.
+            - {name: IMESSAGE_FILE_HMAC_KEY_FILE, value: /run/files/files-hmac-key}
+            - {name: IMESSAGE_ATTACH_DIR, value: /data/attachments}
           ports:
             - {name: api, containerPort: 8790}
+            - {name: files, containerPort: 8791}
           readinessProbe:
             tcpSocket: {port: api}
             periodSeconds: 10
@@ -89,10 +96,14 @@ spec:
             capabilities: {drop: ["ALL"]}
           volumeMounts:
             - {name: data, mountPath: /data}
+            # Attachments get their own subPath of the PVC so quota eviction never touches
+            # state.plist. Mounted over /data, so it must come after the /data mount.
+            - {name: data, mountPath: /data/attachments, subPath: attachments}
+            - {name: files-hmac, mountPath: /run/files/files-hmac-key, subPath: files-hmac-key, readOnly: true}
             - {name: phone-only, mountPath: /data/gsa.plist, subPath: gsa.plist, readOnly: true}
             - {name: tmp, mountPath: /tmp}
         - name: bridge
-          image: localhost/imessage-bridge:0.1.0
+          image: localhost/imessage-bridge:0.2.0
           imagePullPolicy: Never
           env:
             - {name: XMPP_MODE, value: component}
@@ -106,7 +117,9 @@ spec:
             - {name: XMPP_TARGET, value: "travis@snikket.sandstorm.chat"}
             - {name: XMPP_ALLOWED, value: "travis@snikket.sandstorm.chat"}
             - {name: IMESSAGE_API_URL, value: "http://127.0.0.1:8790"}
-            - {name: LOG_LEVEL, value: INFO}
+            - {name: LOG_LEVEL, value: DEBUG}
+            # Public origin of the signed download links the server mints (Ingress imessage-files).
+            - {name: PUBLIC_FILE_BASE_URL, value: "https://imessage-files.sandstorm.chat"}
           # No port to probe: the bridge only dials out. A dead XMPP link makes it retry with
           # backoff by itself (BACKOFF_*), and the server container's probes cover the API.
           resources:
@@ -127,6 +140,10 @@ spec:
           persistentVolumeClaim: {claimName: imessage-data}
         - name: component-secret
           secret: {secretName: ejabberd-component}
+        - name: files-hmac
+          # 0444, not 0440: the pod has no fsGroup, so a 0440 file would be root:root and unreadable
+          # by uid 10001. The volume is tmpfs inside this pod only.
+          secret: {secretName: imessage-files-hmac, defaultMode: 0444}
         - name: phone-only
           configMap: {name: imessage-phone-only, defaultMode: 0444}
         - name: tmp

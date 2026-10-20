@@ -183,3 +183,13 @@ entries:
     approved_on: 2026-10-06
     approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
     review_by: 2027-10-01
+  - id: P-20
+    ingress: imessage/imessage-files
+    routes: [imessage-files.sandstorm.chat/dl/]
+    basis: app-login
+    reason: Attachment downloads for chat clients, which cannot follow an identity-provider redirect. The link is a bearer capability, an HMAC-SHA256 signature plus a 30 minute expiry, verified before existence is revealed. Only /dl/ is routed; downloads are forced (attachment, nosniff, CSP sandbox).
+    criteria: {reason: met, data: met, login: unverified, accounts: met, function: met}
+    status: approved
+    approved_on: 2026-10-20
+    approval_note: "Approved by the owner on 2026-10-20 (in conversation, after the rationale was explained); entry written by the agent."
+    review_by: 2027-10-01
