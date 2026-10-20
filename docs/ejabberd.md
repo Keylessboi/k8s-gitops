@@ -35,8 +35,8 @@ not a sidecar of ejabberd, it needs:
 
 1. **Doppler**: add `EJABBERD_COMPONENT_SECRET` to `kubernetes/prd` (e.g. 40 hex chars).
 2. **Porkbun DNS** for `sandstorm.chat` (DNS is at Porkbun, not Cloudflare):
-   - `A imessage.sandstorm.chat -> 74.101.53.75` (the same public IP as every other host;
-     needed for the HTTP-01 certificate challenge too).
+   - No A record needed: the `*.sandstorm.chat` wildcard already resolves
+     `imessage.sandstorm.chat` to the public IP, which also serves the HTTP-01 challenge.
    - `SRV _xmpps-server._tcp.imessage.sandstorm.chat  0 5 5270 imessage.sandstorm.chat.`
      (advertises direct-TLS S2S; only publish it once 5270 is forwarded, step 3).
    - `SRV _xmpp-server._tcp.imessage.sandstorm.chat  0 5 5269 imessage.sandstorm.chat.`
@@ -111,4 +111,5 @@ to attach to. They belong on `snikket.sandstorm.chat` (a Snikket already ships m
 | DANE (TLSA + DNSSEC) | Published by hand, step 5. `sandstorm.chat` has a DS record. ejabberd cannot validate DANE itself. |
 | Direct TLS (XEP-0368) | Done for S2S on 5270. There are no clients, so no c2s 5223/443. |
 | SCRAM-SHA-256/512 | Not applicable: no accounts, `auth_method: internal` with no users. |
-| OMEMO / OpenPGP, Carbons, HTTP File Upload (+XEP-0454), Jingle, Push (XEP-0357, MAM) | Client/user features; this host serves none. OMEMO between the owner's client and the bridge would end at the bridge anyway, because iMessage is re-encrypted by Apple. |
+| OMEMO (Snikket <-> bridge) | **Not an ejabberd feature.** OMEMO is end-to-end between the two endpoints, here the owner's client and the bridge. The bridge must itself publish a device list and encrypt/decrypt (a component has no PEP of its own). ejabberd only relays the stanzas, protected hop-by-hop by TLS (+DANE). Needs bridge support. |
+| OpenPGP, Carbons, HTTP File Upload (+XEP-0454), Jingle, Push (XEP-0357, MAM) | Client/user features; this host serves none. OMEMO between the owner's client and the bridge would end at the bridge anyway, because iMessage is re-encrypted by Apple. |
