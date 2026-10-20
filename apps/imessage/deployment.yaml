@@ -57,7 +57,7 @@ spec:
             - {name: data, mountPath: /data}
       containers:
         - name: server
-          image: localhost/imessage-server:0.2.0
+          image: localhost/imessage-server:0.2.1
           imagePullPolicy: Never
           env:
             - {name: IMESSAGE_DATA_DIR, value: /data}
@@ -103,7 +103,7 @@ spec:
             - {name: phone-only, mountPath: /data/gsa.plist, subPath: gsa.plist, readOnly: true}
             - {name: tmp, mountPath: /tmp}
         - name: bridge
-          image: localhost/imessage-bridge:0.2.0
+          image: localhost/imessage-bridge:0.2.1
           imagePullPolicy: Never
           env:
             - {name: XMPP_MODE, value: component}
