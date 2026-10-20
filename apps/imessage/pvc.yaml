@@ -1,0 +1,16 @@
+# The IDS registration (state.plist), hardware/keystore plists and the anisette state. This IS
+# the registered phone number: losing it means re-registering with the iPhone and the SIM
+# handset (README of imessage-xmpp-relay). C4, so it lives on the encrypted NAS pool via
+# nfs-csi, not on a node disk (CONTRIBUTING rule 2). It is a handful of small plists written
+# by a single process, not a database (ADR-0009 does not apply).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: imessage-data
+  namespace: imessage
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 1Gi

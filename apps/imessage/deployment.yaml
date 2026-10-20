@@ -1,0 +1,128 @@
+# The iMessage relay: imessage-server-rustpush (Apple IDS, HTTP API on :8790) and the XMPP
+# bridge, in ONE pod so the bridge reaches the API on localhost. Project and design:
+# https://github.com/Keylessboi/imessage-xmpp-relay ; cluster wiring: docs/imessage.md.
+#
+# The bridge connects out to ejabberd (apps/ejabberd) as the XEP-0114 component
+# imessage.sandstorm.chat; ejabberd federates with snikket.sandstorm.chat.
+#
+# Exactly 1 replica, Recreate: the IDS registration is one device identity (two live copies
+# would fight over one APNs token), and /data is RWO.
+#
+# replicas stays 0 until the registration state has been seeded into the data volume
+# (docs/imessage.md, "Cutover"): an empty /data would mint a fresh push identity.
+#
+# Images are built on the NAS and imported into its containerd (no registry), like
+# spatial-sidecar, so the pod is pinned to the nas node and never pulls. Bump the tags on every
+# build.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: imessage
+  namespace: imessage
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: imessage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: imessage
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      securityContext:
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        # An nfs-csi volume is created root-owned and the kubelet does not apply fsGroup to
+        # NFS, so hand /data to the app uid first (same pattern as notesnook's keys-perms).
+        - name: data-perms
+          image: busybox:1.38.0@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+          command: ["sh", "-c", "chown 10001:10001 /data && chmod 0700 /data"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {cpu: 50m, memory: 32Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      containers:
+        - name: server
+          image: localhost/imessage-server:0.1.0
+          imagePullPolicy: Never
+          env:
+            - {name: IMESSAGE_DATA_DIR, value: /data}
+            # 0.0.0.0, not 127.0.0.1: kubelet probes connect to the pod address. The
+            # NetworkPolicy admits only this namespace (the bridge is a sibling container).
+            - {name: LISTEN, value: "0.0.0.0:8790"}
+            - {name: RUST_LOG, value: info}
+          ports:
+            - {name: api, containerPort: 8790}
+          readinessProbe:
+            tcpSocket: {port: api}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: api}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 4
+          # Worst case: idle ~60 MiB; the unicorn NAC emulator (registration only, not used at
+          # runtime) is what the 512 MiB / 1 CPU ceiling is for.
+          resources:
+            requests: {cpu: 50m, memory: 128Mi, ephemeral-storage: 64Mi}
+            limits: {cpu: "1", memory: 512Mi, ephemeral-storage: 256Mi}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+        - name: bridge
+          image: localhost/imessage-bridge:0.1.0
+          imagePullPolicy: Never
+          env:
+            - {name: XMPP_MODE, value: component}
+            - {name: COMPONENT_JID, value: imessage.sandstorm.chat}
+            - {name: COMPONENT_HOST, value: ejabberd.ejabberd.svc.cluster.local}
+            - {name: COMPONENT_PORT, value: "5347"}
+            # The shared secret is read from this file (Doppler -> Secret), never an env var.
+            - {name: COMPONENT_SECRET_FILE, value: /run/secrets/ejabberd/secret}
+            # Only this JID may send through the bridge, and inbound iMessages go to it.
+            - {name: COMPONENT_OWNER, value: "travis@snikket.sandstorm.chat"}
+            - {name: XMPP_TARGET, value: "travis@snikket.sandstorm.chat"}
+            - {name: XMPP_ALLOWED, value: "travis@snikket.sandstorm.chat"}
+            - {name: IMESSAGE_API_URL, value: "http://127.0.0.1:8790"}
+            - {name: LOG_LEVEL, value: INFO}
+          # No port to probe: the bridge only dials out. A dead XMPP link makes it retry with
+          # backoff by itself (BACKOFF_*), and the server container's probes cover the API.
+          resources:
+            requests: {cpu: 20m, memory: 64Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 250m, memory: 192Mi, ephemeral-storage: 64Mi}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: component-secret, mountPath: /run/secrets/ejabberd, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: imessage-data}
+        - name: component-secret
+          secret: {secretName: ejabberd-component}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}

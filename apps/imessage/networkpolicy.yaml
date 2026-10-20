@@ -30,3 +30,16 @@ spec:
               kubernetes.io/metadata.name: ejabberd
       ports:
         - {protocol: TCP, port: 5347}
+    # imessage-server to Apple: APNs (5223, 443 fallback, 2197), the IDS/Albert HTTPS endpoints
+    # (443) and the public anisette server (443). Apple's APNs hosts are in 17.0.0.0/8 but IDS
+    # and anisette are not, so this is public addresses only, never the LAN or the pod and
+    # service ranges. The API itself has no authentication, which is why nothing outside this
+    # namespace may reach it (ingress above is intra-namespace only).
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10]
+      ports:
+        - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 5223}
+        - {protocol: TCP, port: 2197}
