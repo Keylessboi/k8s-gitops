@@ -57,6 +57,7 @@ the literal string you are seeing, then read the entry.
 | A Tubifarry task is enabled but never runs on its own | plugin drops it at startup — 2026-09-17 |
 | Tubifarry YouTube errors `Sign in to confirm you’re not a bot` | cookie-less YouTube — 2026-09-17 |
 | Lidarr has no Soulseek/YouTube/Lucida clients, /api/v1/plugin 404s | Tubifarry lost in a config restore — 2026-09-15 |
+| `failed to connect to socket HTTP error ... http://init-p01st.push.apple.com/bag ... Network is unreachable` from imessage-server | egress to Apple missed TCP 80 (plain-HTTP APNs bag) — 2026-10-20 (imessage) |
 | `Error: no Apple ID: expected /data/gsa.plist or the IMESSAGE_APPLE_ID ...` from imessage-server, pod CrashLoopBackOff | phone-only deployment still needs a placeholder Apple ID — 2026-10-20 (imessage) |
 | `Waiting for HTTP-01 challenge propagation: wrong status code '502'` on a new app's Certificate | default-deny NetworkPolicy blocked Traefik from the ACME solver pod — 2026-10-20 (ejabberd) |
 | Tracks all play at different volumes | no ReplayGain tags — 2026-09-15 |
@@ -156,6 +157,29 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-10-20 — imessage server could not reach Apple: the egress policy omitted TCP 80
+
+**Symptom.** The `server` container was Running and `registered=True`, but looped
+`rustpush::aps: failed to connect to socket HTTP error: ... (http://init-p01st.push.apple.com/bag):
+... tcp connect error: Network is unreachable (os error 101)`. No push connection, so no
+inbound or outbound iMessage.
+
+**Root cause.** The NetworkPolicy allowed Apple on 443/5223/2197, but APNs first fetches its
+"bag" over plain HTTP on port 80. A connect test from the pod showed IPv4 `Connection refused`
+(kube-router's REJECT for a policy-denied flow) and IPv6 `Network is unreachable` (the pod
+network has no IPv6); the client logged only the last error, which hid the real one.
+
+**Fix.** Allow TCP 80 in the egress rule to public addresses.
+
+**Prevention.** When a library reports "Network is unreachable", run a per-address connect test
+from inside the pod (`kubectl exec ... python` with `socket.getaddrinfo` + `connect`): the
+IPv4 result is the one that matters here, and "connection refused" there means a NetworkPolicy,
+not a down service. Derive an app's egress ports from its code (`grep -rn "http://"`), not from
+what "should" be needed.
+
+**Confidence.** CONFIRMED for the cause (per-address connect test); the fix is verified once the
+server logs an APS connection.
 
 ## 2026-10-20 — imessage server CrashLoopBackOff: "no Apple ID" although the number needs none
 
