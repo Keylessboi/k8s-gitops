@@ -2,7 +2,7 @@
 #   5269/5270 from anywhere  S2S (STARTTLS / direct TLS). Who may federate is decided by the s2s ACL in ejabberd.yml, and
 #                       by the router's source allowlist if the owner sets one.
 #   5347 from `imessage` the bridge only (its egress half is in the imessage namespace's policy).
-#   5280 from kube-system  probes/diagnostics only.
+#   5280 from kube-system  probes/diagnostics only; 8089 the same source, for the ACME solver.
 # Out: DNS, and S2S to federated servers on 5269.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -30,6 +30,10 @@ spec:
               kubernetes.io/metadata.name: kube-system
       ports:
         - {protocol: TCP, port: 5280}
+        # cert-manager's HTTP-01 solver pod (port 8089) runs in this namespace while a
+        # certificate is issued or renewed; Traefik (kube-system) must reach it or the
+        # challenge fails with a 502. It only exists during a challenge.
+        - {protocol: TCP, port: 8089}
   egress:
     - to:
         - namespaceSelector:
