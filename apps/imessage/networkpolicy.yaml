@@ -40,6 +40,10 @@ spec:
             cidr: 0.0.0.0/0
             except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10]
       ports:
+        # 80: the APNs bag (http://init-p01st.push.apple.com/bag) is fetched over plain HTTP.
+        # Without it the server logs "tcp connect error: Network is unreachable" (the IPv6
+        # attempt) while the IPv4 one is REJECTed by kube-router as "connection refused".
+        - {protocol: TCP, port: 80}
         - {protocol: TCP, port: 443}
         - {protocol: TCP, port: 5223}
         - {protocol: TCP, port: 2197}
