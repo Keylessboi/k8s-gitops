@@ -63,6 +63,8 @@ spec:
             # NetworkPolicy admits only this namespace (the bridge is a sibling container).
             - {name: LISTEN, value: "0.0.0.0:8790"}
             - {name: RUST_LOG, value: info}
+            # Never retry an Apple ID login: there is none (see phone-only-config.yaml).
+            - {name: IMESSAGE_LOGIN_RETRY_SECS, value: "0"}
           ports:
             - {name: api, containerPort: 8790}
           readinessProbe:
@@ -87,6 +89,7 @@ spec:
             capabilities: {drop: ["ALL"]}
           volumeMounts:
             - {name: data, mountPath: /data}
+            - {name: phone-only, mountPath: /data/gsa.plist, subPath: gsa.plist, readOnly: true}
             - {name: tmp, mountPath: /tmp}
         - name: bridge
           image: localhost/imessage-bridge:0.1.0
@@ -124,5 +127,7 @@ spec:
           persistentVolumeClaim: {claimName: imessage-data}
         - name: component-secret
           secret: {secretName: ejabberd-component}
+        - name: phone-only
+          configMap: {name: imessage-phone-only, defaultMode: 0444}
         - name: tmp
           emptyDir: {sizeLimit: 64Mi}
