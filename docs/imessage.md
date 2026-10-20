@@ -59,6 +59,29 @@ then `podman save | k3s ctr images import` and leaves the tarballs in
   identity), so traffic is plaintext inside the S2S TLS hop. OMEMO needs the bridge in client
   mode with a real account, which is a different ejabberd design (see `docs/ejabberd.md`).
 
-## Cutover
+## Cutover (done 2026-10-20) and how to repeat it
 
-See the bottom of this file once written; do not scale the Deployment up before `/data` is seeded.
+The laptop ran `imessage-relay.service` (the server) and `imessage-bridge.service` as systemd
+user units, with the state in `~/Projects/openbubbles-relay/data`. They were stopped and the
+bridge unit disabled, then the state was moved:
+
+1. `systemctl --user stop imessage-bridge imessage-relay` (one live copy only).
+2. Apply a throwaway pod that mounts `imessage-data` (busybox, pinned digest, deleted after).
+3. Stream the data without printing it:
+   `tar -C <data dir> --exclude=relay-secret -cf - . | ssh pve 'pct exec 200 -- kubectl -n imessage exec -i imessage-seed -- tar -xf - -C /data'`
+   (`relay-secret` is the registration-relay's own secret and is not needed here).
+4. Compare sha256 of each file on both sides (print only match/mismatch).
+5. `chown -R 10001:10001 /data` in the seed pod (the files arrive owned by the laptop uid; the
+   server runs as 10001 and the files are mode 0600), delete the seed pod.
+6. Scale `apps/imessage` to `replicas: 1` by commit.
+
+To roll back: scale to 0 by commit, copy `/data` back, `systemctl --user enable --now` the two
+units. The laptop `data/` directory was left untouched.
+
+## Device identity at boot
+
+With `REGISTRATION_RELAY_URL` unset the server falls back to the Mac identity from
+`hwconfig.plist`; that is what the laptop was already running on (the relay is only reachable
+when the iPhone is online) and it stayed registered and received messages. A server build that
+caches the relay's iPhone identity on first contact (`relay-identity.json`) is in the relay
+repo; build it and bump the tag to use it.
