@@ -81,7 +81,7 @@ spec:
                 limits: {cpu: 100m, memory: 64Mi}
           containers:
             - name: forcestart
-              image: python:3.14-alpine3.24
+              image: python:3.15-alpine3.24
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
