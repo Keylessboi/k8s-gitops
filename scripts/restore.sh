@@ -293,7 +293,8 @@ borg_extract() {
     }
 
     log_info "Extracted to: ${EXTRACT_DIR}"
-    ls -lhR "${EXTRACT_DIR}" | head -50
+    # sed, not head: see pg_verify_dump. A big archive made this exit 141.
+    ls -lhR "${EXTRACT_DIR}" | sed -n '1,50p'
 }
 
 # ─── ETCD VERIFY ─────────────────────────────────────────────────────────────
@@ -302,7 +303,9 @@ etcd_verify() {
     log_step "Verify etcd snapshot integrity"
 
     local SNAPSHOT_PATH
-    SNAPSHOT_PATH=$(ls -1t "${SNAPSHOT_DIR}"/etcd-snapshot-* 2>/dev/null | head -1)
+    # `|| true`: with no snapshot, ls fails, pipefail fails the assignment
+    # and set -e exits before the message below can say why.
+    SNAPSHOT_PATH=$(ls -1t "${SNAPSHOT_DIR}"/etcd-snapshot-* 2>/dev/null | head -1 || true)
     if [[ -z "$SNAPSHOT_PATH" ]]; then
         log_error "No etcd snapshots found in ${SNAPSHOT_DIR}"
         exit 1
@@ -406,7 +409,10 @@ pg_verify_dump() {
     fi
 
     log_info "pg_restore --list output (first 15 lines):"
-    pg_restore -l "$DUMP_PATH" 2>&1 | head -15
+    # sed, not head: head exits after 15 lines, pg_restore takes SIGPIPE on
+    # any real-sized dump, and pipefail + set -e end the script with 141
+    # before it reaches "Dump verified OK".
+    pg_restore -l "$DUMP_PATH" 2>&1 | sed -n '1,15p'
     local TOC_COUNT
     TOC_COUNT=$(pg_restore -l "$DUMP_PATH" 2>&1 | grep -c "^[0-9]" || true)
     log_info "Total TOC entries: ${TOC_COUNT}"

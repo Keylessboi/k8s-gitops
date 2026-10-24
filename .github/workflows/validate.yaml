@@ -307,7 +307,20 @@ jobs:
             [ -f "${dir}kustomization.yaml" ] || continue
             # Rendering failures are the kustomize-build job's business; skip
             # quietly here so one root cause does not paint two jobs red.
-            out="$(kustomize build --enable-helm --helm-kube-version "v${K8S_VERSION}" "$dir" 2>/dev/null)" || continue
+            #
+            # Retried like the kustomize-build job, though. A chart pull that
+            # resets once is retried and passes there, while a single attempt
+            # here skipped the app - and an app missing from /tmp/rendered is
+            # never seen by the protected-state step below, which then passes
+            # without having checked it.
+            out=""
+            for attempt in 1 2 3; do
+              out="$(kustomize build --enable-helm --helm-kube-version "v${K8S_VERSION}" "$dir" 2>/dev/null)" && break
+              out=""
+              rm -rf "${dir}charts"
+              [ "$attempt" -lt 3 ] && sleep $((attempt * 10))
+            done
+            [ -n "$out" ] || continue
             # Kept for the protected-state step below, so the charts are
             # rendered once.
             printf '%s\n' "$out" > "/tmp/rendered/$name.yaml"
