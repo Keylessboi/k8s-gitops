@@ -159,6 +159,55 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
+## 2026-10-23 — Four silent gaps found by rendering the tree: octo → slskd refused, accounts-tls cannot renew, MinIO and cert-manager unmonitored
+
+**Symptom.** None reported; all four fail without an error anyone would see.
+Found by cross-checking the rendered manifests (`kustomize build --enable-helm`
+for every app) rather than on the cluster, so nothing here was observed live.
+
+- Octo's Soulseek path (`Soulseek__BaseUrl: http://slskd.downloads.svc.cluster.local:5030`)
+  would get `connection refused`.
+- `accounts-tls` would fail renewal with `Waiting for HTTP-01 challenge
+  propagation: wrong status code '502'`, the 2026-10-20 ejabberd signature.
+- A 503 on MinIO's `/minio/health/cluster` alerted nobody.
+- cert-manager had no scrape target at all.
+
+**Root cause.**
+- slskd is a container in the qbittorrent pod, and `app-isolation` in
+  `downloads` admitted 5030 only from `lidarr` and `books`. Octo is in
+  `downloads`, and nothing admitted it, despite the comment in `octo.yaml`
+  saying the existing policy already did.
+- `accounts` admits `kube-system` on 8080 only, so Traefik cannot reach
+  cert-manager's solver pod on 8089. The other 16 namespaces with a
+  cert-manager Ingress all admit it.
+- `kustomization.yaml` routes `alertname=~"MinIO.*"` to `smart-email`, but no
+  `MinIO*` rule has ever existed in the repo. `EndpointDown` does not cover the
+  probe, because it selects `probe_group="edge"`.
+- The cert-manager ServiceMonitor asked for port `tcp-prometheus-servicemonitor`.
+  chart v1.21 names port 9402 `http-metrics`.
+
+**Fix.**
+- Admit octo to 5030 in `downloads`, and kube-system to 8089 in `accounts`.
+- Add `MinIOClusterUnhealthy` and `MinIOProbeAbsent` (unit-tested with
+  `promtool test rules`).
+- Point the ServiceMonitor at `http-metrics`.
+- In the same change, remove leftovers of deleted apps:
+  - the remux and convertx edge-probe targets;
+  - NetworkPolicy peers naming the deleted `pangolin` and `forgejo` namespaces
+    (HS-NET-03);
+  - the `couchdb` DopplerSecret, which still writes into the deleted
+    `obsidian` namespace.
+
+**Prevention.** The both-ends check in `scripts/ci/check-invariants.py`
+compares namespaces only. The octo gap is inside one namespace and is about a
+port, so the check cannot see it. The same goes for an alert route whose
+matcher matches no rule, and for a ServiceMonitor port that no Service has.
+All of these could be checks on the rendered output that the schema job
+already produces.
+
+**Confidence.** PROBABLE. Each defect is confirmed in the rendered manifests;
+none was reproduced on the cluster, and the fixes are not verified live.
+
 ## 2026-10-20 — imessage re-registration fails with "Registration Error ... (6004)": the pod has no real device identity
 
 **Symptom.** FaceTime calls and joins failed with `Do not retry Failed to generate resource
