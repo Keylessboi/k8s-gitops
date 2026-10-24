@@ -158,7 +158,9 @@ spec:
   namespaceSelector:
     matchNames: [cert-manager]
   endpoints:
-    - port: tcp-prometheus-servicemonitor
+    # http-metrics, the name chart v1.21 gives port 9402. The old
+    # tcp-prometheus-servicemonitor matched no port, so this scraped nothing.
+    - port: http-metrics
       interval: 60s
       relabelings:
         - targetLabel: job

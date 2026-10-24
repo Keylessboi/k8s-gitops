@@ -49,6 +49,17 @@ spec:
       ports:
         - port: 8080
           protocol: TCP
+    # Octo -> slskd (Soulseek__BaseUrl in octo.yaml). slskd is a container in
+    # the qbittorrent pod, and until 2026-10-23 its port was admitted only
+    # from lidarr and books, so Octo's in-namespace calls were REJECTed even
+    # though octo.yaml says the policy already permits them.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: octo
+      ports:
+        - port: 5030
+          protocol: TCP
     # gluetun's proxy ports moved into this pod, so the consumers that used to
     # reach the vpn namespace now have to be admitted here instead: remux and
     # navidrome across namespaces, and octo from inside this one.
