@@ -883,7 +883,7 @@ helmCharts:
   # breaking change between v1.7.5 and v1.20.0 touches a component it uses.
   - name: alloy
     repo: https://grafana.github.io/helm-charts
-    version: 1.13.1
+    version: 1.14.0
     releaseName: alloy
     namespace: monitoring
     includeCRDs: true
