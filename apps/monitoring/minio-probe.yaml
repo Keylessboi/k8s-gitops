@@ -42,3 +42,47 @@ spec:
     staticConfig:
       static:
         - http://192.168.1.67:9000/minio/health/cluster
+---
+# The rule the probe above exists for. kustomization.yaml routes
+# alertname=~"MinIO.*" to smart-email on the strength of a comment saying the
+# rules here are all named MinIO*, but until 2026-10-23 there were none: the
+# probe recorded probe_success=0 and nothing turned it into an alert.
+# EndpointDown does not cover it either, because it selects
+# probe_group="edge" and this target has no such label.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: minio-health
+  namespace: monitoring
+  labels:
+    release: kps
+spec:
+  groups:
+    - name: minio-health
+      rules:
+        - alert: MinIOClusterUnhealthy
+          expr: probe_success{job="probe/monitoring/minio-health"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "MinIO cluster health has failed for 5m"
+            description: >-
+              {{ $labels.instance }} is not answering 2xx. A 503 here means
+              MinIO has lost read/write quorum (the 2026-08-29 signature:
+              zero drives online), so every backup written to it is failing.
+              /minio/health/live can still be 200 while this is down.
+        # The probe itself vanishing would also stop the rule above from ever
+        # firing, which is the silent case this file was written to end.
+        - alert: MinIOProbeAbsent
+          expr: absent(probe_success{job="probe/monitoring/minio-health"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "No MinIO health probe results for 15m"
+            description: >-
+              Prometheus has no probe_success series for the MinIO probe, so
+              MinIOClusterUnhealthy cannot fire. Check the Probe CR's release
+              label, the blackbox exporter, and the monitoring egress rule to
+              192.168.1.67:9000.
