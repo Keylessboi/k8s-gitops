@@ -11,7 +11,7 @@ Tailscale, so it relays. Same topology reason as homelab-beat-receiver on
 switch and must stay as dumb as it is.
 
 WHAT IT ACCEPTS
-  POST /<topic>                 body + headers forwarded to ntfy as-is
+  POST /<topic>                 body + allow-listed headers forwarded to ntfy
   POST /alertmanager/<topic>    an Alertmanager webhook, rendered readable
   POST /                        ntfy's own JSON publish shape, {"topic": ...}
   POST /<topic>?title=..&message=..&priority=..&tags=..
@@ -56,10 +56,24 @@ SEVERITY = {
 # Call), and this relay has no business issuing those on a caller's behalf.
 PASS_HEADERS = ("Title", "Priority", "Tags", "Markdown", "Click", "Icon")
 
+# The same rule for the two other places ntfy reads commands from: the query
+# string (delay=, email=, call= work there too, with their short aliases) and
+# the JSON publish body. Only the message-shaping fields go through.
+PASS_QUERY = {"title", "t", "message", "m", "priority", "prio", "p", "tags",
+              "tag", "ta", "markdown", "md", "click", "icon"}
+PASS_JSON = {"topic", "message", "title", "priority", "tags", "markdown",
+             "click", "icon"}
+
+
+def safe_query(query):
+    pairs = urllib.parse.parse_qsl(query, keep_blank_values=True)
+    return urllib.parse.urlencode([(k, v) for k, v in pairs if k.lower() in PASS_QUERY])
+
 
 def publish(topic, body, headers, query=""):
-    # The query string is forwarded verbatim: ntfy reads title, message,
-    # priority and tags from it, which is the only form some clients send.
+    # The query string is forwarded (filtered by safe_query): ntfy reads title,
+    # message, priority and tags from it, which is the only form some clients
+    # send.
     url = f"{NTFY}/{topic}" + (f"?{query}" if query else "")
     req = urllib.request.Request(url, data=body, method="POST", headers=headers)
     with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
@@ -118,7 +132,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._reply(404, "not found\n")
 
     def do_POST(self):
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return self._reply(400, "bad Content-Length\n")
         raw = self.rfile.read(length) if length else b""
 
         # Split the query off BEFORE reading the topic. Lidarr and its
@@ -127,7 +144,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # body - so treating self.path as a bare topic rejected every one of
         # them as `unknown topic 'homelab-alerts?title=Lidarr%20-%20Test...'`.
         split = urllib.parse.urlsplit(self.path)
-        path, query = split.path, split.query
+        path, query = split.path, safe_query(split.query)
 
         # ntfy's JSON publish shape, posted to the root with the topic in the
         # body. Lidarr, Prowlarr and Readarr all send this - their ntfy client
@@ -136,16 +153,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path.strip("/") == "":
             try:
                 payload = json.loads(raw or b"{}")
-                topic = payload.get("topic")
             except ValueError as e:
                 return self._reply(400, f"unparseable json: {e}\n")
+            if not isinstance(payload, dict):
+                return self._reply(400, "json body must be an object\n")
+            topic = payload.get("topic")
             if topic not in TOPICS:
                 return self._reply(404, f"unknown topic {topic!r}\n")
             try:
-                # Forwarded verbatim to ntfy's root; it understands this shape
-                # natively, so there is nothing to translate.
+                # ntfy's root understands this shape natively, so there is
+                # nothing to translate - only fields to drop, as for headers.
+                body = json.dumps({k: v for k, v in payload.items() if k in PASS_JSON})
                 req = urllib.request.Request(
-                    NTFY, data=raw, method="POST",
+                    NTFY, data=body.encode(), method="POST",
                     headers={"Content-Type": "application/json"})
                 urllib.request.urlopen(req, timeout=TIMEOUT).read()
                 return self._reply(204, "")
