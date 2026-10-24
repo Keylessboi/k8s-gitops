@@ -52,5 +52,9 @@ desktop.ini
 *.orig
 *.rej
 
+# Python bytecode. Three .pyc files were committed by accident on 2026-09-05.
+__pycache__/
+*.py[co]
+
 # Claude Code per-session state (worktrees are nested git checkouts; never commit them).
 .claude/
