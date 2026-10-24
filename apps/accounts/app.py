@@ -218,10 +218,35 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send(200, render(self._who()))
 
+    def _same_origin(self):
+        """A browser POST from another site must not ride the admin's session.
+
+        The page sets passwords on existing authentik accounts, so a form on
+        any *.sandstorm.chat page (same-site, so the session cookie is sent)
+        could otherwise reset akadmin's. Browsers send Origin on every form
+        POST and Sec-Fetch-Site on current ones; a client sending neither is
+        not a browser and has no victim's cookies to borrow.
+        """
+        site = self.headers.get("Sec-Fetch-Site")
+        if site and site not in ("same-origin", "none"):
+            return False
+        origin = self.headers.get("Origin")
+        if origin and origin != f"https://{self.headers.get('Host', '')}":
+            return False
+        return True
+
     def do_POST(self):
+        if self.path == "/healthz":
+            return self._send(405, "method not allowed\n", "text/plain")
         if self._guard() is not True:
             return
-        length = int(self.headers.get("Content-Length") or 0)
+        if not self._same_origin():
+            return self._send(403, "<h1>403</h1><p>Cross-site form posts are "
+                                   "refused. Submit the form from this page.</p>")
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return self._send(400, "<h1>400</h1><p>Bad Content-Length.</p>")
         form = urllib.parse.parse_qs(self.rfile.read(length).decode())
         username = (form.get("username") or [""])[0].strip()
         email = (form.get("email") or [""])[0].strip()
