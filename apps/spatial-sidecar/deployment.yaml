@@ -86,7 +86,7 @@ spec:
             - --staging-dir=/scratch/staging
             - --remote-dir=/spatial
             - --backup-dir=/backup
-            - --max-queue=800
+            - --max-queue=100
           ports:
             - {name: http, containerPort: 8080}
           readinessProbe:
@@ -97,6 +97,12 @@ spec:
           # (measured 520-564 MiB); 1.2-3 GB of scratch per track, bounded by sizeLimit; tank I/O
           # ~0.5 GB written + read back per track; a reconcile walks ~75k files (2 min cold)
           # every 6 h; --max-queue aborts any pass that would queue more than 100 renders.
+          #
+          # Back to the 100 default (2026-10-27). 400/600/800 were temporary lifts for the
+          # Atmos catch-up pass (559 companions, ~90 GiB). That pass is finished: the log shows
+          # queued=0 rendered=0 on every pass, 1868 entries published and unchanged. The guard
+          # exists so a runaway scan cannot queue more renders than the node can hold; leaving it
+          # lifted removes that protection for no benefit.
           resources:
             requests: {cpu: 250m, memory: 384Mi, ephemeral-storage: 1Gi}
             limits: {cpu: "1", memory: 1536Mi, ephemeral-storage: 10Gi}
