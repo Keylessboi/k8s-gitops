@@ -10,12 +10,17 @@ spec:
     - Egress
   ingress:
     # Traefik only. Nothing else in the cluster has any business calling this.
+    # 8089 is cert-manager's HTTP-01 solver pod, which runs in this namespace
+    # for accounts-tls: without it every renewal fails with a 502 on the
+    # challenge (doctor-log 2026-10-20, ejabberd).
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
       ports:
         - port: 8080
+          protocol: TCP
+        - port: 8089
           protocol: TCP
   egress:
     - to:
