@@ -159,6 +159,32 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
+## 2026-10-23 — accounts: a form post from any *.sandstorm.chat page could reset an authentik password
+
+**Symptom.** None observed; found in review. A same-site POST to
+`https://accounts.sandstorm.chat/` with `username=akadmin` and a new password,
+sent from another subdomain while an admin was signed in, returned 200
+`existed, password set | id 1`. Reproduced against a mock authentik.
+
+**Root cause.** `do_POST` in `apps/accounts/app.py` checked the forward-auth
+identity headers but not where the form came from. Every subdomain of
+sandstorm.chat is same-site, so the browser sends the authentik session cookie
+with a cross-subdomain form post, forward-auth passes, and the app sets the
+password of whatever account the form names - existing ones included.
+
+**Fix.** POSTs are refused with 403 unless `Origin` matches the request's own
+host and `Sec-Fetch-Site` (when sent) is `same-origin`. A client that sends
+neither is not a browser and has no victim's session to borrow, so curl and
+scripts still work. `POST /healthz` now answers 405 instead of closing the
+connection without a response.
+
+**Prevention.** Any endpoint here that changes state on a POST checks the
+origin itself. Forward-auth proves who the browser belongs to, not that the
+person meant to send this request.
+
+**Confidence.** CONFIRMED against a mock authentik (cross-site POST 200 before,
+403 after); not exercised on the live ingress.
+
 ## 2026-10-20 — imessage re-registration fails with "Registration Error ... (6004)": the pod has no real device identity
 
 **Symptom.** FaceTime calls and joins failed with `Do not retry Failed to generate resource

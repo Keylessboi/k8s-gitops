@@ -32,8 +32,15 @@ for t in $TARGETS; do
   [ "$got" = "$want" ] || fails="${fails}  ${host}: expected ${want}, got ${got:-no-response}\n"
 done
 
+# Three states, not two: "edge" (every target failing - node, router, port
+# forward or DNS), "app" (some failing - one application), and "ok". With only
+# down/ok, a single broken app was re-announced after 30 minutes as an urgent
+# "STILL DOWN: homelab edge", and the edge failing while an app was already
+# down was no transition at all, so HOMELAB EDGE UNREACHABLE never fired.
+n=$(printf "%b" "$fails" | grep -c . || true)
 prev=$(cat "$STATE" 2>/dev/null || echo ok)
-if [ -n "$fails" ]; then state=down; else state=ok; fi
+[ "$prev" = down ] && prev=edge   # state files written before "app" existed
+if [ "$n" -ge 3 ]; then state=edge; elif [ "$n" -gt 0 ]; then state=app; else state=ok; fi
 
 # WHY THIS IS NOT JUST "state != prev". It used to be, and on 2026-09-04 that
 # cost three and a half hours. pve powered off at 18:39, this fired exactly one
@@ -60,12 +67,12 @@ down_since=$(stat -c %Y "$STATE" 2>/dev/null || echo "$now")
 [ "$last" = 0 ] && last=$down_since
 
 renotify=no
-if [ "$state" = down ] && [ "$prev" = down ] \
+if [ "$state" = edge ] && [ "$prev" = edge ] \
    && [ $((now - last)) -ge "$RENOTIFY" ]; then
   renotify=yes
 fi
 
-if [ "$state" = down ] && [ "$renotify" = yes ]; then
+if [ "$renotify" = yes ]; then
   mins=$(( (now - down_since) / 60 ))
   curl -s -m 10 -H "Title: STILL DOWN: homelab edge (${mins}m)" -H "Priority: urgent" \
     -H "Tags: rotating_light" \
@@ -75,13 +82,11 @@ if [ "$state" = down ] && [ "$renotify" = yes ]; then
 fi
 
 if [ "$state" != "$prev" ]; then
-  if [ "$state" = down ]; then
+  if [ "$state" != ok ]; then
     echo "$now" > "$STAMP"
-    # Distinguish "the edge is gone" from "one app broke" before notifying, so
-    # the message says which. A single app failing is the owner-notices-it case
-    # and does not need to interrupt anyone; all three failing is an errand.
-    n=$(printf "%b" "$fails" | grep -c .)
-    if [ "$n" -ge 3 ]; then
+    # Say which it is: a single app failing is the owner-notices-it case and
+    # does not need to interrupt anyone; all three failing is an errand.
+    if [ "$state" = edge ]; then
       curl -s -m 10 -H "Title: HOMELAB EDGE UNREACHABLE" -H "Priority: urgent" \
         -H "Tags: rotating_light" \
         -d "$(printf "All published services are failing from outside the network.\n\n%b\nThat is the edge, not an app: node, router, port forward or DNS.\nThe in-cluster probes cannot see this class." "$fails")" \

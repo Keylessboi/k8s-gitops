@@ -96,7 +96,8 @@ PROBES = {"icmp": probe_icmp, "tcp": probe_tcp}
 
 def publish(title, message, priority="default", tags=""):
     """POST to ntfy. Never raise - a watchdog that dies on a failed alert is
-    worse than no watchdog, and the next sweep will try again anyway."""
+    worse than no watchdog. Returns whether it was delivered, so the caller
+    can try again on the next sweep."""
     req = urllib.request.Request(
         f"{NTFY}/{TOPIC}", data=message.encode(), method="POST")
     req.add_header("Title", title)
@@ -149,6 +150,10 @@ def main():
     state = load_state()
     for key, _, _, _, _ in TARGETS:
         state.setdefault(key, {"misses": 0, "down": False, "last_notified": 0})
+        # "alerted": the DOWN push was delivered. A state file from before
+        # this field existed was written after a delivery attempt, so a
+        # target already down counts as alerted.
+        state[key].setdefault("alerted", state[key]["down"])
     state.setdefault("last_heartbeat_day", None)
 
     print("homelab-external-watchdog up; watching "
@@ -163,7 +168,7 @@ def main():
 
             if ok:
                 if st["down"]:
-                    publish(
+                    delivered = publish(
                         f"RECOVERED: {label}",
                         f"{label} is answering again.\n\n"
                         f"Down for roughly "
@@ -172,8 +177,14 @@ def main():
                         f"  ssh root@192.168.1.153 "
                         f"'journalctl -b -1 -k --no-pager | tail -200'",
                         priority="high", tags="white_check_mark")
+                    if not delivered:
+                        # Stay "down" so the next sweep sends it again: a
+                        # lost RECOVERED leaves the owner believing it is
+                        # still down.
+                        st["misses"] = 0
+                        continue
                     st["down_since"] = None
-                st.update(misses=0, down=False, last_notified=0)
+                st.update(misses=0, down=False, last_notified=0, alerted=False)
                 continue
 
             st["misses"] += 1
@@ -183,8 +194,14 @@ def main():
             if not st["down"]:
                 st["down"] = True
                 st["down_since"] = now
-                st["last_notified"] = now
-                publish(
+                st["alerted"] = False
+
+            # Until the DOWN push is delivered, retry it every sweep. Marking
+            # it sent before publish() returned meant one failed push (ntfy
+            # restarting, the tailnet flapping) delayed the first alert of a
+            # real outage by RENOTIFY_SECONDS.
+            if not st["alerted"]:
+                if publish(
                     f"DOWN: {label}",
                     f"{label} has failed {st['misses']} checks in a row.\n\n"
                     f"Detected from awesomemediaserver, which is outside the "
@@ -193,14 +210,16 @@ def main():
                     f"If pve is down, everything is down: k3s, ArgoCD, all "
                     f"~35 apps. Recovery needs someone at the machine unless "
                     f"BIOS WoL and AC-power-recovery are on.",
-                    priority="urgent", tags="rotating_light")
+                    priority="urgent", tags="rotating_light"):
+                    st["alerted"] = True
+                    st["last_notified"] = now
             elif now - st["last_notified"] >= RENOTIFY_SECONDS:
-                st["last_notified"] = now
                 down_min = int((now - st.get("down_since", now)) / 60)
-                publish(
+                if publish(
                     f"STILL DOWN: {label} ({down_min} min)",
                     f"{label} has now been down for {down_min} minutes.",
-                    priority="high", tags="rotating_light")
+                    priority="high", tags="rotating_light"):
+                    st["last_notified"] = now
 
             if key == "pve":
                 wake_on_lan(PVE_MACS)
