@@ -61,6 +61,9 @@ the literal string you are seeing, then read the entry.
 | `Failed to generate resource Registration Error Please try again (6004)` / `No identity for payload!` / `Reregistering now!` repeating, from imessage-server | no real device identity (relay not configured, Mac fallback rejected by Apple) — 2026-10-20 (imessage re-registration) |
 | `Error: no Apple ID: expected /data/gsa.plist or the IMESSAGE_APPLE_ID ...` from imessage-server, pod CrashLoopBackOff | phone-only deployment still needs a placeholder Apple ID — 2026-10-20 (imessage) |
 | `Waiting for HTTP-01 challenge propagation: wrong status code '502'` on a new app's Certificate | default-deny NetworkPolicy blocked Traefik from the ACME solver pod — 2026-10-20 (ejabberd) |
+| A pod Running but its readiness probe fails forever, and every job that calls it gets `connection refused`; process alive, 25 threads, 0% CPU | frozen .NET thread pool — 2026-10-27 (lidarr) |
+| Lidarr stops answering, its own log ends on Kestrel "heartbeat has been running longer than 1s" warnings | frozen .NET thread pool — 2026-10-27 (lidarr) |
+| `zfs get used` grows after cloning files, and you conclude reflinks copied the data | block cloning is accounting, not copying — check `zpool get bclonesaved` — 2026-10-27 |
 | Tracks all play at different volumes | no ReplayGain tags — 2026-09-15 |
 | A database is slow but sequential file reads are fine | storage, not the app — 2026-09-12 |
 | `Unrecognized host/PassKey` or `ASN mismatch` from MAM | session locked to the wrong ASN — 2026-09-12 |
@@ -158,6 +161,130 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-10-27 — reflinks "did not save space" three times over: `zfs get used` counts cloned blocks as used
+
+**Symptom.** Converting the music library's 17,500 hardlinks-to-torrents into
+reflink clones (so Lidarr's tag writes cannot corrupt the seeding copies) was
+supposed to be storage-neutral. Afterwards `zfs get used tank/extra` had grown
+from **4.38T to 4.79T**, and `zpool list` free had dropped from **1.10T to
+998G**. That reads as "the clones copied 410 GiB", which would be an acceptable
+price only if the user had agreed to it — they explicitly had not.
+
+**Root cause.** *Four* separate measurement mistakes, each of which produced a
+confident wrong answer:
+
+1. `stat -c %b` on a freshly written file returns **1 block**. ZFS delayed
+   allocation means nothing is assigned until writeback, so *every* file
+   (including plain copies) looks like ~0 bytes for a while.
+2. `zfs get used` counts **logically referenced** space. A clone references
+   the source's blocks, so the dataset's `used` grows by the file size even
+   though no block was allocated. This is the one that caused the false alarm.
+3. `zpool get free/allocated` lags writeback, so a delta measured 40 seconds
+   apart can show zero for work that did consume (or free) space.
+4. `zdb -bb` on a 4.26T pool times out, so the "obvious" ground truth was
+   never actually obtained.
+
+**What was actually true.** The feature was working the whole time:
+
+```
+$ zpool get bcloneused,bclonesaved,bcloneratio tank
+tank  bcloneused    410G
+tank  bclonesaved   410G
+tank  bcloneratio   2.00x
+```
+
+410 GiB **saved**, ratio exactly 2.00x (one shared block, two references), and
+`zpool allocated` unchanged at 6.15T across the entire migration. The detach
+cost **zero** physical bytes.
+
+**Fix.** None was needed — no rollback, no re-clone. The reclaimable space was
+already saved.
+
+**Prevention.** For block cloning, the only trustworthy counters are
+`zpool get bclonesaved` (bytes shared) and `zpool get allocated` (physical).
+Never `zfs get used` — it is a *logical* figure and will make a working clone
+look like a copy. When proving a clone works, measure with a settled baseline
+and treat `stat %b` as meaningless until writeback.
+
+The generalisable rule: **when a ZFS number contradicts an expectation, find the
+counter whose definition matches the question before concluding the operation
+failed.** "Space used" is three different quantities in ZFS.
+
+**Confidence: CONFIRMED.** `bclonesaved` moved by exactly the cloned byte
+count in a live 100 MiB test, and pool allocation did not move at all.
+
+## 2026-10-27 — lidarr stopped answering while its process sat there alive, and every caller saw "connection refused"
+
+**Symptom.** Every backup-ish job in the namespace started failing with
+`<urlopen error [Errno 111] Connection refused>` against
+`http://lidarr.lidarr.svc.cluster.local:8686`: `lidarr-search-sniper` and
+`lidarr-maintenance` in `lidarr`, and `octo-artist-on-heart` in
+`downloads` ("dependencies unreachable after 60s: waiting for navidrome and
+lidarr"). Each retried 30 times and then errored, every schedule, for hours.
+
+The pod was `Running`, had **0 restarts**, and had been up for 21 days. The
+Service had **no endpoints**, because the readiness probe (`GET /ping`) was
+failing. So from the outside it looked like a storage or NetworkPolicy problem,
+which is where the existing index points.
+
+**Root cause.** The lidarr process was **wedged**, not crashed. Its own log
+ends on Kestrel warnings:
+
+```
+[Warn] Microsoft.AspNetCore.Server.Kestrel: As of "10/26/2026 02:18:14 +00:00",
+the heartbeat has been running for "00:00:01.1220564" which is longer than
+"00:00:01". This could be caused by thread pool starvation.
+```
+
+and then nothing for 20 hours. Measured on the NAS, outside the container:
+
+| Check | Value |
+|---|---|
+| `utime`/`stime` over 5s | **0 / 0** — completely idle |
+| Threads | 25, **all** parked in `futex_do_wait` / parked thread-pool waits |
+| D-state threads | 0 (not blocked on NFS) |
+| Sockets owned | 8, none listening on a live accept path |
+
+So: alive, holding memory (1.6 GiB), doing nothing, and no longer accepting
+connections. The "thread pool starvation" warning is the closest thing to a
+cause; what produced it is not recorded. Kestrel's heartbeat thread and every
+.NET TP worker were parked together, so the listener never drained its backlog
+while the kernel still showed the socket open — hence callers saw *refused*
+rather than *timeout*.
+
+**(Correction worth keeping.)** 302 sockets in the pod's `/proc/net/tcp6` were
+in CLOSE_WAIT, and they were briefly read as evidence of a leak in lidarr. They
+are not: `/proc/net/tcp6` inside a pod shows the whole **pause container's**
+network namespace, i.e. every pod on that node. lidarr owned 8 descriptors. Do
+not diagnose one container from namespace-wide socket tables.
+
+**(Correction 2.)** While chasing this, `kubectl exec` into the pod reported
+`PID 1` as the lidarr process. It is the pause container. The real process has
+a high pid and is only visible from the host (`pgrep -f '/app/bin/Lidarr'`).
+
+**Fix.** Delete the pod; `strategy: Recreate` brought it back and it served
+immediately (`/ping` OK, endpoints populated, imports resumed). All three
+CronJobs recovered on their next schedule without intervention —
+`octo-artist-on-heart` completed in 3m32s. The `downloads` Application went
+from Degraded back to Healthy on its own once lidarr served, which confirmed
+the whole pile was one sick dependency and not four sick apps.
+
+**Prevention.** The general rule: *a container that is Running with 0 restarts
+is not evidence that it is working.* Before believing a storage or NetworkPolicy
+theory about `connection refused`, prove the process is actually scheduling
+work — `utime`/stime over a few seconds from the host, and a thread dump via
+`wchan`. Zero CPU ticks plus an all-parked thread list is a wedged runtime, and
+a restart is the fix; chasing the network is a day lost.
+
+Second rule: **`.NET` Kestrel heartbeat warnings are a real signal.** They were
+in the log for the entire 20 hours the process was unusable and nobody grepped
+for them, because the log looked otherwise healthy.
+
+**Confidence: CONFIRMED** for the diagnosis (process wedged, 0 CPU, threads
+parked) and for the fix (pod restart restored service). **PROVISIONAL** on *why*
+the thread pool starved — the log records the warning but not the trigger, and
+lidarr 3.1.3 with two plugins is a plausible suspect rather than a proven one.
 
 ## 2026-10-20 — imessage re-registration fails with "Registration Error ... (6004)": the pod has no real device identity
 
