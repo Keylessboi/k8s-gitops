@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Weekly unattended `pacman -Syu` for the Arch NAS, guarded for ZFS.
+# Daily unattended `pacman -Syu` for the Arch NAS, guarded for ZFS.
 #
 # Install (on the NAS, as root):
 #   install -m755 scripts/host/nas-auto-update /usr/local/bin/
@@ -17,7 +17,7 @@
 # kernel for zfs.ko, retries the DKMS build, and if a kernel still has none it
 # reinstalls the previous kernel from the package cache and alerts.
 #
-# What it never does: reboot (it alerts that one is pending), update AUR
+# What it never does: reboot (homelab-reboot-window does, Sundays 06:45), update AUR
 # packages (zfs-*-git, minio - those are deliberate), or edit pacman.conf.
 set -uo pipefail
 
@@ -37,12 +37,12 @@ has_zfs() { [ -n "$1" ] && find "/usr/lib/modules/$1" -name 'zfs.ko*' -print -qu
 pkgver_of() { pacman -Q "$1" 2>/dev/null | awk '{print $2}'; }
 
 if [ -e /var/lib/pacman/db.lck ]; then
-  echo "pacman database is locked; another transaction is running. Skipping this week."
+  echo "pacman database is locked; another transaction is running. Skipping this run."
   notify "skipped" "pacman was locked (another transaction running). Nothing was upgraded." low
   exit 0
 fi
 if systemctl is-active --quiet borgmatic-backup.service; then
-  echo "borgmatic backup is running; skipping this week rather than upgrading under it."
+  echo "borgmatic backup is running; skipping this run rather than upgrading under it."
   notify "skipped" "borgmatic was mid-backup. Nothing was upgraded; next run is next Sunday." low
   exit 0
 fi
@@ -81,7 +81,7 @@ for k in "${KERNELS[@]}"; do
   files=("$CACHE/$k-$prev-x86_64.pkg.tar.zst")
   [ -n "$prevh" ] && files+=("$CACHE/$k-headers-$prevh-x86_64.pkg.tar.zst")
   if ls "${files[@]}" >/dev/null 2>&1 && pacman -U --noconfirm "${files[@]}" && has_zfs "$(kver_of "$k")"; then
-    problems+=("$k: DKMS could not build ZFS for $kv, so $k was rolled back to $prev (ZFS verified). Probably the kernel is newer than zfs-dkms-git supports: rebuild zfs-*-git, then let next week's run retry.")
+    problems+=("$k: DKMS could not build ZFS for $kv, so $k was rolled back to $prev (ZFS verified). Probably the kernel is newer than zfs-dkms-git supports: rebuild zfs-*-git, then let the next daily run retry.")
   else
     problems+=("$k: no zfs.ko for $kv and the rollback to $prev FAILED. DO NOT REBOOT the NAS - the pool will not import.")
   fi
@@ -94,7 +94,7 @@ if [ ${#problems[@]} -gt 0 ]; then
   exit 1
 fi
 if [ -n "$booting" ] && [ "$running" != "$booting" ]; then
-  notify "reboot pending" "$upgraded packages upgraded. Kernel $booting is installed (running $running); ZFS verified for every installed kernel. Reboot when convenient." low
+  notify "reboot pending" "$upgraded packages upgraded. Kernel $booting is installed (running $running); ZFS verified for every installed kernel. homelab-reboot-window reboots Sun 06:45." low
 elif [ "$upgraded" -gt 0 ]; then
   echo "$upgraded packages upgraded; no kernel change."
 fi

@@ -1,0 +1,73 @@
+---
+# k3s upgrade Plans (docs/host-updates.md, ADR-0014).
+#
+# Both nodes (CT 200 `k3s-server`, control plane, and the `nas` agent) must run
+# the SAME version, so the two Plans carry the same `version:` and Renovate moves
+# them together (one dependency, one PR).
+#
+# Design choices that are deliberate:
+#   - cordon, never drain. The server is the only control-plane node and also runs
+#     this controller; draining it would evict the thing doing the upgrade, and
+#     draining `nas` would strand every local-path PVC pod (ADR-0009) as Pending.
+#     k3s restarts leave running pods alone (containerd shims outlive the service).
+#   - concurrency 1, server first: the agent Plan's `prepare` step waits for the
+#     k3s-server Plan to finish at the target version.
+#   - window: Jobs start only 03:00-05:00 America/New_York, Tue-Wed, so an upgrade
+#     never coincides with the Sunday NAS reboot or the Thursday pve reboot.
+#   - Minor versions are hopped ONE AT A TIME (renovate.json caps it). Hop order
+#     from 1.31: 1.32.13, 1.33.13+k3s2, 1.34.12, 1.35.9, 1.36.5, 1.37.1.
+#
+# Rollback: lowering `version:` is not a downgrade path across a minor (the etcd
+# schema moves forward). Restore the etcd snapshot instead (docs/access-procedures.md,
+# "Restore Procedure"). Patch-level reverts within a minor are safe.
+apiVersion: upgrade.cattle.io/v1
+kind: Plan
+metadata:
+  name: k3s-server
+  namespace: system-upgrade
+spec:
+  # renovate: datasource=github-releases depName=k3s-io/k3s
+  version: v1.31.14+k3s1
+  concurrency: 1
+  cordon: true
+  serviceAccountName: system-upgrade
+  nodeSelector:
+    matchExpressions:
+      - {key: node-role.kubernetes.io/control-plane, operator: Exists}
+  tolerations:
+    - operator: Exists
+  window:
+    days: [tuesday, wednesday]
+    startTime: "03:00"
+    endTime: "05:00"
+    timeZone: America/New_York
+  upgrade:
+    image: rancher/k3s-upgrade
+---
+apiVersion: upgrade.cattle.io/v1
+kind: Plan
+metadata:
+  name: k3s-agent
+  namespace: system-upgrade
+spec:
+  # renovate: datasource=github-releases depName=k3s-io/k3s
+  version: v1.31.14+k3s1
+  concurrency: 1
+  cordon: true
+  serviceAccountName: system-upgrade
+  nodeSelector:
+    matchExpressions:
+      - {key: node-role.kubernetes.io/control-plane, operator: DoesNotExist}
+  # `nas` carries the storage=true:NoSchedule taint (AGENTS.md).
+  tolerations:
+    - operator: Exists
+  prepare:
+    image: rancher/k3s-upgrade
+    args: ["prepare", "k3s-server"]
+  window:
+    days: [tuesday, wednesday]
+    startTime: "03:00"
+    endTime: "05:00"
+    timeZone: America/New_York
+  upgrade:
+    image: rancher/k3s-upgrade

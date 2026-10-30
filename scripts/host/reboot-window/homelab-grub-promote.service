@@ -1,0 +1,10 @@
+[Unit]
+Description=Promote a healthy new kernel to GRUB default (backup server only)
+After=network-online.target tailscaled.service docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/homelab-grub-promote
+
+[Install]
+WantedBy=multi-user.target

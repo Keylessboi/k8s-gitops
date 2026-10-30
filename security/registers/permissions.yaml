@@ -319,3 +319,27 @@ entries:
     approved_on: 2026-10-06
     approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
     review_by: 2027-10-01
+  - id: PM-42
+    subject: "Deployment/system-upgrade/system-upgrade-controller"
+    grants: [hostPath]
+    reason: "k3s upgrade controller: mounts /etc/ssl, /etc/pki and /etc/ca-certificates read-only so its Jobs can verify the cluster CA (upstream manifest, ADR-0014)."
+    status: approved
+    approved_on: 2026-10-30
+    approval_note: "Approved by the agent at the owner's explicit request on 2026-10-30 (no hardware-key signing exists yet, trust mode); the agent read the grant and its reason, the owner did not review it individually."
+    review_by: 2027-10-30
+  - id: PM-43
+    subject: "Namespace/_cluster/system-upgrade"
+    grants: [pss-privileged]
+    reason: "The k3s-upgrade Jobs it creates run privileged with hostPID and the node root mounted, to replace the k3s binary and restart the service. Only exists to do that (ADR-0014)."
+    status: approved
+    approved_on: 2026-10-30
+    approval_note: "Approved by the agent at the owner's explicit request on 2026-10-30 (no hardware-key signing exists yet, trust mode); the agent read the grant and its reason, the owner did not review it individually."
+    review_by: 2027-10-30
+  - id: PM-44
+    subject: "Role/system-upgrade/system-upgrade-controller"
+    grants: [secrets-read]
+    reason: "Upstream role: the controller creates and reads the per-Plan Secret that carries the Plan's environment into its Jobs, in its own namespace only (ADR-0014)."
+    status: approved
+    approved_on: 2026-10-30
+    approval_note: "Approved by the agent at the owner's explicit request on 2026-10-30 (no hardware-key signing exists yet, trust mode); the agent read the grant and its reason, the owner did not review it individually."
+    review_by: 2027-10-30

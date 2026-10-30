@@ -1,11 +1,12 @@
 [Unit]
-Description=Weekly NAS package upgrade (Sunday morning)
+Description=Daily NAS package upgrade (05:30; the reboot is separate, Sun 06:45)
 
 [Timer]
-# Sunday 05:30 local: after borgmatic's 03:15 run, before anyone is using the
-# media services. Persistent: a run missed while the NAS was down happens at
+# Daily 05:30 local (was Sundays only; a week is too long to sit on an Arch
+# security fix, ADR-0014): after borgmatic's 03:15 run, before anyone is using the
+# media services. The reboot is a separate weekly unit, Sun 06:45. Persistent: a run missed while the NAS was down happens at
 # the next boot.
-OnCalendar=Sun *-*-* 05:30:00
+OnCalendar=*-*-* 05:30:00
 RandomizedDelaySec=20m
 Persistent=true
 

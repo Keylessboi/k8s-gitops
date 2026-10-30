@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# Reboot this host inside its maintenance window, but only when an update left
+# it running stale code, and only after the per-role safety checks pass.
+# Docs: docs/host-updates.md, ADR-0014. Run by homelab-reboot-window.timer.
+#
+#   homelab-reboot-window [--dry-run]
+#
+# Roles (ROLE in /etc/default/homelab-reboot-window): nas | pve | vmhub | backup
+#
+# Nothing here updates packages. unattended-upgrades / nas-auto-update do that,
+# earlier the same night; this only decides whether the result needs a reboot
+# and whether rebooting now is safe. A skipped night is a low-priority ntfy and
+# the next timer tick tries again.
+set -uo pipefail
+
+DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
+[ -r /etc/default/homelab-reboot-window ] && . /etc/default/homelab-reboot-window
+ROLE="${ROLE:?set ROLE in /etc/default/homelab-reboot-window}"
+NTFY="${NTFY:-http://100.81.123.74:2586/homelab-alerts}"
+MIN_UPTIME_H="${MIN_UPTIME_H:-12}"   # loop guard: never reboot a host that just rebooted
+HOST="$(uname -n)"
+
+notify() { # priority title message
+  [ "$DRY" = 1 ] && { echo "ntfy[$1] $2: $3"; return 0; }
+  curl -fsS -m 15 -H "Title: $HOST: $2" -H "Priority: $1" -H "Tags: package" \
+    -d "$3" "$NTFY" >/dev/null || echo "ntfy publish failed: $2" >&2
+}
+skip() { echo "skip: $*"; notify low "reboot skipped" "$*"; exit 0; }
+
+running="$(uname -r)"
+
+# ---- is a reboot needed? ----------------------------------------------------
+reason=""
+newest="$(ls /usr/lib/modules | sort -V | tail -1)"
+if [ "$ROLE" = nas ]; then
+  # Arch deletes the running kernel's module dir on upgrade, so a stale NAS also
+  # can no longer load modules. uname -r is "7.2.8-arch1-2", pacman says "7.2.8.arch1-2".
+  if [ ! -d "/usr/lib/modules/$running" ]; then
+    reason="running kernel $running was upgraded away"
+  else
+    pkg=linux; case "$running" in *-lts) pkg=linux-lts ;; esac
+    ver="$(pacman -Q "$pkg" | awk '{print $2}')"
+    want="${ver/.arch/-arch}"; [ "$pkg" = linux-lts ] && want="$ver-lts"
+    [ "$running" != "$want" ] && reason="running $running, installed $want"
+    newest="$want"
+  fi
+else
+  [ -e /run/reboot-required ] && reason="reboot-required: $(sort -u /run/reboot-required.pkgs 2>/dev/null | tr '\n' ' ')"
+  [ -z "$reason" ] && [ "$newest" != "$running" ] && reason="running $running, installed $newest"
+fi
+[ -z "$reason" ] && { echo "no reboot needed"; exit 0; }
+echo "reboot wanted: $reason"
+
+# ---- common safety checks ----------------------------------------------------
+up_h=$(( $(cut -d. -f1 /proc/uptime) / 3600 ))
+[ "$up_h" -lt "$MIN_UPTIME_H" ] && skip "uptime ${up_h}h < ${MIN_UPTIME_H}h, not rebooting again (loop guard)"
+if pgrep -x 'apt|apt-get|dpkg|unattended-upgr|pacman|paru|makepkg|dkms' >/dev/null; then
+  skip "a package manager is running; will retry at the next window ($reason)"
+fi
+
+# ---- per-role checks ---------------------------------------------------------
+case "$ROLE" in
+  nas)
+    # The 2026-10-04 failure: a kernel with no zfs.ko boots without `tank`.
+    find "/usr/lib/modules/$newest" -name 'zfs.ko*' 2>/dev/null | grep -q . \
+      || skip "kernel $newest has no zfs.ko; NOT rebooting (docs/host-updates.md, The NAS guard)"
+    systemctl is-active --quiet nas-auto-update.service && skip "nas-auto-update is running"
+    systemctl is-active --quiet borgmatic-backup.service && skip "borgmatic is mid-backup"
+    pgrep -x borg >/dev/null && skip "borg is running"
+    zpool status 2>/dev/null | grep -qE 'scrub in progress|resilver in progress' && skip "zpool scrub/resilver in progress"
+    zpool status -x 2>/dev/null | grep -q 'all pools are healthy' || skip "zpool is not healthy; fix before rebooting"
+    ;;
+  pve)
+    # CT 200 (the whole cluster) goes down with the host: it has onboot=1,
+    # startup order=1, so it returns on its own. Refuse if the pool is unhealthy.
+    zpool status -x 2>/dev/null | grep -qE 'all pools are healthy|no pools available' || skip "zpool is not healthy"
+    ;;
+  vmhub) : ;;
+  backup)
+    # Remote site, no hands, carries ntfy + the edge probe. Arm the new kernel as a
+    # ONE-SHOT and keep the running one as the saved default, so a kernel that does
+    # not boot falls back by itself (panic=30 reboots; GRUB_SAVEDEFAULT=false).
+    # homelab-grub-promote.service makes the new one the default once it is healthy.
+    sub="$(grep -o 'gnulinux-advanced-[0-9a-f-]*' /boot/grub/grub.cfg | head -1)"
+    uuid="${sub#gnulinux-advanced-}"
+    grep -q "gnulinux-$newest-advanced-$uuid" /boot/grub/grub.cfg || skip "no GRUB entry for $newest"
+    [ "$newest" != "$running" ] || { echo "same kernel, plain reboot"; sub=""; }
+    if [ -n "$sub" ]; then
+      if [ "$DRY" = 1 ]; then
+        echo "would: grub-set-default '$sub>gnulinux-$running-advanced-$uuid'; grub-reboot '$sub>gnulinux-$newest-advanced-$uuid'"
+      else
+        grub-set-default "$sub>gnulinux-$running-advanced-$uuid" \
+          && grub-reboot "$sub>gnulinux-$newest-advanced-$uuid" || skip "could not arm GRUB one-shot"
+      fi
+    fi
+    ;;
+  *) echo "unknown ROLE=$ROLE" >&2; exit 2 ;;
+esac
+
+notify default "rebooting in 60s" "$reason"
+[ "$DRY" = 1 ] && { echo "dry-run: would reboot"; exit 0; }
+sleep 60
+systemctl reboot

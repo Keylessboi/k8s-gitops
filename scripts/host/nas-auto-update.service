@@ -1,5 +1,5 @@
 [Unit]
-Description=Weekly pacman -Syu with a ZFS-for-every-kernel guard (no reboot)
+Description=Daily pacman -Syu with a ZFS-for-every-kernel guard (no reboot)
 Documentation=file:///home/travis/k8s-gitops/docs/host-updates.md
 After=network-online.target tailscaled.service
 Wants=network-online.target
