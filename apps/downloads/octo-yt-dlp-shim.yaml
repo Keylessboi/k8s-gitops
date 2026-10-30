@@ -68,6 +68,11 @@ spec:
               value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,.svc.cluster.local"
             - name: no_proxy
               value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,.svc.cluster.local"
+            # Cap on simultaneous yt-dlp extractions inside the shim. Set
+            # explicitly rather than left to the shim's built-in default, so the
+            # concurrency is visible in git next to the CPU limit it has to fit.
+            - name: MAX_CONCURRENT_YTDLP
+              value: "3"
           ports:
             - name: http
               containerPort: 8080
@@ -81,10 +86,14 @@ spec:
               cpu: 25m
               memory: 128Mi
             limits:
-              # yt-dlp spawns ffmpeg and a deno JS runtime for YouTube's
-              # signature challenges; 1Gi is headroom for one concurrent
-              # extraction on a node that idles near 90%.
-              cpu: "1"
+              # Raised 1 -> 2 on 2026-10-30: at 1 CPU the shim was CFS-throttled
+              # in roughly 20% of scheduling periods, because yt-dlp spawns
+              # ffmpeg and a deno JS runtime for YouTube's signature challenges
+              # and concurrent extractions compete for the same quota. Requests
+              # are unchanged (25m) on purpose; this only raises the ceiling.
+              # Pairs with MAX_CONCURRENT_YTDLP above. 1Gi memory is headroom
+              # for one extraction on a node that idles near 90%.
+              cpu: "2"
               memory: 1Gi
 ---
 apiVersion: v1
