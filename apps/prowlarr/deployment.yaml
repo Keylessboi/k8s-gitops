@@ -139,13 +139,17 @@ spec:
           ports:
             - name: http
               containerPort: 9696
+          # 256Mi was not enough: the container sat pinned against it
+          # (memory.peak 268,398,592 of a 268,435,456 limit) and was OOMKilled
+          # 93 times in nine days, each time mid-indexer-sync. Lidarr, the
+          # comparable *arr app, runs a 2Gi limit.
           resources:
             requests:
               cpu: 10m
-              memory: 128Mi
+              memory: 256Mi
             limits:
               cpu: 250m
-              memory: 256Mi
+              memory: 512Mi
           readinessProbe:
             # Same defect that took Lidarr out of service: the default one-second
             # timeout is not enough once an *arr app has real work to do, and this
