@@ -170,6 +170,35 @@ helmCharts:
             $CONFIG = array (
               'maintenance_window_start' => 6,
             );
+          # An orphaned lock costs an HOUR by default, which is the real reason
+          # a 55 GiB upload looked impossible: the transfer itself was fine.
+          #
+          # Measured on the 8 GiB parts a large file is now split into (the
+          # chunked /uploads path is abandoned - see the LimitRequestBody note above).
+          # Each part PUT completes, then the rename fails with
+          #   423 Locked ... existing lock on file: exclusive
+          #      OCA\DAV\Connector\Sabre\Exception\FileLocked
+          # Attempt 1 -> 15:48, attempt 2 -> 17:25, attempt 3 succeeded 19:12.
+          # Those gaps are 97 and 107 minutes: `filelocking.ttl` defaults to
+          # 3600s, and Redis holds the abandoned exclusive lock on that path for
+          # the whole of it, so every retry inside the window is rejected too.
+          #
+          # This is genuine Redis locking, not the Postgres fallback the
+          # REDIS_HOST block above repaired - so the fix is the TTL, not the
+          # memcache wiring.
+          #
+          # 300s, not 60s and not the old hour. The TTL is a liveness valve for
+          # a client that died holding a lock, so it has to outlast a real
+          # write: PHP here runs with max_execution_time 3600, but a lock on
+          # object storage is taken around the metadata rename, not held across
+          # the PUT, and this instance has exactly one human writing to it.
+          # Five minutes still collapses the worst case from 60 minutes per
+          # stuck part to 5, and leaves any genuine long operation untouched.
+          filelocking.config.php: |
+            <?php
+            $CONFIG = array (
+              'filelocking.ttl' => 300,
+            );
         # S3 as PRIMARY storage, which is what the plan asks for: MinIO
         # primary, NFS only as a media-streaming fallback. Nextcloud speaks S3
         # natively, so this needs no filesystem gateway - which is what sank
