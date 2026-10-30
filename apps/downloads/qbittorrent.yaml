@@ -318,13 +318,54 @@ spec:
               # Protected trackers are handled by FORCE START instead, which
               # bypasses the queue outright and keeps the torrent announcing.
               # See apps/downloads/qbit-protected-forcestart-cronjob.yaml.
+              #
+              # THE LIMITS THEMSELVES, MEASURED 2026-10-30. The numbers above
+              # were 3 dl / 8 ul / 12 active, and they were starving the
+              # download side: 1,016 torrents sat in queuedDL (median age 56
+              # days, oldest 57) while only 3 could ever try, and those 3 were
+              # themselves dead - 0.0% progress, 0 seeds, 0 peers, 20+ hours
+              # idle. Nothing behind them had ever announced even once
+              # (tracker status 1 = not contacted), so the queue was not
+              # slowly draining, it was frozen.
+              #
+              # 12 active was also the binding limit for SEEDING: 8 forcedUP +
+              # 2 stalledUP + 3 stalledDL filled it exactly, so 1,312 queuedUP
+              # torrents never announced at all.
+              #
+              # Slots alone were not the fix and this was verified, not
+              # assumed: raising max_active_downloads to 10 live promoted 10
+              # torrents within 20s and ALL TEN went straight to stalledDL, 0
+              # B/s, no seeds and no peers, for the two minutes it was left
+              # running (then reverted). The real shape of the backlog is why -
+              # of 2,424 torrents, 1,328 are complete, 1,003 are at exactly 0%
+              # and only 16 are anywhere in between. The download queue is
+              # almost entirely dead swarms, and dead swarms have to be
+              # REMOVED, not given more slots. That is what
+              # apps/downloads/qbit-dead-pruner-cronjob.yaml does; these
+              # limits only decide how many live attempts are in flight at
+              # once, and 15 is enough to keep real releases moving.
+              #
+              # On the upload side 40 is deliberately far below the 959
+              # seeding torrents that caused the IOPS incident. 40 concurrent
+              # seeds is two orders of magnitude short of it, and most of the
+              # 1,312 queuedUP are seedless leecher torrents that never
+              # finished - they cost a tracker announce and nothing else.
+              #
+              # seedpool.org IS NOT ADDED TO THE PROTECTED LIST, on purpose.
+              # It is 1,165 of the 2,424 torrents (520 seeding, 604 queuedDL)
+              # and NOT ONE of its announce URLs carries a passkey - there is
+              # no account, so there is no hit-and-run to protect against.
+              # Force-starting it would put ~1,165 torrents live at once and
+              # rebuild exactly the incident this file was rewritten to stop.
+              # The private trackers that DO have an account (myanonamouse.net)
+              # stay protected and stay force-started.
               awk '
                 /^\[BitTorrent\]$/ {
                   print
                   print "Session\\QueueingSystemEnabled=true"
-                  print "Session\\MaxActiveDownloads=3"
-                  print "Session\\MaxActiveUploads=8"
-                  print "Session\\MaxActiveTorrents=12"
+                  print "Session\\MaxActiveDownloads=15"
+                  print "Session\\MaxActiveUploads=40"
+                  print "Session\\MaxActiveTorrents=60"
                   print "Session\\IgnoreSlowTorrentsForQueueing=false"
                   next
                 }
@@ -335,7 +376,7 @@ spec:
                 /^Session\\IgnoreSlowTorrentsForQueueing=/ { next }
                 { print }
               ' "$F" > "$F.tmp" && mv "$F.tmp" "$F"
-              echo "qBittorrent queueing enabled (3 dl / 8 ul / 12 active)"
+              echo "qBittorrent queueing enabled (15 dl / 40 ul / 60 active)"
               echo "qBittorrent SOCKS5 proxy + AutoRun configured"
           volumeMounts:
             - name: config

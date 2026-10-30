@@ -1,0 +1,389 @@
+---
+# Remove downloads that are provably dead, so the queue can move again.
+#
+# WHY THIS EXISTS. The stall reaper next door pauses a download that has been
+# stalled for 3 hours, which frees its queue slot. That alone does not help:
+# qBittorrent then promotes the NEXT queued torrent, and if that one is dead
+# too - which almost all of them are - the slot is consumed again within
+# seconds.
+#
+# Measured 2026-10-30 on the live queue, and it is what makes this file
+# necessary rather than tidy: of 2,424 torrents, 1,328 are complete, 1,003 sit
+# at exactly 0% progress and only 16 are anywhere in between (7 under 10%, 6 at
+# 10-50%, 3 at 50-99%). 1,016 were in queuedDL, median age 56 days. Raising
+# max_active_downloads from 3 to 10 was tested live: ten torrents were promoted
+# inside 20 seconds and all ten went straight to stalledDL at 0 B/s with no
+# seeds and no peers. The backlog is not "good downloads waiting their turn",
+# it is dead swarms, and the only way past them is to remove them.
+#
+# WHAT COUNTS AS DEAD. All of these, and no exceptions:
+#   * the stall reaper parked it (tag stalled-paused=<ts>), so it already rode
+#     out STALL_HOURS of continuous stall, AND
+#   * it has stayed parked for DEAD_HOURS more, AND
+#   * progress is under DEAD_PCT.
+# A torrent that a person paused by hand carries no stalled-paused tag and is
+# therefore never a candidate. A torrent that partially downloaded and stalled
+# is above DEAD_PCT and is also never a candidate - the partial data may still
+# be worth resuming when the swarm comes back.
+#
+# SECOND CLASS: missingFiles. 76 torrents with files that no longer exist can
+# neither complete nor seed, so they hold a Lidarr queue record forever. They
+# are removed from the client but their files are NEVER touched (there are
+# none) and they are blocklisted so Lidarr does not re-grab the same release.
+# A save_path where EVERY torrent is missingFiles is treated as a broken mount
+# and held, not pruned: the alternative is deleting 40 torrents because NFS
+# hiccuped once.
+#
+# NEVER TOUCHED: private trackers (myanonamouse.net, iptorrents.com). Removing
+# one of those is a hit-and-run and costs the account. The tracker list is the
+# only reliable source - a dead torrent's info.tracker field is blank - and an
+# unreadable tracker list is treated as protected.
+#
+# IT GOES THROUGH LIDARR, NOT AROUND IT. A torrent removed straight from
+# qBittorrent stays in Lidarr's queue as a permanently broken record (1,864
+# records today, mostly this), and Lidarr keeps trying to import a download
+# that no longer exists. When Lidarr knows the hash, the removal is
+# DELETE /api/v1/queue/{id}?removeFromClient=true&blocklist=true - remove the
+# client item, blocklist the release so it stops being re-grabbed, and let
+# Lidarr search for a different one. Torrents Lidarr does not know about are
+# removed through qBittorrent directly.
+#
+# SHIPS AS A DRY RUN. APPLY defaults to false, so the first runs only print the
+# candidate list. It is flipped to true in a separate commit once that list has
+# been read.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: qbit-dead-pruner
+  namespace: downloads
+spec:
+  # Half-hourly: the pruner only ever sees torrents the reaper parked at least
+  # DEAD_HOURS ago, so there is nothing to gain from running it faster.
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # A pruner that hangs must not keep a slot forever.
+      activeDeadlineSeconds: 900
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          initContainers:
+            # kube-router programs this pod's NetworkPolicy 1-2s after the pod
+            # starts, and until it does, allowed egress is REJECTed as a bare
+            # "connection refused". The first thing this job does is log in, so
+            # without this it loses that race. Required by
+            # scripts/ci/check-invariants.py.
+            - name: wait-for-upstreams
+              image: busybox:1.38@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  for i in $(seq 1 60); do
+                    if nc -z qbittorrent.downloads.svc.cluster.local 8080 \
+                       && nc -z lidarr.lidarr.svc.cluster.local 8686; then
+                      echo "qbittorrent and lidarr reachable after $i attempt(s)"
+                      exit 0
+                    fi
+                    sleep 2
+                  done
+                  echo "upstreams not reachable after 120s"
+                  exit 1
+              resources:
+                requests: {cpu: 10m, memory: 16Mi}
+                limits: {cpu: 100m, memory: 64Mi}
+          containers:
+            - name: dead-pruner
+              image: python:3.14-alpine3.24@sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec55f1866cac66b01
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              command: ["python3", "-u", "/scripts/dead-pruner.py"]
+              env:
+                - name: QBIT_URL
+                  value: http://qbittorrent.downloads.svc.cluster.local:8080
+                - name: QBIT_USER
+                  value: travis
+                - name: QBIT_PASS
+                  valueFrom: {secretKeyRef: {name: qbittorrent-webui, key: password}}
+                - name: LIDARR_URL
+                  value: http://lidarr.lidarr.svc.cluster.local:8686
+                - name: LIDARR_API_KEY
+                  valueFrom: {secretKeyRef: {name: lidarr-api, key: api-key}}
+                # false = print the candidate list and change nothing.
+                - name: APPLY
+                  value: "false"
+                # How long a torrent must sit parked by the stall reaper before
+                # it is considered dead rather than unlucky.
+                - name: DEAD_HOURS
+                  value: "6"
+                # Progress below which a parked download is dead. Deliberately
+                # low: a torrent that got partway has data worth keeping.
+                - name: DEAD_PCT
+                  value: "10"
+                # Ceiling per run. A bug here must cost 25 torrents, not 1,000.
+                - name: MAX_REMOVE
+                  value: "25"
+                - name: PROTECTED_TRACKERS
+                  value: "myanonamouse.net,iptorrents.com"
+              resources:
+                requests: {cpu: 25m, memory: 64Mi}
+                limits: {cpu: 500m, memory: 192Mi}
+              volumeMounts:
+                - {name: script, mountPath: /scripts}
+          volumes:
+            - name: script
+              configMap: {name: qbit-dead-pruner-script, defaultMode: 0755}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qbit-dead-pruner-script
+  namespace: downloads
+data:
+  dead-pruner.py: |
+    #!/usr/bin/env python3
+    """Remove downloads that are dead, and the Lidarr records that point at them.
+
+    A parked download (tagged stalled-paused= by qbit-stalled-reaper) that has
+    made no progress for DEAD_HOURS more is not going to finish. Removing it is
+    the only thing that stops it from being re-promoted into a queue slot the
+    moment one frees up.
+
+    Everything destructive is gated: DEAD_HOURS of extra silence, progress
+    under DEAD_PCT, no private tracker involved, a hard per-run cap, and APPLY
+    defaulting to false.
+    """
+    import http.cookiejar, json, os, sys, time, urllib.error, urllib.parse, urllib.request
+
+    QB = os.environ["QBIT_URL"].rstrip("/")
+    LIDARR = os.environ.get("LIDARR_URL", "").rstrip("/")
+    LKEY = os.environ.get("LIDARR_API_KEY", "")
+    HOUR = 3600.0
+    DEAD_HOURS = float(os.environ.get("DEAD_HOURS", "6"))
+    DEAD_PCT = float(os.environ.get("DEAD_PCT", "10"))
+    MAX_REMOVE = int(os.environ.get("MAX_REMOVE", "25"))
+    PROTECTED = [d.strip().lower() for d in
+                 os.environ.get("PROTECTED_TRACKERS",
+                                "myanonamouse.net,iptorrents.com").split(",")
+                 if d.strip()]
+    # APPLY=false reports the plan and writes nothing.
+    APPLY = os.environ.get("APPLY", "false").lower() in ("1", "true", "yes")
+
+    # Written by qbit-stalled-reaper-cronjob.yaml when it pauses a torrent.
+    PAUSED = "stalled-paused="
+    PARKED_STATES = {"pausedDL", "stoppedDL"}
+
+    jar = http.cookiejar.CookieJar()
+    op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+
+    def qb(path, data=None, timeout=180):
+        body = urllib.parse.urlencode(data).encode() if data else None
+        with op.open(QB + path, body, timeout=timeout) as r:
+            return r.read().decode()
+
+    def lidarr(method, path, timeout=180):
+        req = urllib.request.Request(LIDARR + path, method=method,
+                                     headers={"X-Api-Key": LKEY})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read().decode()
+
+    # qBittorrent 5.2 answers a good login with an empty body (5.1 said "Ok.")
+    # and a bad one with HTTP 401, which raises.
+    if "Fails" in qb("/api/v2/auth/login",
+                     {"username": os.environ["QBIT_USER"],
+                      "password": os.environ["QBIT_PASS"]}):
+        sys.exit("qbittorrent login failed")
+
+    def protected_tracker(t, cache):
+        """True if any of this torrent's trackers is a private one.
+
+        info.tracker is the CURRENTLY WORKING tracker and is blank for exactly
+        the torrents this job looks at, so the per-torrent list has to be
+        consulted. An unreadable list means "do not know", and unknown is
+        treated as protected: the cost of keeping a dead public torrent is a
+        wasted slot, the cost of the reverse is a private-tracker account.
+        """
+        tr = (t.get("tracker") or "").lower()
+        if tr:
+            return any(d in tr for d in PROTECTED)
+        h = t["hash"]
+        if h in cache:
+            return cache[h]
+        try:
+            raw = qb("/api/v2/torrents/trackers?hash=" + h, timeout=60).lower()
+        except Exception as e:
+            print("  HOLD-SAFE (tracker list unavailable: %s) %s"
+                  % (e, t["name"][:50]))
+            cache[h] = True
+            return True
+        cache[h] = any(d in raw for d in PROTECTED)
+        return cache[h]
+
+    def lidarr_queue():
+        """Every queue record Lidarr holds, keyed by lowercased download hash."""
+        by_hash, page, seen = {}, 1, 0
+        while True:
+            d = json.loads(lidarr(
+                "GET", "/api/v1/queue?page=%d&pageSize=250"
+                       "&includeUnknownArtistItems=true" % page))
+            recs = d.get("records") or []
+            for r in recs:
+                h = (r.get("downloadId") or "").lower()
+                if h:
+                    by_hash.setdefault(h, r.get("id"))
+            seen += len(recs)
+            total = d.get("totalRecords") or 0
+            if not recs or seen >= total:
+                return by_hash, total
+            page += 1
+
+    torrents = json.loads(qb("/api/v2/torrents/info"))
+    if not torrents:
+        sys.exit("qbittorrent returned an empty torrent list - refusing to act")
+
+    now = int(time.time())
+    floor = DEAD_HOURS * HOUR
+
+    # If Lidarr cannot be read, this run must not proceed: without its queue
+    # there is no way to blocklist the release or drop the matching record, and
+    # half-removing a torrent leaves exactly the broken record this job exists
+    # to clear. Nothing has been changed at this point, so exiting is free.
+    if not LIDARR or not LKEY:
+        sys.exit("LIDARR_URL / LIDARR_API_KEY missing - refusing to prune blind")
+    try:
+        queue_ids, lidarr_total = lidarr_queue()
+    except Exception as e:
+        sys.exit("lidarr queue unreadable (%s: %s) - nothing changed"
+                 % (type(e).__name__, e))
+
+    # A save_path where every torrent is missingFiles is a mount problem, not
+    # 40 dead torrents.
+    paths = {}
+    for t in torrents:
+        p = t.get("save_path") or ""
+        paths.setdefault(p, [0, 0])
+        paths[p][0] += 1
+        if t.get("state") == "missingFiles":
+            paths[p][1] += 1
+
+    cache = {}
+    dead, missing, held = [], [], 0
+    for t in torrents:
+        state = t.get("state")
+        if state == "missingFiles":
+            total_here, missing_here = paths.get(t.get("save_path") or "", [1, 0])
+            if total_here and missing_here >= total_here:
+                held += 1
+                continue
+            if protected_tracker(t, cache):
+                held += 1
+                continue
+            missing.append(t)
+            continue
+        if state not in PARKED_STATES:
+            continue
+        tags = [x for x in (t.get("tags") or "").split(",") if x]
+        parked = [x for x in tags if x.startswith(PAUSED)]
+        if not parked:
+            continue          # paused by a person, not by the reaper
+        try:
+            since = int(parked[0][len(PAUSED):])
+        except ValueError:
+            continue
+        if now - since < floor:
+            continue          # parked, but not for long enough yet
+        if t.get("progress", 0) * 100 >= DEAD_PCT:
+            continue          # partial data worth resuming
+        if protected_tracker(t, cache):
+            held += 1
+            continue
+        dead.append((since, t))
+
+    print("%d torrents total | %d lidarr queue records | dead_hours=%g "
+          "dead_pct=%g apply=%s"
+          % (len(torrents), lidarr_total, DEAD_HOURS, DEAD_PCT, APPLY))
+    print("  dead downloads:   %d" % len(dead))
+    print("  missing files:    %d" % len(missing))
+    print("  held (protected or mount?): %d" % held)
+
+    dead.sort(key=lambda x: x[0])       # oldest-parked first
+    candidates = [(t, "dead") for _, t in dead] + [(t, "missing") for t in missing]
+    if len(candidates) > MAX_REMOVE:
+        print("  capped at MAX_REMOVE=%d of %d candidates"
+              % (MAX_REMOVE, len(candidates)))
+        candidates = candidates[:MAX_REMOVE]
+
+    if not candidates:
+        print("nothing to do")
+        sys.exit(0)
+
+    if not APPLY:
+        for t, why in candidates:
+            print("  WOULD REMOVE [%s] %.1f%% %-24s %s"
+                  % (why, t.get("progress", 0) * 100, t.get("state"),
+                     t["name"][:60]))
+        print("APPLY=false - nothing written")
+        sys.exit(0)
+
+    via_lidarr = via_qbit = failed = 0
+    for t, why in candidates:
+        h = t["hash"]
+        label = "%.1f%% %s" % (t.get("progress", 0) * 100, t["name"][:55])
+        qid = queue_ids.get(h.lower())
+        if qid is not None:
+            # removeFromClient drops the qBittorrent item too, so the two can
+            # never disagree. blocklist=true for a dead download stops Lidarr
+            # re-grabbing the same release; skipRedownload=false lets it look
+            # for a different one.
+            try:
+                lidarr("DELETE", "/api/v1/queue/%d?removeFromClient=true"
+                                "&blocklist=true&skipRedownload=false"
+                                "&changeCategory=false" % qid)
+                via_lidarr += 1
+                queue_ids.pop(h.lower(), None)
+                print("  removed via lidarr  %s" % label)
+                continue
+            except Exception as e:
+                print("  lidarr delete failed (%s) for %s - falling back"
+                      % (e, label))
+        # Not in Lidarr's queue (or Lidarr refused): remove it directly.
+        # Files are only deleted when essentially nothing had arrived, so a
+        # partially useful download is never thrown away.
+        delete_files = t.get("progress", 0) < 0.01
+        try:
+            qb("/api/v2/torrents/delete",
+               {"hashes": h, "deleteFiles": "true" if delete_files else "false"})
+            via_qbit += 1
+            print("  removed via qbit    %s%s"
+                  % (label, " (+files)" if delete_files else ""))
+        except Exception as e:
+            failed += 1
+            print("  FAILED %s: %s" % (label, e))
+
+    after = json.loads(qb("/api/v2/torrents/info"))
+    xfer = json.loads(qb("/api/v2/transfer/info"))
+    states = {}
+    for t in after:
+        states[t.get("state")] = states.get(t.get("state"), 0) + 1
+    print("removed: %d via lidarr, %d via qbit, %d failed"
+          % (via_lidarr, via_qbit, failed))
+    print("now: %d torrents | queuedDL=%d queuedUP=%d stalledDL=%d | "
+          "dl=%.0f B/s"
+          % (len(after), states.get("queuedDL", 0), states.get("queuedUP", 0),
+             states.get("stalledDL", 0), xfer.get("dl_info_speed", 0)))
+    sys.exit(1 if failed else 0)

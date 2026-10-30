@@ -33,6 +33,10 @@ resources:
   - seed-reaper-cronjob.yaml
   - qbit-protected-forcestart-cronjob.yaml
   - qbit-stalled-reaper-cronjob.yaml
+  # Removes downloads the reaper parked that never moved again, and the Lidarr
+  # queue records pointing at them. See the header of the file for why the
+  # download backlog cannot drain without it.
+  - qbit-dead-pruner-cronjob.yaml
   - networkpolicy.yaml
   - qbittorrent.yaml
   - qui.yaml

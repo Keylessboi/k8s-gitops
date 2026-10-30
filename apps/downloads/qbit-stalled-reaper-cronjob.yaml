@@ -94,8 +94,16 @@ spec:
                 # How long a torrent must be CONTINUOUSLY stalled before it is
                 # paused. The clock is qBittorrent's own tag, so a torrent that
                 # recovers clears it and starts over.
+                #
+                # 24h was far too slow to matter. With 3 download slots and 3
+                # permanently dead torrents holding them (measured 2026-10-30:
+                # 0.0% progress, 0 seeds, 20+ hours idle, added 57 days ago)
+                # this job could only ever park three torrents a DAY - the
+                # queue behind it was 1,016 torrents deep and had not moved in
+                # weeks. 3 hours is long enough to ride out a tracker outage or
+                # a seedbox restart and still drain the backlog in hours.
                 - name: STALL_HOURS
-                  value: "24"
+                  value: "3"
                 # metaDL (stuck fetching metadata) is deliberately NOT included
                 # by default: widening this is a judgment call, not a default.
                 - name: STALLED_STATES
