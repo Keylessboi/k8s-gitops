@@ -123,6 +123,7 @@ the literal string you are seeing, then read the entry.
 | Atmos albums missing from the spatial library; sidecar `probe_failed` / permission denied on `media/music` m4a; files mode `-rw-------` | amdl writes 0600 and Lidarr copies it — 2026-10-09 (decryptor 0.3.3) |
 | Nextcloud restarts every couple of hours while a large upload runs, with `Liveness probe failed … context deadline exceeded` | a 5s probe budget against a worker held by a multi-minute PUT — 2026-10-30 (nextcloud) |
 | A WebDAV upload is stuck on one path: retries fail with `423 Locked … existing lock on file: exclusive`, roughly an hour apart | file-lock TTL is 3600s — 2026-10-29 (nextcloud) |
+| A file lists at full size over WebDAV but GET fails `503 … file does seem to exist` | the size came from a filecache row and the body never landed — 2026-10-30 (nextcloud) |
 
 ### The traps that have bitten more than once
 
@@ -164,6 +165,65 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
+## 2026-10-30 — a file listed at its full size that cannot be read: the row outlived the body
+
+**Symptom.** After the uploading laptop lost power mid-transfer, three files sat
+on the server at exactly their local byte counts:
+
+```
+2749012424   06-archives/Coding.7z
+33414855783  06-archives/Old Files.7z
+8589934592   08-keep/June 5th.zip.parts/June 5th.zip.part001
+```
+
+`rclone lsl` and `rclone size` both reported them complete, and each was still
+named `*.part`, which reads as "the body arrived, the rename was lost" — so the
+first move was `rclone moveto` to put them in place. All three renames succeeded.
+A 64 KiB read of each then failed:
+
+```
+Failed to open: Could not open file: .../06-archives/Coding.7z (8644),
+  file does seem to exist: Sabre\DAV\Exception\ServiceUnavailable: 503 Service Unavailable
+```
+
+while `Projects.tar.zst` (3.3 GiB), `Documents-small.tar.zst` (2.7 GiB) and
+`June 5th.zip.part000` (8 GiB) each served their first 4 KiB without complaint,
+in the same minute, from the same server.
+
+**Root cause.** The size WebDAV reports comes from the `oc_filecache` row, and
+that row is written from the length the client *declares* before the body
+arrives. A PUT that dies partway leaves the row at full length with the object
+short or absent; the GET then fails in the storage layer and Sabre surfaces it as
+503. `file does seem to exist` is Nextcloud's own hedge, and it is exactly right:
+the record exists, the bytes do not.
+
+Two readings were wrong before the third was right, and both were reasonable:
+
+- *"a `.part` name at full size means the rename was lost"* — the name only says
+  the upload never reached its final MOVE; it says nothing about the body.
+- *"the size matches the local file exactly"* — it matches because the client
+  told the server how long the file was going to be.
+
+**Fix.** Nothing server-side: the three records were deleted and the files
+re-uploaded. The detail that makes this worth an entry is what `--ignore-existing`
+does with a hollow record. It sees the path present at the correct size and skips
+it — forever. A backup with that flag converges on "everything is there" while
+three files are unreadable, and the only thing that would ever notice is a
+restore.
+
+**Prevention.** Size is not integrity on WebDAV, and `--size-only` is a
+comparison of two statements written by the same optimistic client. The upload
+gate now reads back a 64 KiB window at the head, the middle and the tail of every
+part, compares it to the local source, and deletes the remote object on mismatch
+so the retry cannot be skipped. The rule underneath: **prove it by reading, not
+by listing.** A listing, a size, an `All checks passed`, and a green dashboard
+are all claims about metadata.
+
+See also 2026-10-29 — same upload session, different cause. The lock cost hours;
+this one cost trust in the size field.
+
+**Confidence: CONFIRMED.** Reproduced on three files, refuted by three controls
+on the same server in the same minute.
 ## 2026-10-30 — Nextcloud restarts every couple of hours during a large upload: the probe was killing Apache mid-PUT
 
 **Symptom.** While copying a laptop into Nextcloud, the pod restarted on a rhythm

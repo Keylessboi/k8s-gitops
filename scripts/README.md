@@ -11,6 +11,7 @@ carries a full explanation in its own header comment; this is the index.
 | [`setup-image-updater-key.sh`](setup-image-updater-key.sh) | Once, to give ArgoCD Image Updater push access | No |
 | [`restore.sh`](restore.sh) | Disaster recovery only | **Yes — paths 1 and 2 destroy cluster state** |
 | [`doctor.sh`](doctor.sh) | First command when something is wrong | No — reads only |
+| [`backup/`](backup/) | Once, before a machine is wiped: copy it to Nextcloud, then prove it by reading it back | No — uploads and reads only |
 
 ## doctor.sh
 
