@@ -1,0 +1,40 @@
+---
+# The controller needs DNS and the apiserver, nothing else: Plans pin an exact
+# `version:` so it never polls a release channel on the internet. Upgrade Jobs
+# run hostNetwork, which NetworkPolicy does not govern, and the kubelet (not the
+# pod) pulls rancher/k3s-upgrade.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: system-upgrade
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Both forms, as in apps/image-updater/networkpolicy.yaml: k3s DNATs
+    # 10.43.0.1:443 to the node address before egress is evaluated.
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
+        - protocol: TCP
+          port: 443
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.0/24
+      ports:
+        - protocol: TCP
+          port: 6443

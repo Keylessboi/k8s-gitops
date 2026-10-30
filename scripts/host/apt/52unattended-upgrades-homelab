@@ -1,5 +1,6 @@
-// Homelab unattended-upgrades policy for the Debian 13 hosts: pve, the k3s
-// LXC (CT 200) and travisbackupserver. See docs/host-updates.md.
+// Homelab unattended-upgrades policy for the Debian 13 hosts: pve, vmhub-1, the
+// k3s LXC (CT 200), the vmhub CTs (3000, 3010) and travisbackupserver.
+// See docs/host-updates.md and ADR-0014.
 //
 // Install: apt-get install unattended-upgrades, then copy this file and
 // 20auto-upgrades-homelab into /etc/apt/apt.conf.d/.
@@ -13,16 +14,29 @@ Unattended-Upgrade::Origins-Pattern {
         "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
         // Tailscale: its Release file has no Origin/Label, so match the host.
         "site=pkgs.tailscale.com";
+        // Accepted risk, owner decision 2026-10-30 (ADR-0014): a missed patch
+        // during a zero-day wave costs more than a bad update. These were manual
+        // before; each is still undone by pinning the package (see the doc).
+        //  - Proxmox (pve-manager, the pve kernel, qemu, lxc). Proxmox advises
+        //    against unattended upgrades; mitigated by the homelab-reboot-window
+        //    checks and by pve being the only thing that runs CT 200.
+        "origin=Proxmox,codename=${distro_codename}";
+        //  - Docker: an upgrade restarts dockerd and every container on the host
+        //    (immich-ml on the backup server).
+        "site=download.docker.com";
+        //  - NVIDIA container toolkit (backup server GPU).
+        "site=nvidia.github.io";
 };
-// Deliberately NOT here, so they stay manual:
-//  - Proxmox ("o=Proxmox"): pve-manager, the pve kernel, qemu, lxc. Proxmox
-//    advises against unattended upgrades of these; upgrade with
-//    `apt full-upgrade` and a planned reboot.
-//  - Docker (download.docker.com): an upgrade restarts dockerd and every
-//    container with it (immich-ml on the backup host).
-//  - NVIDIA container toolkit (nvidia.github.io): must move with the driver.
 
-// Never reboot on our own; homelab-reboot-notify sends ntfy instead.
+// Keep the existing config files when a package ships a new one; without this
+// a conffile prompt (Proxmox ships several) aborts the run unattended.
+Dpkg::Options {
+        "--force-confdef";
+        "--force-confold";
+};
+
+// Never reboot from here. homelab-reboot-window decides, in its own window and
+// after per-role safety checks; homelab-reboot-notify still tells ntfy.
 Unattended-Upgrade::Automatic-Reboot "false";
 Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
 Unattended-Upgrade::Remove-New-Unused-Dependencies "true";

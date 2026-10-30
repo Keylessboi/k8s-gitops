@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# backup server only. After a one-shot boot of a new kernel (homelab-reboot-window),
+# make that kernel the saved GRUB default once the host proves healthy. If it is
+# not healthy we change nothing, so the next reboot falls back to the old kernel.
+set -uo pipefail
+NTFY="${NTFY:-http://100.81.123.74:2586/homelab-alerts}"
+running="$(uname -r)"
+sleep 180   # let tailscale, docker and the nvidia module settle
+
+sub="$(grep -o 'gnulinux-advanced-[0-9a-f-]*' /boot/grub/grub.cfg | head -1)"
+uuid="${sub#gnulinux-advanced-}"
+saved="$(grub-editenv list | sed -n 's/^saved_entry=//p')"
+case "$saved" in *"gnulinux-$running-advanced-$uuid"*) echo "already the default"; exit 0 ;; esac
+
+ok=1
+systemctl is-active --quiet tailscaled || ok=0
+nvidia-smi -L >/dev/null 2>&1 || ok=0
+curl -fsS -m 10 -o /dev/null http://127.0.0.1:2586/v1/health || ok=0
+if [ "$ok" = 1 ]; then
+  grub-set-default "$sub>gnulinux-$running-advanced-$uuid" && msg="promoted $running to GRUB default"
+  pri=low
+else
+  msg="booted $running but health checks failed; GRUB default NOT changed (next reboot falls back)"
+  pri=high
+fi
+curl -fsS -m 15 -H "Title: $(uname -n): kernel $running" -H "Priority: $pri" -H "Tags: package" -d "$msg" "$NTFY" >/dev/null || true

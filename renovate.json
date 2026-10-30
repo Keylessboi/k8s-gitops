@@ -2,7 +2,8 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
     "Renovate is the single updater for this repo (ADR-0013). It opens a PR per update and merges it itself once `validate` is green; ArgoCD then deploys main.",
-    "Before 2026-09-30 it only saw the Helm charts in kustomization.yaml, never merged anything and had majors disabled, so the cluster sat on whatever was pinned when each app was added."
+    "Before 2026-09-30 it only saw the Helm charts in kustomization.yaml, never merged anything and had majors disabled, so the cluster sat on whatever was pinned when each app was added.",
+    "Security fast path (ADR-0014): vulnerabilityAlerts and osvVulnerabilityAlerts open a PR immediately, ignore minimumReleaseAge and the merge window, and automerge once `validate` is green. Patch and digest bumps wait 1 day instead of 3."
   ],
   "extends": ["config:recommended"],
   "timezone": "America/New_York",
@@ -11,6 +12,15 @@
   "prConcurrentLimit": 0,
   "minimumReleaseAge": "3 days",
   "internalChecksFilter": "strict",
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"],
+    "minimumReleaseAge": "0 days",
+    "schedule": ["at any time"],
+    "automergeSchedule": ["at any time"],
+    "automerge": true
+  },
+  "osvVulnerabilityAlerts": true,
   "automerge": true,
   "automergeType": "pr",
   "platformAutomerge": false,
@@ -37,6 +47,11 @@
     }
   ],
   "packageRules": [
+    {
+      "description": "Patch and digest bumps are the bulk of security fixes and rarely break anything: wait 1 day (a yanked release is usually pulled within hours), not 3. Minor and major bumps keep the global 3 days. Rules below this one override it where they match.",
+      "matchUpdateTypes": ["patch", "digest", "pin"],
+      "minimumReleaseAge": "1 day"
+    },
     {
       "description": "Built locally or from the owner's own forks - no upstream registry to track",
       "matchPackageNames": [
@@ -128,6 +143,17 @@
     {
       "matchPackageNames": ["myanonamouse/seedboxapi"],
       "versioning": "regex:^(?<major>\\d{8})-(?<minor>\\d{4})$"
+    },
+    {
+      "description": "k3s (apps/system-upgrade/plans.yaml, ADR-0014). Kubernetes does not support skipping minors, so Renovate may only offer the CURRENT minor; patches automerge (the Plan's own 03:00-05:00 Tue-Wed window gates the actual upgrade). To hop one minor: raise this cap by one, merge the resulting PR, wait for both nodes to report the new version, then raise `alpine/k8s` above and K8S_VERSION in validate.yaml to match. Hop order from 1.31: 1.32.13, 1.33.13+k3s2, 1.34.12, 1.35.9, 1.36.5, 1.37.1.",
+      "matchPackageNames": ["k3s-io/k3s"],
+      "versioning": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)\\+k3s(?<build>\\d+)$",
+      "allowedVersions": "<1.32.0"
+    },
+    {
+      "description": "system-upgrade-controller runs privileged and can rewrite a node's k3s binary: a human merges its bumps.",
+      "matchPackageNames": ["rancher/system-upgrade-controller", "rancher/kubectl"],
+      "automerge": false
     }
   ]
 }

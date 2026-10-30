@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly reboot window (schedule set per host by a drop-in, see docs/host-updates.md)
+
+[Timer]
+# Placeholder; each host installs reboot-window/<role>.timer.conf as
+# /etc/systemd/system/homelab-reboot-window.timer.d/schedule.conf.
+OnCalendar=Sun 04:00
+RandomizedDelaySec=10m
+Persistent=false
+
+[Install]
+WantedBy=timers.target
