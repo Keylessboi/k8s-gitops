@@ -122,6 +122,7 @@ the literal string you are seeing, then read the entry.
 | NAS kernel upgraded, and `/usr/lib/modules/<new kernel>` has no `zfs.ko` (or `zpool import` finds nothing after a reboot) | ZFS hand-built outside DKMS — 2026-10-04 |
 | Atmos albums missing from the spatial library; sidecar `probe_failed` / permission denied on `media/music` m4a; files mode `-rw-------` | amdl writes 0600 and Lidarr copies it — 2026-10-09 (decryptor 0.3.3) |
 | Nextcloud restarts every couple of hours while a large upload runs, with `Liveness probe failed … context deadline exceeded` | a 5s probe budget against a worker held by a multi-minute PUT — 2026-10-30 (nextcloud) |
+| A WebDAV upload is stuck on one path: retries fail with `423 Locked … existing lock on file: exclusive`, roughly an hour apart | file-lock TTL is 3600s — 2026-10-29 (nextcloud) |
 
 ### The traps that have bitten more than once
 
@@ -202,6 +203,57 @@ where the next person to change a timeout will be standing.
 windows, and each one is followed within minutes by the hollow-file symptom it
 causes.
 
+## 2026-10-29 — a part upload rejected twice at 97 and 107 minute intervals: the WebDAV lock TTL is an hour
+
+**Symptom.** A 55 GiB file going up in 8 GiB parts. Every part's PUT completes,
+then the rename fails:
+
+```
+Failed to copy: unchunked simple update failed:
+  ".../June 5th.zip.parts/June 5th.zip.part000" is locked,
+  existing lock on file: exclusive:
+  OCA\DAV\Connector\Sabre\Exception\FileLocked: 423 Locked
+```
+
+Attempt 1 at 15:48, attempt 2 at 17:25, attempt 3 at 19:12 **succeeded** — and
+the committed part was byte-exact at 8,589,934,592 bytes. The committed file is
+the point: nothing was wrong with the transfer.
+
+**Root cause.** The retry gaps are 97 and 107 minutes, and the default
+`filelocking.ttl` is 3600 s. `memcache.locking` is Redis here, so every WebDAV
+write takes a transactional lock; a `MOVE` that loses the race with the
+exclusive lock it just took leaves that lock in Redis, and the path stays
+closed for the whole TTL. Every retry inside the window gets the same 423 from
+the same abandoned lock.
+
+The trap is the shape of the evidence, not the config: **a 3600-second lock is
+indistinguishable from "uploads to this path are broken"** when the retry
+interval is shorter than the lock. Two failures, then a success with no change
+to the client, reads as flakiness. It was a timer.
+
+**Fix.** `filelocking.config.php` with `'filelocking.ttl' => 300` in
+`apps/nextcloud/kustomization.yaml`. 300s because the TTL is a liveness valve
+for a client that died holding a lock, not a correctness knob for live writes:
+the lock is taken around the object-store metadata rename, not held across the
+PUT, and `max_execution_time` describes the request rather than the lock. Worst
+case per stuck path falls from an hour to five minutes.
+
+Deliberately not done: disabling `memcache.locking`, and disabling the
+`files_lock` app. The locks work as designed; only their lifetime was wrong for
+a client that retries quickly.
+
+**Prevention.** Retry intervals that cluster near a round number are a TTL, not
+a flake — measure the gap between attempts before measuring the client. The TTL
+now sits in the same file as the `REDIS_HOST` block that creates the lock, so
+the two are read together; that block already records what happens when the
+memcache wiring is wrong, and its neighbour now records how long a wrong lock
+lives.
+
+**Confidence: PROBABLE.** The mechanism explains both intervals and the third
+attempt landing, and the part size verifies. The 300 s value is not yet
+observed clearing a real stall. Confirmation is two commands after sync:
+`occ config:list system` shows `filelocking.ttl => 300`, and the next 423 on a
+part clears within five minutes instead of an hour.
 ## 2026-10-27 — reflinks "did not save space" three times over: `zfs get used` counts cloned blocks as used
 
 **Symptom.** Converting the music library's 17,500 hardlinks-to-torrents into
