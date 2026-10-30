@@ -216,3 +216,15 @@ spec:
   owner: memos
   cluster:
     name: app-databases
+---
+# PeerTube's single database (needs pg_trgm and unaccent: see extensions-job.yaml).
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: peertube
+  namespace: databases
+spec:
+  name: peertube
+  owner: peertube
+  cluster:
+    name: app-databases

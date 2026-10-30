@@ -39,6 +39,9 @@ spec:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: downloads
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: peertube
     ports:
     - port: 80
       protocol: TCP

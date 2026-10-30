@@ -1,0 +1,37 @@
+---
+# peertube.sandstorm.chat, behind Authentik forward-auth.
+#
+# PeerTube would normally be public (federation, embeds, other instances
+# following). This one is a private mirror feeding a phone, so it is NOT
+# published: forward-auth keeps it out of the register's publication exceptions
+# and keeps a mirror of other people's content from being world readable. The
+# cost: ActivityPub federation, and a NewPipe pointed straight at the instance,
+# do not work from outside the login. The companion uses the in-cluster
+# Service, so it is unaffected. Publishing it is a deliberate later step
+# (publication register entry, owner signature).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: peertube
+  namespace: peertube
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - peertube.sandstorm.chat
+      secretName: peertube-tls
+  rules:
+    - host: peertube.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: peertube
+                port:
+                  number: 9000

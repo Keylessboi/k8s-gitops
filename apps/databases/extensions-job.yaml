@@ -58,6 +58,11 @@ spec:
               CREATE EXTENSION IF NOT EXISTS "pg_trgm";
               CREATE EXTENSION IF NOT EXISTS "unaccent";
               SQL
+              # PeerTube needs these two and cannot create them as its own role.
+              psql -d peertube -v ON_ERROR_STOP=1 <<'SQL'
+              CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+              CREATE EXTENSION IF NOT EXISTS "unaccent";
+              SQL
               # Bring the extensions up to the version this image ships, as
               # superuser. Immich tries this itself at startup, but the
               # extensions are owned by postgres (PostgreSQL has no ALTER

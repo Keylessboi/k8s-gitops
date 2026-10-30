@@ -153,6 +153,12 @@ spec:
         login: true
         passwordSecret:
           name: memos-db-credentials
+      # PeerTube (private YouTube-channel mirror). One role, one database.
+      - name: peertube
+        ensure: present
+        login: true
+        passwordSecret:
+          name: peertube-db-credentials
   # Backups to MinIO on the NAS.
   #
   # This block previously authenticated with a `minio-creds` secret whose

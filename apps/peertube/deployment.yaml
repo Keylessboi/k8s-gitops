@@ -1,0 +1,110 @@
+---
+# PeerTube. Mirrors remote channels (YouTube via yt-dlp, through PeerTube's own
+# channel synchronization), transcodes, and serves them. Postgres is the shared
+# CNPG cluster (own database + role), Redis is the shared redis-master (db 3),
+# files are on nfs-csi.
+#
+# Everything non-secret is in peertube-config. Env vars below carry secrets
+# only; PT_INITIAL_ROOT_PASSWORD is read once, on the first boot.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: peertube
+  namespace: peertube
+  annotations:
+    secrets.doppler.com/reload: 'true'
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: peertube
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: peertube
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # kube-router race: see apps/memos/deployment.yaml.
+        - name: wait-for-deps
+          image: busybox:1.38
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - sh
+            - -c
+            - |
+              for attempt in $(seq 1 30); do
+                if nc -z app-databases-rw.databases.svc.cluster.local 5432 \
+                   && nc -z redis-master.redis.svc.cluster.local 6379; then
+                  echo "postgres and redis reachable after ${attempt} attempt(s)"
+                  exit 0
+                fi
+                echo "attempt ${attempt}/30: waiting for postgres/redis"
+                sleep 2
+              done
+              exit 1
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 200m, memory: 64Mi}
+      containers:
+        - name: peertube
+          image: chocobozzz/peertube:v8.3.1-trixie@sha256:82767f735ad2009f6e6d2d884b9e85243f36d14f240c3ca96cc5604c1007fadd
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: PEERTUBE_SECRET
+              valueFrom:
+                secretKeyRef: {name: peertube, key: app-secret}
+            - name: PEERTUBE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: peertube, key: db-password}
+            - name: PEERTUBE_REDIS_AUTH
+              valueFrom:
+                secretKeyRef: {name: peertube, key: redis-password}
+            - name: PT_INITIAL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: peertube, key: root-password}
+            - name: PEERTUBE_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef: {name: peertube, key: admin-email}
+          ports:
+            - name: http
+              containerPort: 9000
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: config, mountPath: /config/production.yaml, subPath: production.yaml, readOnly: true}
+          readinessProbe:
+            httpGet: {path: /api/v1/ping, port: http}
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: {path: /api/v1/ping, port: http}
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          # Transcoding is the spike; threads is capped at 2 in the config.
+          resources:
+            requests: {cpu: 250m, memory: 768Mi}
+            limits: {cpu: "3", memory: 3Gi}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: peertube-data}
+        - name: config
+          configMap: {name: peertube-config}
