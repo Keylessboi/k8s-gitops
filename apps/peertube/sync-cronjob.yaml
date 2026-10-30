@@ -46,8 +46,37 @@ spec:
             runAsUser: 10001
             runAsGroup: 10001
             fsGroup: 10001
+            # OnRootMismatch: the default (Always) recursively chowns every
+            # mounted volume before the container starts.
+            fsGroupChangePolicy: OnRootMismatch
             seccompProfile:
               type: RuntimeDefault
+          initContainers:
+            # kube-router programs per-pod policy ~1-2s after start; until then
+            # allowed egress is REJECTed as 'connection refused'. The sync job
+            # calls PeerTube and Nextcloud immediately, so wait for both.
+            - name: wait-for-backends
+              image: busybox:1.38
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  for i in $(seq 1 60); do
+                    if nc -z peertube.peertube.svc.cluster.local 9000 && \
+                       nc -z nextcloud.nextcloud.svc.cluster.local 8080; then
+                      echo "backends reachable after ${i} attempt(s)"
+                      exit 0
+                    fi
+                    sleep 2
+                  done
+                  echo "peertube/nextcloud not reachable after 120s"
+                  exit 1
+              resources:
+                requests: {cpu: 10m, memory: 16Mi}
+                limits: {cpu: 100m, memory: 64Mi}
           containers:
             - name: sync
               # Built by the code repo's CI. The ghcr package is private by
