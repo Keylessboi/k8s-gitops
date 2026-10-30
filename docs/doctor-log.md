@@ -79,6 +79,8 @@ the literal string you are seeing, then read the entry.
 | `HTTP 401` on a call made AFTER authentication succeeded | remux auth headers are exclusive — 2026-09-11 |
 | A CronJob failing every tick while the app it calls is merely busy | fatal transient — 2026-09-11 |
 | Every downstream *arr broken after a key change | Prowlarr API key rotation — 2026-08-29 |
+| Prowlarr's login form rejects a password that worked before, `Auth: Auth-Failure` for every name you try, no `Auth-Success` at all | the SQLite→Postgres cutover never copied `Users` — 2026-10-30 (prowlarr login) |
+| A pod restarting on a rhythm with nothing in its own log, `exitCode: 137`, last state `OOMKilled` | memory limit reached, not a probe; read `memory.peak` vs `memory.max` — 2026-10-30 (prowlarr OOM) |
 | A CronJob that vanishes seconds after you create it | manual CronJob run — 2026-08-29 |
 | Stale NFS handles, pods stuck ContainerCreating | closet move — 2026-08-28 |
 | SQLite slow to the point of unusable; `PRAGMA wal_checkpoint` taking seconds | SQLite on NFS — 2026-09-10 (remux) |
@@ -164,6 +166,106 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-10-30 — Prowlarr rejects the right password: the cutover copied every table but `Users`
+
+**Symptom.** `prowlarr.sandstorm.chat` cleared the Authentik gate and then a
+plain Prowlarr login form refused the password that has always worked. The pod's
+log held nothing but refusals, every one arriving through Traefik:
+
+```
+[Warn] Auth: Auth-Failure ip 10.42.0.73 username 'tapeless'
+[Warn] Auth: Auth-Failure ip 10.42.0.73 username 'admin'
+[Warn] Auth: Auth-Failure ip 10.42.0.73 username 'prowlarr'
+[Warn] Auth: Auth-Failure ip 10.42.0.73 username 'travis'
+[Warn] Auth: Auth-Failure ip 10.42.0.73 username 'akadmin'
+```
+
+No `Auth-Success` anywhere in the tail, and `GET /login` returned the ordinary
+form — **not** a first-run "create your account" page — so "this app has no
+accounts" and "that password is wrong" look exactly the same from outside.
+
+**Root cause.** `prowlarr_main."Users"` had **zero rows**, while `config.xml`
+still carried `<AuthenticationMethod>Forms</AuthenticationMethod>` and
+`<AuthenticationRequired>Enabled</AuthenticationRequired>`: the app was
+demanding a login against an empty user table.
+
+It was not lost recently. `/config/prowlarr.db.pre-postgres`, the SQLite file the
+Aug-27 cutover left behind, still had it:
+
+```
+1|travis|edbd1b3e-…|10000
+```
+
+so the pgloader migration carried indexers, applications, config and tags into
+Postgres and silently skipped `Users`. Nothing noticed for two months because
+every *automated* caller authenticates with the API key (remux's Torznab addon,
+bookdl via `bookdl-extras`) and the readiness probe hits `/ping`, which needs no
+auth. The Forms login is the only consumer of that table and a human is the only
+thing that touches it.
+
+This is not the "Postgres starts empty and the app never migrated" trap described
+in `apps/prowlarr/deployment.yaml` — that database was live, with 27 indexers.
+
+**Fix.** The single row was re-inserted with its original hash, salt and
+iteration count, then the sequence was moved past it:
+
+```sql
+INSERT INTO "Users" ("Id","Identifier","Username","Password","Salt","Iterations")
+  SELECT 1,'…','…','…','…',10000
+  WHERE NOT EXISTS (SELECT 1 FROM "Users");
+SELECT setval(pg_get_serial_sequence('"Users"','Id'), (SELECT MAX("Id") FROM "Users"));
+```
+
+The values were read out of the SQLite file and piped into psql; neither the hash
+nor the password was printed, and the stored password was never changed. Verified
+with a real login POST from inside the pod's own netns — `302 →
+http://…/` rather than `…/login?loginFailed=true`.
+
+**Prevention.** After any app's SQLite→Postgres cutover, log in through the UI
+once instead of only curling `/ping`, and compare row counts for the tables the
+API key path never touches — `Users` first, then anything only a human writes.
+The general rule: an app is not migrated until its *interactive* path has been
+used once, and its `/ping` being green says nothing about that.
+
+**Confidence.** CONFIRMED.
+
+## 2026-10-30 — Prowlarr restarts ten times a day with nothing in its own log: 256Mi was the whole budget
+
+**Symptom.** `kubectl -n prowlarr get pods` showed **93 restarts** on a pod nine
+days old, with no CrashLoopBackOff and not one error line in Prowlarr's log — the
+process just disappeared mid-work, roughly ten times a day. Last state:
+
+```
+prowlarr: restarts=93 last=OOMKilled exit=137
+          startedAt=2026-10-30T04:36:05Z finishedAt=2026-10-30T09:25:55Z
+```
+
+**Root cause.** It had 256Mi and used 256Mi:
+
+```
+memory.current  239,222,784
+memory.peak     268,398,592
+memory.max      268,435,456   (256Mi)
+```
+
+A peak 36 KB under the limit is not a spike — the cgroup sat pinned against its
+ceiling and any indexer test or sync pushed it over. Prowlarr is carrying 27
+indexers plus a scheduled-task set that keeps state in memory. For comparison,
+Lidarr, the same class of app in this repo, runs a **2Gi** limit.
+
+**Fix.** `512Mi` limit and `256Mi` request in `apps/prowlarr/deployment.yaml`.
+CPU left at 250m: throttling does not cause an OOM kill, so touching it would
+have muddied which change did the work.
+
+**Prevention.** An *arr app at a 256Mi limit is a restart generator. Before
+blaming a probe or a crash, read `memory.peak` against `memory.max` — `exitCode:
+137` with an empty application log is the signature, and a dashboard that only
+reports "Running" hides it completely.
+
+**Confidence.** CONFIRMED for the OOM kill (kernel-reported reason, peak at the
+ceiling). PROVISIONAL for 512Mi being the right ceiling — re-read `memory.peak`
+after a week of indexer syncs before treating it as settled.
 
 ## 2026-10-30 — a file listed at its full size that cannot be read: the row outlived the body
 
