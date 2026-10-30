@@ -167,6 +167,56 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
+## 2026-10-30 — Octo radio and search stall, and Octo restarts: the yt-dlp shim ran at its CPU ceiling and Octo hit 512Mi
+
+**Symptom.** Octo's radio fills and searches were slow and sometimes dropped
+tracks. The shim logged `ytsearch1:` resolves timing out and
+`IncompleteRead`, and Octo had restarted twice:
+
+```
+octo:  restarts=2 last=OOMKilled exit=137 finishedAt=2026-10-27T07:00:28Z
+       previous container log: "external id registry could not be written:
+       System.OutOfMemoryException"
+```
+
+**Root cause.** Two separate ceilings, both measured rather than inferred.
+
+1. The shim's cgroup was throttled in about one period in five against its
+   1 CPU limit:
+
+   ```
+   octo-yt-dlp-shim  nr_periods=1,669,803  nr_throttled=329,948 (19.8%)
+                     throttled_usec=38,638,335,588  (about 38,600 s)
+   ```
+
+   Each yt-dlp extraction spawns ffmpeg and a deno runtime, and the shim's gate
+   (`MAX_CONCURRENT_YTDLP`, default 5, read in `app.py`) admits more concurrent
+   extractions than one CPU can serve. Background work is shed after 10 s, which
+   is why radio resolution dropped tracks quietly.
+2. Octo's 512Mi limit was too tight for its peak. Steady state is about 351Mi
+   now, but the OOM-killed container hit the ceiling inside a write.
+
+Lidarr was ruled out: `/ping` answered in 2-14 ms, throttling was 1.6%, and
+`/data/torrents` and `/data/media/music` share one ZFS dataset, so imports do
+not copy across devices.
+
+**Fix.** `apps/downloads/octo-yt-dlp-shim.yaml`: CPU limit `1` to `2` and
+`MAX_CONCURRENT_YTDLP` set to `"3"` explicitly, so the gate and the CPU ceiling
+are visible next to each other. `apps/downloads/octo.yaml`: memory limit `512Mi`
+to `768Mi`. Requests are unchanged on purpose, since k3s-server sits at about
+81% memory with 256% of memory limits already committed.
+
+**Prevention.** Read `cpu.stat` (`nr_throttled` over `nr_periods`) and
+`memory.peak` against the limit before blaming the upstream site or the
+network. A concurrency gate and a CPU limit that are not set together will
+disagree. A separate Octo change removes its global download lock, which was the
+other reason one slow download blocked every new request.
+
+**Confidence.** CONFIRMED for the shim throttling and the Octo OOM kill (both
+read from the live cgroup and pod state). PROBABLE that the throttling is what
+produced the dropped radio tracks; the gate-shedding path in `app.py` fits, but
+no before and after comparison exists yet. Re-read `cpu.stat` after the rollout.
+
 ## 2026-10-30 — Prowlarr rejects the right password: the cutover copied every table but `Users`
 
 **Symptom.** `prowlarr.sandstorm.chat` cleared the Authentik gate and then a
