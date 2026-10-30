@@ -1,0 +1,89 @@
+---
+# peertube-offline-sync: copies new videos to a Nextcloud folder the phone keeps
+# offline, and deletes them once watched.
+# Code: github.com/Keylessboi/peertube-offline-sync (private).
+#
+# SHIPS SUSPENDED, IN DRY-RUN, WITH NO CHANNELS. POS_CHANNELS is empty on
+# purpose: the favourite-channel list is the owner's, and nothing is fetched
+# without it. To turn it on: let CI build the image, make the ghcr package readable by the cluster, put the channel handles in
+# the ConfigMap, read one dry run's log, then drop POS_DRY_RUN and `suspend`.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: peertube-sync
+  namespace: peertube
+data:
+  POS_CHANNELS: ""
+  POS_PEERTUBE_URL: http://peertube.peertube.svc.cluster.local:9000
+  POS_DAV_FOLDER: PeerTube
+  POS_MAX_HEIGHT: "720"
+  POS_KEEP_DAYS: "30"
+  POS_DRY_RUN: "1"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: peertube-sync
+  namespace: peertube
+spec:
+  suspend: true
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 3000
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: peertube-sync
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: sync
+              # Built by the code repo's CI. The ghcr package is private by
+              # default: make it public or add an imagePullSecret before
+              # un-suspending.
+              image: ghcr.io/keylessboi/peertube-offline-sync:latest@sha256:449a535db2303dfc2066436b01a6fd0ea5dbb61a2d535f7346803f0cb25ca533
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              envFrom:
+                - configMapRef: {name: peertube-sync}
+              env:
+                - name: POS_DAV_BASE
+                  valueFrom: {secretKeyRef: {name: peertube-sync, key: dav-url}}
+                - name: POS_DAV_USER
+                  valueFrom: {secretKeyRef: {name: peertube-sync, key: dav-user}}
+                - name: POS_DAV_PASSWORD
+                  valueFrom: {secretKeyRef: {name: peertube-sync, key: dav-password}}
+                - name: POS_PEERTUBE_USER
+                  valueFrom: {secretKeyRef: {name: peertube-sync, key: peertube-user, optional: true}}
+                - name: POS_PEERTUBE_PASSWORD
+                  valueFrom: {secretKeyRef: {name: peertube-sync, key: peertube-password, optional: true}}
+                - name: POS_STATE_DIR
+                  value: /state
+                - name: POS_TMP_DIR
+                  value: /tmp/pos
+              volumeMounts:
+                - {name: state, mountPath: /state}
+                - {name: tmp, mountPath: /tmp}
+              resources:
+                requests: {cpu: 50m, memory: 64Mi}
+                limits: {cpu: 500m, memory: 256Mi}
+          volumes:
+            - name: state
+              persistentVolumeClaim: {claimName: peertube-sync-state}
+            - name: tmp
+              emptyDir: {sizeLimit: 4Gi}

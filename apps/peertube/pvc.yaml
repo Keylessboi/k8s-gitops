@@ -1,0 +1,38 @@
+---
+# Video files, thumbnails, torrents, avatars. Files only: the database is on
+# CNPG (ADR-0009), never here. 200Gi because the sync is meant for a short
+# list of channels; the offline copies on the phone are separate and tiny.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: peertube-data
+  namespace: peertube
+  labels:
+    app.kubernetes.io/name: peertube
+    app.kubernetes.io/part-of: homelab
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 200Gi
+---
+# The companion's JSON ledger. On nfs-csi (encrypted at rest, HS-REST-02: the
+# namespace is C3) and deliberately not SQLite, which never goes on NFS
+# (ADR-0009). A single writer is enforced by concurrencyPolicy: Forbid.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: peertube-sync-state
+  namespace: peertube
+  labels:
+    app.kubernetes.io/name: peertube-sync
+    app.kubernetes.io/part-of: homelab
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 1Gi

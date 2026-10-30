@@ -1,0 +1,81 @@
+---
+# Non-secret PeerTube settings, layered over the image defaults as
+# /config/production.yaml. Secrets (app secret, DB and Redis passwords) come
+# from env vars, which node-config applies on top of this file.
+#
+# Channel synchronization is what mirrors a remote YouTube channel into a local
+# PeerTube channel. It is OFF in PeerTube by default, and so is HTTP import,
+# which it depends on. Both are on here because the whole point of this app is
+# the mirror; signup stays closed so only the owner's accounts can create sync
+# jobs.
+#
+# YouTube is the fragile part: yt-dlp is routinely met with "Sign in to confirm
+# you're not a bot". PeerTube >= 8.2 can pass a Netscape cookie file at
+# /data/tmp-persistent/youtube-cookies.txt (import.videos.http.cookies); that
+# uses a real Google account, so it is an owner decision and is NOT enabled.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: peertube-config
+  namespace: peertube
+data:
+  production.yaml: |
+    listen:
+      hostname: '0.0.0.0'
+    webserver:
+      https: true
+      hostname: 'peertube.sandstorm.chat'
+      port: 443
+    trust_proxy:
+      - '10.0.0.0/8'
+      - '172.16.0.0/12'
+    database:
+      hostname: 'app-databases-rw.databases.svc.cluster.local'
+      port: 5432
+      name: 'peertube'
+      username: 'peertube'
+      ssl: false
+    redis:
+      hostname: 'redis-master.redis.svc.cluster.local'
+      port: 6379
+      db: 3
+    storage:
+      tmp: '/data/tmp/'
+      tmp_persistent: '/data/tmp-persistent/'
+      bin: '/data/bin/'
+      avatars: '/data/avatars/'
+      web_videos: '/data/web-videos/'
+      streaming_playlists: '/data/streaming-playlists/'
+      original_video_files: '/data/original-video-files/'
+      redundancy: '/data/redundancy/'
+      logs: '/data/logs/'
+      previews: '/data/previews/'
+      thumbnails: '/data/thumbnails/'
+      storyboards: '/data/storyboards/'
+      torrents: '/data/torrents/'
+      captions: '/data/captions/'
+      cache: '/data/cache/'
+      plugins: '/data/plugins/'
+      well_known: '/data/well-known/'
+      client_overrides: '/data/client-overrides/'
+      uploads: '/data/uploads/'
+      user_exports: '/data/user-exports/'
+    signup:
+      enabled: false
+    import:
+      videos:
+        concurrency: 1
+        http:
+          enabled: true
+      video_channel_synchronization:
+        enabled: true
+        max_per_user: 20
+        check_interval: 1 hour
+        videos_limit_per_synchronization: 10
+    transcoding:
+      enabled: true
+      threads: 2
+      resolutions:
+        480p: true
+        720p: true
+        1080p: false

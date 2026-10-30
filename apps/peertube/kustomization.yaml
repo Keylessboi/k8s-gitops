@@ -1,0 +1,36 @@
+---
+# PeerTube - a private mirror of favourite channels, plus the companion that
+# pushes new videos to Nextcloud for offline playback on the phone.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: peertube
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  labels:
+    app.kubernetes.io/name: peertube
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: peertube
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/component: video
+      homelab/tier: apps
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - networkpolicy.yaml
+  - pvc.yaml
+  - config.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - sync-cronjob.yaml
+
+components:
+  - ../../components/protect-state

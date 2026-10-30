@@ -1,0 +1,65 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: peertube
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 9000, protocol: TCP}
+    # The companion CronJob lives in this namespace and calls the API.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: peertube-sync
+      ports:
+        - {port: 9000, protocol: TCP}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    # Postgres and Redis. Matching ingress rules in apps/databases and
+    # apps/redis - both sides, always.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: databases
+      ports:
+        - {port: 5432, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: redis
+      ports:
+        - {port: 6379, protocol: TCP}
+    # The companion uploads into Nextcloud over the cluster-internal DAV
+    # endpoint (same shape as the qBittorrent hook). Matching ingress rule in
+    # apps/nextcloud/networkpolicy.yaml.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: nextcloud
+      ports:
+        - {port: 80, protocol: TCP}
+        - {port: 8080, protocol: TCP}
+    # PeerTube itself: yt-dlp fetching from YouTube and other platforms, and
+    # outgoing federation. Public internet only, never the LAN or pod CIDR.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
+      ports:
+        - {port: 443, protocol: TCP}
+        - {port: 80, protocol: TCP}
