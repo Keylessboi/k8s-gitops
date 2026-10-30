@@ -124,9 +124,14 @@ spec:
                   value: http://lidarr.lidarr.svc.cluster.local:8686
                 - name: LIDARR_API_KEY
                   valueFrom: {secretKeyRef: {name: lidarr-api, key: api-key}}
-                # false = print the candidate list and change nothing.
+                # true = remove the candidates. Shipped as false, and the
+                # first live dry run (2026-10-30, after deploy) printed a
+                # candidate list of 76 missingFiles torrents and 0 dead
+                # downloads - expected, since the reaper had only just been
+                # cut from 24h to 3h and nothing was parked yet. Every name on
+                # that list was a genuine dead release, so it was turned on.
                 - name: APPLY
-                  value: "false"
+                  value: "true"
                 # How long a torrent must sit parked by the stall reaper before
                 # it is considered dead rather than unlucky.
                 - name: DEAD_HOURS
