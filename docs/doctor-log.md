@@ -167,6 +167,33 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
+## 2026-10-30 — PeerTube's certificate stuck at pending: the ACME solver pod was blocked by the namespace policy
+
+**Symptom.** Right after PeerTube was merged, `peertube-tls` stayed `Ready=False`
+for ten minutes and `https://peertube.sandstorm.chat` failed with "no alternative
+certificate subject name matches". The pod itself was healthy (database ready,
+HTTP server listening on :9000).
+
+```
+challenge  peertube-tls-1-...  pending
+Reason: Waiting for HTTP-01 challenge propagation: wrong status code '502', expected '200'
+```
+
+**Root cause.** `app-isolation` selects every pod in the namespace
+(`podSelector: {}`) and only admitted Traefik on 9000. cert-manager's HTTP-01
+solver pod listens on 8089 in the same namespace while a challenge runs, so
+Traefik got a refusal and returned 502 to Let's Encrypt. The same trap is already
+documented in `apps/ejabberd/networkpolicy.yaml`.
+
+**Fix.** Allow TCP 8089 from `kube-system` in `apps/peertube/networkpolicy.yaml`.
+
+**Prevention.** Any new app with a default-deny policy and its own certificate
+needs 8089 from kube-system next to its service port. Check for this when
+copying a policy from an app that never issued a certificate.
+
+**Confidence.** CONFIRMED for the 502 and the policy selector; the certificate
+should issue within a few minutes of the merge, which will confirm the fix.
+
 ## 2026-10-30 — Octo radio and search stall, and Octo restarts: the yt-dlp shim ran at its CPU ceiling and Octo hit 512Mi
 
 **Symptom.** Octo's radio fills and searches were slow and sometimes dropped

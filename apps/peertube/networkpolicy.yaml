@@ -15,6 +15,11 @@ spec:
               kubernetes.io/metadata.name: kube-system
       ports:
         - {port: 9000, protocol: TCP}
+        # cert-manager's HTTP-01 solver pod (port 8089) runs in this namespace
+        # while the certificate is issued or renewed; Traefik (kube-system)
+        # must reach it or the challenge fails with a 502. It only exists
+        # during a challenge.
+        - {port: 8089, protocol: TCP}
     # The companion CronJob lives in this namespace and calls the API.
     - from:
         - podSelector:
