@@ -15,3 +15,4 @@ entries:
   - {id: A-08, app: notesnook, type: per-user-local, account: own identity server, why: product design, disable: undefined}
   - {id: A-09, app: navidrome, type: per-user-local, account: Subsonic password for each user, why: Subsonic clients, disable: undefined}
   - {id: A-10, app: books, type: per-user-local, account: OPDS Basic-auth user, why: OPDS clients, disable: undefined}
+  - {id: A-11, app: peertube, type: local-admin, account: root, why: product bootstrap (first-boot administrator), disable: undefined}

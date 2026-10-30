@@ -1,14 +1,13 @@
----
-# peertube.sandstorm.chat, behind Authentik forward-auth.
+# peertube.sandstorm.chat, published, login through Authentik OIDC.
 #
-# PeerTube would normally be public (federation, embeds, other instances
-# following). This one is a private mirror feeding a phone, so it is NOT
-# published: forward-auth keeps it out of the register's publication exceptions
-# and keeps a mirror of other people's content from being world readable. The
-# cost: ActivityPub federation, and a NewPipe pointed straight at the instance,
-# do not work from outside the login. The companion uses the in-cluster
-# Service, so it is unaffected. Publishing it is a deliberate later step
-# (publication register entry, owner signature).
+# The forward-auth gate this host started with is gone: it blocked ActivityPub
+# federation, NewPipe and other clients pointed at the instance, and could not
+# be combined with PeerTube's own login. Sign-in is now PeerTube's OpenID
+# Connect plugin against Authentik (OAuth2 provider "PeerTube OIDC"), limited
+# by the Authentik application's access binding. Local signup stays off and a
+# local root account remains (accounts register). Mirrored channels should be
+# imported unlisted or private so the content is not browsable by the world.
+# The companion uses the in-cluster Service, so it is unaffected.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -17,7 +16,7 @@ metadata:
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
 spec:
   ingressClassName: traefik
   tls:
