@@ -121,6 +121,7 @@ the literal string you are seeing, then read the entry.
 | `ERROR:  syntax error at or near "$"` from SQL in a Job/initContainer, where the same SQL runs fine in psql | Kubernetes turns `$$` into `$` in container commands — 2026-10-05 |
 | NAS kernel upgraded, and `/usr/lib/modules/<new kernel>` has no `zfs.ko` (or `zpool import` finds nothing after a reboot) | ZFS hand-built outside DKMS — 2026-10-04 |
 | Atmos albums missing from the spatial library; sidecar `probe_failed` / permission denied on `media/music` m4a; files mode `-rw-------` | amdl writes 0600 and Lidarr copies it — 2026-10-09 (decryptor 0.3.3) |
+| Nextcloud restarts every couple of hours while a large upload runs, with `Liveness probe failed … context deadline exceeded` | a 5s probe budget against a worker held by a multi-minute PUT — 2026-10-30 (nextcloud) |
 
 ### The traps that have bitten more than once
 
@@ -161,6 +162,45 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-10-30 — Nextcloud restarts every couple of hours during a large upload: the probe was killing Apache mid-PUT
+
+**Symptom.** While copying a laptop into Nextcloud, the pod restarted on a rhythm
+of roughly every 20-40 minutes. The events said the same thing every time:
+
+```
+Warning  Unhealthy  kubelet  Liveness probe failed: Get "http://10.42.0.119:80/status.php":
+                               context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+Normal   Killing    kubelet  Container nextcloud failed liveness probe, will be restarted
+```
+
+185 unhealthy events over 8 days, 7 kills in 18 hours, `exitCode: 137`. Every
+restart destroyed the transfers in flight, and the files caught mid-PUT came
+back listed at their full declared size and unreadable at GET (see 2026-10-30,
+filecache entry).
+
+**Root cause.** `/status.php` is served by the same prefork workers that long PUTs
+occupy, and a single PUT of an 8 GiB part holds one for several minutes. The chart
+default gives the probe a 5s timeout with `failureThreshold: 3`, so ~35 seconds of
+worker contention is enough to kill the container. The probe was not measuring
+whether Nextcloud was alive; it was measuring whether Nextcloud had spare
+capacity, which is precisely what a server doing its job does not have.
+
+**Fix.** Liveness becomes `timeoutSeconds: 20`, `failureThreshold: 6` — 60 seconds
+of continuous failure, which is a hang. Readiness gets the same 20s timeout so a
+busy pod is not pulled out of the Service mid-transfer. The startupProbe is
+untouched; its 15 minutes exist for a different reason (a major-version `occ
+upgrade`) and it is already generous.
+
+**Prevention.** The invariant to keep: **a health probe's budget must exceed the
+time a healthy request can legitimately hold a worker.** That is arithmetic, not a
+policy, and it cannot be checked by `check-invariants.py` without knowing the
+workload — so the arithmetic is written next to the values, in the kustomization,
+where the next person to change a timeout will be standing.
+
+**Confidence: CONFIRMED.** Events name the probe, the kills cluster inside upload
+windows, and each one is followed within minutes by the hollow-file symptom it
+causes.
 
 ## 2026-10-27 — reflinks "did not save space" three times over: `zfs get used` counts cloned blocks as used
 

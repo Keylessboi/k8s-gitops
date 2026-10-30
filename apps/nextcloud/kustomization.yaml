@@ -322,6 +322,34 @@ helmCharts:
         timeoutSeconds: 5
         failureThreshold: 90
         successThreshold: 1
+      # A 5s liveness budget (the chart default) kills Apache while it is doing
+      # exactly its job. /status.php has to be served by the same prefork workers
+      # that long PUTs occupy, so during a multi-hour upload it missed three
+      # consecutive 5s deadlines and kubelet killed the container: 7 times in 18
+      # hours, every one of them mid-PUT. Each kill truncated the files in flight
+      # and Nextcloud kept its filecache row at the size the client had declared,
+      # which is how three files came to be listed as complete and unreadable
+      # (docs/doctor-log.md, 2026-10-30).
+      #
+      # 60s of continuous failure is a hang worth killing. 5s behind a busy
+      # worker is not, and the restart costs more than the stall: it destroys
+      # every transfer in flight and leaves hollow records behind.
+      livenessProbe:
+        enabled: true
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 20
+        failureThreshold: 6
+        successThreshold: 1
+      # Same budget for readiness, so a busy pod that is still serving uploads is
+      # not pulled out of the Service mid-transfer.
+      readinessProbe:
+        enabled: true
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 20
+        failureThreshold: 3
+        successThreshold: 1
       # Background jobs (#48). With no cron, Nextcloud fell back to AJAX mode
       # and ran jobs only while someone had the web UI open - nothing ran
       # 2026-09-12 -> 2026-10-02: no trash/version expiry, lock cleanup,
