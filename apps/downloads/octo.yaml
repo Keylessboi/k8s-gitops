@@ -381,16 +381,18 @@ spec:
             periodSeconds: 60
             timeoutSeconds: 5
             failureThreshold: 5
-          # Modest on purpose: the node sits at ~93% memory. A .NET server's
-          # GC will happily grow into whatever ceiling it is given, so the
-          # limit is the real setting here.
+          # Raised 512Mi -> 768Mi on 2026-10-30 after the container was
+          # OOMKilled at 512Mi on 2026-10-27. The node sits at ~93% memory, so
+          # keep this as low as the OOM evidence allows. A .NET server's GC
+          # will happily grow into whatever ceiling it is given, so the limit
+          # is the real setting here. Requests are unchanged.
           resources:
             requests:
               cpu: 50m
               memory: 128Mi
             limits:
               cpu: "1"
-              memory: 512Mi
+              memory: 768Mi
           volumeMounts:
             # The library, narrowed to the music directory, exactly as
             # Navidrome mounts it - so a path Octo writes is a path Navidrome
