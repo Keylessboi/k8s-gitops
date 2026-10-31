@@ -4,7 +4,7 @@ metadata:
   name: games-party
   namespace: games-party
 spec:
-  replicas: 1
+  replicas: 0  # off by default; wake mechanism per apps/games-hub
   strategy:
     type: Recreate
   selector:

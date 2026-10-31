@@ -28,3 +28,6 @@ resources:
   - service.yaml
   - networkpolicy.yaml
   - ingress.yaml
+
+components:
+  - ../../components/protect-state
