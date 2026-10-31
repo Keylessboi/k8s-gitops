@@ -46,7 +46,7 @@ spec:
           # membership and built-in modules; this instance uses requirepass
           # only, no ACL users and no modules. 7.4 cannot read what 8 writes,
           # so a rollback means restoring /data from the copy taken first.
-          image: redis:8.10.2-alpine
+          image: redis:8.10.3-alpine
           # requirepass is read from the mounted secret at startup so the
           # password never appears in the pod spec or in `kubectl describe`.
           command:
