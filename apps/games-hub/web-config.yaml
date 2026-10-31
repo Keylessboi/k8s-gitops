@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-config
+data:
+  default.conf: |
+    map $http_upgrade $is_ws { default 0; websocket 1; }
+    server {
+      listen 8080 default_server;
+      server_name mc.sandstorm.chat;
+      root /srv/client;
+      gzip on;
+      gzip_types text/html application/javascript;
+      gzip_min_length 1024;
+      location / {
+        # Eaglercraft connects with wss://mc.sandstorm.chat/ ; WebSocket
+        # upgrades go to the EaglerXServer listener, everything else is the client.
+        if ($is_ws) { proxy_pass http://minecraft.games-hub.svc.cluster.local:8081; }
+        try_files /index.html =404;
+      }
+    }
+    server {
+      listen 8080;
+      server_name games.sandstorm.chat;
+      root /srv/landing;
+      location / { try_files /index.html =404; }
+    }
+  proxy.conf: |
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+  index.html: |
+    <!doctype html>
+    <html lang="en"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Games</title>
+    <style>
+    :root{--bg:#fff;--fg:#1a1a1a;--card:#f1f1f4;--ac:#3b5bdb}
+    @media (prefers-color-scheme:dark){:root{--bg:#15161a;--fg:#eee;--card:#23252b;--ac:#8ea2ff}}
+    body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:18px system-ui,sans-serif}
+    main{max-width:520px;margin:8vh auto}
+    a{display:block;margin:12px 0;padding:18px;border-radius:12px;background:var(--card);color:var(--ac);text-decoration:none;font-weight:600}
+    small{display:block;color:var(--fg);opacity:.7;font-weight:400;margin-top:4px}
+    </style></head><body><main>
+    <h1>Games</h1>
+    <a href="https://mc.sandstorm.chat">Minecraft (Eaglercraft)<small>Sleeping server: ask the owner to wake it (about 2 min). Add server address wss://mc.sandstorm.chat/</small></a>
+    <a href="https://draw.sandstorm.chat">Drawing game</a>
+    <a href="https://party.sandstorm.chat">Party games</a>
+    </main></body></html>

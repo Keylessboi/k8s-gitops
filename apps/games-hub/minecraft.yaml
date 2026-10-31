@@ -1,0 +1,136 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minecraft-data
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minecraft
+spec:
+  # spec.replicas is deliberately NOT set. ArgoCD applies with server-side
+  # apply, so a field absent from git is not owned by ArgoCD and selfHeal never
+  # reverts a manual scale (the same arrangement an HPA relies on). The server
+  # is meant to be OFF unless someone is playing:
+  #   wake: kubectl -n games-hub scale deploy/minecraft --replicas=1   (~2 min)
+  #   stop: --replicas=0, or the nightly idle-stop CronJob does it.
+  # A fresh Deployment starts at 1 replica; scale it to 0 after the first sync.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: games-hub
+      app.kubernetes.io/instance: minecraft
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: games-hub
+        app.kubernetes.io/instance: minecraft
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      # Runs on the NAS node: k3s-server sits at ~81% memory with limits
+      # already well over-committed, and this pod can use ~2.3Gi while a game
+      # is on. The NAS has ~17Gi allocatable at ~19% use. It carries a
+      # storage=true:NoSchedule taint, hence the toleration (same as Lidarr).
+      # The local-path PVC binds on first use, so it lands on the NAS too.
+      nodeSelector:
+        kubernetes.io/os: linux
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      initContainers:
+        - name: wait-for-dns
+          image: busybox:1.38@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              for i in $(seq 1 60); do
+                nslookup github.com >/dev/null 2>&1 && exit 0
+                sleep 2
+              done
+              exit 1
+        # EaglerXServer v1.1.1 from the maintainer's GitHub release, pinned by sha256.
+        - name: fetch-plugin
+          image: curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              curl -fsSL --retry 5 --retry-delay 5 -o /plugins/EaglerXServer.jar \
+                https://github.com/lax1dude/eaglerxserver/releases/download/v1.1.1/EaglerXServer.jar
+              echo "468cb07eb7ca466b21b439be75156d3d01579327f4c6dae5b67d471137a64208  /plugins/EaglerXServer.jar" | sha256sum -c -
+          volumeMounts:
+            - {name: plugins, mountPath: /plugins}
+      containers:
+        - name: minecraft
+          image: itzg/minecraft-server:java8@sha256:73cfcc725460c74ce9b66250e417d1eff5dc53ce95308ce07bca21972d4a87f3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          env:
+            - {name: EULA, value: "TRUE"}
+            - {name: TYPE, value: PAPER}
+            - {name: VERSION, value: "1.8.8"}
+            # Eaglercraft clients cannot do Mojang auth.
+            - {name: ONLINE_MODE, value: "FALSE"}
+            - {name: MEMORY, value: 1536M}
+            - {name: VIEW_DISTANCE, value: "6"}
+            - {name: MOTD, value: "sandstorm Eaglercraft"}
+            - {name: MAX_PLAYERS, value: "6"}
+          ports:
+            - {containerPort: 8081, name: eagler}
+            - {containerPort: 25565, name: java}
+          readinessProbe:
+            tcpSocket: {port: eagler}
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 15
+          livenessProbe:
+            tcpSocket: {port: eagler}
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            failureThreshold: 10
+          resources:
+            requests: {cpu: 200m, memory: 1280Mi}
+            limits: {cpu: "2", memory: 2304Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: plugins, mountPath: /plugins, readOnly: true}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: minecraft-data
+        - name: plugins
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minecraft
+spec:
+  selector:
+    app.kubernetes.io/name: games-hub
+    app.kubernetes.io/instance: minecraft
+  ports:
+    - {name: eagler, port: 8081, targetPort: eagler, protocol: TCP}
