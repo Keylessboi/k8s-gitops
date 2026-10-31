@@ -193,23 +193,3 @@ entries:
     approved_on: 2026-10-20
     approval_note: "Approved by the owner on 2026-10-20 (in conversation, after the rationale was explained); entry written by the agent."
     review_by: 2027-10-01
-  - id: P-G01
-    ingress: games-draw/games-draw
-    routes: [draw.sandstorm.chat/]
-    basis: public
-    reason: Public multiplayer browser game for friends. No accounts, no uploads, in-memory state only.
-    criteria: {reason: met, data: met, login: met, accounts: met, function: met}
-    status: approved
-    approved_on: 2026-10-30
-    approval_note: "Approved by the agent at the owner's request on 2026-10-30; not individually reviewed."
-    review_by: 2027-10-30
-  - id: P-G02
-    ingress: games-party/games-party
-    routes: [party.sandstorm.chat/]
-    basis: public
-    reason: Public multiplayer browser game for friends. No accounts, no uploads, in-memory state only.
-    criteria: {reason: met, data: met, login: met, accounts: met, function: met}
-    status: approved
-    approved_on: 2026-10-30
-    approval_note: "Approved by the agent at the owner's request on 2026-10-30; not individually reviewed."
-    review_by: 2027-10-30
