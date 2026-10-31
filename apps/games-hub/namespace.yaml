@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: games-hub
+  labels:
+    homelab/data-class: c2
+    homelab/criticality: tier-3
+    app.kubernetes.io/name: games-hub
+    app.kubernetes.io/part-of: homelab
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
