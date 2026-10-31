@@ -4357,3 +4357,26 @@ stalls is inferred, not proven.
 `resolve` calls (572 of 689 in 24h; needs cookies or a PO-token path). Lidarr
 retries one queue item whose path no longer exists about every 2 minutes
 (836 errors in 24h; runtime state, remove it in Lidarr).
+
+## 2026-10-31 — qBittorrent queue limits lowered for the HDD mirror
+
+**Symptom.** A 90 GB Nextcloud backup stalled: the NAS pool was 97% full and
+67% fragmented, Nextcloud's liveness probe timed out about 195 times in 24 h, and
+the k3s host load average reached 57. The pool is a single mirror of two spinning
+disks shared by qBittorrent, Lidarr, Navidrome and Nextcloud (roughly 150-250
+random IOPS in total), and qBittorrent allowed 15 downloads, 40 uploads and 60
+active torrents on it.
+
+**Measured.** The forcestart job reports 8 protected-tracker torrents (the 51
+quoted in older notes is stale) and the stalled-reaper reports 0 stalledDL, so
+the dead-swarm backlog that justified 15 downloads is gone. Live counts by state
+were not available: the WebUI API needs credentials.
+
+**Change.** 8 downloads, 16 uploads, 32 active (8 protected + 8 + 16).
+`IgnoreSlowTorrentsForQueueing` stays false (see the comment block). No global
+share-limit stop was added because it would also stop the protected torrents.
+
+**Not confirmed.** Whether this lowers pool IO is not measured: re-read
+`zpool iostat` and Nextcloud request latency after a day. Incomplete downloads
+still land on the pool (TempPathEnabled is off and /downloads does not exist);
+moving them to the NAS NVMe is the larger fix and is not in this change.
