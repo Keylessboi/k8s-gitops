@@ -7,7 +7,7 @@ spec:
   # spec.replicas is deliberately NOT set: ArgoCD uses server-side apply, so a
   # field absent from git is not owned by ArgoCD and selfHeal never reverts a
   # manual scale. Meant to be OFF unless someone is playing:
-  #   wake: kubectl -n games-draw scale deploy/scribble --replicas=1
+  #   wake: kubectl -n games-draw scale deploy/games-draw --replicas=1
   #   stop: --replicas=0
   # A fresh Deployment starts at 1 replica; scale it to 0 after the first sync.
   strategy:
