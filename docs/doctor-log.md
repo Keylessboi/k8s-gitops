@@ -4338,3 +4338,22 @@ Kubernetes mount was the one thing listed as untested.
 `cp -rL /config/plugins/. /data/plugins/` (overwrite on every start, so git
 stays the source of truth) and the main container no longer mounts `/config`,
 so itzg's sync does not run. Verified only by the next wake, not by the file.
+
+## 2026-10-31 — Music pipeline: Navidrome and octo CPU limits were throttling bursts
+
+**Measured** (cgroup `cpu.stat`, cumulative since pod start): Navidrome 11.4%
+throttled (1,075 s) at a 500m limit while idling at 1m, octo 6.5% (382 s) at a
+1 CPU limit. Navidrome scans ran 1-9 min and octo's Navidrome calls had a p99 of
+38 s (max 99 s), which fits bursts hitting the limit while the filesystem watcher
+fires a scan about every 15 s during an import. The shim, after #167, is at 1.1%
+(was 19.8%), so that change worked.
+
+**Fix.** Navidrome limit 500m to 1 CPU (the NAS sits at 24% CPU), octo limit 1 to
+2 CPU. Limits only, requests unchanged. Not yet confirmed: re-read `cpu.stat`
+after a day, because the numbers above are cumulative and the cause of the scan
+stalls is inferred, not proven.
+
+**Not fixed, found in the same pass.** YouTube blocks yt-dlp for 83% of shim
+`resolve` calls (572 of 689 in 24h; needs cookies or a PO-token path). Lidarr
+retries one queue item whose path no longer exists about every 2 minutes
+(836 errors in 24h; runtime state, remove it in Lidarr).
