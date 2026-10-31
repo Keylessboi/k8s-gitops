@@ -1,0 +1,14 @@
+fill -11 229 -11 11 236 11 glass 0 hollow
+fill -10 229 -10 10 229 10 quartz_block
+fill -9 229 0 9 229 0 sea_lantern
+fill 0 229 -9 0 229 9 sea_lantern
+fill 40 199 -10 60 199 10 tnt
+fill 40 200 -10 60 200 10 sand
+fill 40 191 -10 60 191 10 tnt
+fill 40 192 -10 60 192 10 sand
+fill -61 200 -11 -39 216 11 stonebrick 0 hollow
+fill -60 215 -5 -40 215 -5 sea_lantern
+fill -60 215 0 -40 215 0 sea_lantern
+fill -60 215 5 -40 215 5 sea_lantern
+fill -61 200 19 -39 208 31 stonebrick 0 hollow
+fill -60 207 25 -40 207 25 sea_lantern

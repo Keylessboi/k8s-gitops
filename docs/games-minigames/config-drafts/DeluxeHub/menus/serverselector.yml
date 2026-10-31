@@ -1,0 +1,36 @@
+# Sandstorm Games selector. Opened by the Nether Star join item and by /games.
+slots: 27
+title: "Pick a game"
+refresh:
+  enabled: false
+  rate: 40
+items:
+  filler:
+    material: GRAY_STAINED_GLASS_PANE
+    slot: -1
+  tntrun:
+    material: TNT
+    slot: 11
+    amount: 1
+    glow: true
+    display_name: '&cTNT Run'
+    lore:
+      - '&7The floor falls away under your feet.'
+      - '&7Last one standing wins. 2-6 players.'
+      - '&eClick to join!'
+    actions:
+      - '[CLOSE]'
+      - '[COMMAND] tntrun join Arena1'
+  mobarena:
+    material: IRON_SWORD
+    slot: 15
+    amount: 1
+    glow: true
+    display_name: '&aMob Arena'
+    lore:
+      - '&7Team up against waves of monsters.'
+      - '&7Pick a class, survive as long as you can.'
+      - '&eClick to join!'
+    actions:
+      - '[CLOSE]'
+      - '[COMMAND] ma join'

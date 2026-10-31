@@ -1,0 +1,106 @@
+# TNTRun_reloaded configuration file     #
+#                                        #
+# The TNTRun plugin                      #
+# Original author Shevchikden            #
+#                                        #
+# TNTRun_reloaded author steve4744       #
+#                                        #
+special:
+  UseBarApi: true
+  UseTitle: true
+  UseScoreboard: true
+  CheckForNewVersion: false
+shop:
+  name: '&6&lTNTRun &f&lSHOP'
+  size: 27
+  doublejump:
+    maxdoublejumps: 10
+UseRankInChat:
+  enabled: false
+  usegroup: true
+  useprefix: false
+menu:
+  item: TNT
+  includedisabled: false
+commandsonwin:
+- say {PLAYER} won TNTRun
+- say Congratulations...
+fireworksonwin: true
+broadcastwinlevel: 2
+leaderboard:
+  maxentries: 10
+items:
+  vote:
+    use: true
+    material: DIAMOND
+    name: '&cVOTE'
+  info:
+    use: true
+    material: EMERALD
+    name: '&cINFO'
+  shop:
+    use: true
+    material: NETHER_STAR
+    name: '&cSHOP'
+  stats:
+    use: true
+    material: SKULL_ITEM
+    name: '&cSTATS'
+  leave:
+    use: true
+    material: BED
+    name: '&cLEAVE'
+  effects:
+    use: false
+    material: GLOWSTONE_DUST
+    name: '&cEFFECTS'
+scoreboard:
+  header: '&6&lTNTRUN'
+  waiting:
+  - '&fWelcome to TNTRun'
+  - '&a '
+  - '&fArena: &6&l{ARENA}'
+  - '&b '
+  - '&fPlayers: &a&l{PS}&7&l/&c&l{MPS}'
+  - '&c '
+  - '&fStarting in: &6&l{COUNT}'
+  playing:
+  - '&fPlaying TNTRun'
+  - '&fon arena: &6&l{ARENA}'
+  - '&b '
+  - '&fPlayers: &a&l{PS}&7&l/&c&l{MPS}'
+  - '&c '
+  - '&fLost Players: &a&l{LOST}'
+  - '&2 '
+  - '&fEnd in: &c&l{LIMIT}'
+database: file
+MySQL:
+  host: host
+  port: 12345
+  name: tntrun
+  user: root
+  pass: password
+signs:
+  prefix: '&6&lTNTRun'
+  status:
+    disabled: '&cDisabled'
+    ingame: '&c&l{PS}&8/&c&l{MPS}'
+    regenerating: '&6&lRegen...'
+    waiting: '&a&l{PS}&8/&a&l{MPS}'
+sounds:
+  arenastart:
+    enabled: true
+    sound: ENTITY_PLAYER_LEVELUP
+    volume: 10
+    pitch: 1.0
+  itemselect:
+    enabled: true
+    sound: UI_BUTTON_CLICK
+    volume: 1
+    pitch: 1.0
+  blockbreak:
+    enabled: true
+    sound: BLOCK_SAND_BREAK
+    volume: 5
+    pitch: 1.0
+debug: false
