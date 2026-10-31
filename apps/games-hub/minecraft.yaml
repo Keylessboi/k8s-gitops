@@ -84,7 +84,7 @@ spec:
             - {name: plugins, mountPath: /plugins}
       containers:
         - name: minecraft
-          image: itzg/minecraft-server:java8@sha256:73cfcc725460c74ce9b66250e417d1eff5dc53ce95308ce07bca21972d4a87f3
+          image: itzg/minecraft-server:java17@sha256:a08cd9ced3e1c3f46a318af1fa393de21698afbf8746681f115dc923ba847ba5
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: ["ALL"]}
@@ -99,15 +99,17 @@ spec:
             - {name: MOTD, value: "sandstorm Eaglercraft"}
             - {name: MAX_PLAYERS, value: "6"}
           ports:
-            - {containerPort: 8081, name: eagler}
+            # EaglerXServer on the Bukkit platform injects into the Java port:
+            # the websocket and the Java protocol both listen on 25565. (It also
+            # needs Java 17; the java8 image fails with UnsupportedClassVersion.)
             - {containerPort: 25565, name: java}
           readinessProbe:
-            tcpSocket: {port: eagler}
+            tcpSocket: {port: java}
             initialDelaySeconds: 60
             periodSeconds: 20
             failureThreshold: 15
           livenessProbe:
-            tcpSocket: {port: eagler}
+            tcpSocket: {port: java}
             initialDelaySeconds: 300
             periodSeconds: 30
             failureThreshold: 10
@@ -133,4 +135,5 @@ spec:
     app.kubernetes.io/name: games-hub
     app.kubernetes.io/instance: minecraft
   ports:
-    - {name: eagler, port: 8081, targetPort: eagler, protocol: TCP}
+    # nginx talks to 8081; the pod listens on 25565 (see above).
+    - {name: eagler, port: 8081, targetPort: java, protocol: TCP}
