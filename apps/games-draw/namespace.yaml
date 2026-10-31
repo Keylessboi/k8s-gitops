@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: games-draw
+  labels:
+    homelab/data-class: c1
+    homelab/criticality: tier-3
+    app.kubernetes.io/name: games-draw
+    app.kubernetes.io/part-of: homelab
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

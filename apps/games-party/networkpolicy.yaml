@@ -1,0 +1,100 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # cert-manager creates HTTP-01 solver pods in this namespace on demand and
+  # Traefik must reach them on 8089. Without this the ACME challenge 502s and
+  # no certificate is ever issued for this host.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 8089
+      protocol: TCP
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: pangolin
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: TCP
+      port: 5000
+  egress:
+  # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
+  # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so
+  # the old rule was a no-op. Every NetworkPolicy in this repo was missing real
+  # API access, which hard-broke the API clients (nfs-csi provisioner, doppler
+  # operator, cnpg operator, prometheus) and cascaded to every PVC and secret.
+  - to:
+    - ipBlock:
+        cidr: 10.43.0.1/32
+    ports:
+    - port: 443
+      protocol: TCP
+  # k3s DNATs 10.43.0.1:443 to the node's own address before NetworkPolicy
+  # egress is evaluated, so the Service rule above matches nothing for a new
+  # connection and the API call fails. This is the defect that broke CNPG's
+  # base backups and, here, kept the Doppler operator from ever winning leader
+  # election - i.e. from ever syncing a secret.
+  - to:
+    - ipBlock:
+        cidr: 192.168.1.0/24
+    ports:
+    - port: 6443
+      protocol: TCP
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # Reach our own services through the load balancer.
+  # CoreDNS resolves *.sandstorm.chat to 192.168.1.240 in-cluster (see
+  # apps/coredns), and the 0.0.0.0/0 rule below deliberately excludes
+  # 192.168.0.0/16 - so without this rule that lookup succeeds and the connection
+  # is then dropped. Needed by anything doing OIDC discovery against Authentik.
+  - to:
+    - ipBlock:
+        cidr: 192.168.1.240/32
+    ports:
+    - port: 443
+      protocol: TCP
+  # ...and the same rule again in post-DNAT terms. k3s translates
+  # 192.168.1.240:443 to the Traefik pod at :8443 BEFORE NetworkPolicy egress is
+  # evaluated, so the ipBlock rule above matches nothing on a new connection -
+  # the identical trap that broke CNPG's base backups and the Doppler operator.
+  # Traefik listens on 8443/8000 internally, not 443/80.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 8443
+      protocol: TCP
+    - port: 8000
+      protocol: TCP
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 192.168.0.0/16
+        - 172.16.0.0/12
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
