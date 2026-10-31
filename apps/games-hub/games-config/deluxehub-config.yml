@@ -19,7 +19,7 @@
 #   %location% - Returns player location
 #   %online% - Returns number of players online
 #   %online_max% - Returns number of max player slots
-# 
+#
 #        *** USE PLACEHOLDERAPI TO GET MORE ***
 #  (https://www.spigotmc.org/resources/placeholderapi.6245/)
 #--------
@@ -59,7 +59,7 @@ disabled-worlds:
     - world_the_end
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-# | ANTI-WORLD DOWNLOADER                    | 
+# | ANTI-WORLD DOWNLOADER                    |
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 # Prevent users downloading your world via the world downloader mod
