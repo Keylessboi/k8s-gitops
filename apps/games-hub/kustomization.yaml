@@ -28,6 +28,7 @@ resources:
   - web-config.yaml
   - web.yaml
   - minecraft.yaml
+  - idle-stop.yaml
   - networkpolicy.yaml
   - ingress.yaml
 

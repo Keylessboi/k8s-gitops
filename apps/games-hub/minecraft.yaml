@@ -14,7 +14,8 @@ kind: Deployment
 metadata:
   name: minecraft
 spec:
-  replicas: 1
+  # OFF by default. Wake: kubectl -n games-hub scale deploy/minecraft --replicas=1
+  replicas: 0
   strategy:
     type: Recreate
   selector:
@@ -81,10 +82,10 @@ spec:
             - {name: VERSION, value: "1.8.8"}
             # Eaglercraft clients cannot do Mojang auth.
             - {name: ONLINE_MODE, value: "FALSE"}
-            - {name: MEMORY, value: 2G}
+            - {name: MEMORY, value: 1536M}
             - {name: VIEW_DISTANCE, value: "6"}
             - {name: MOTD, value: "sandstorm Eaglercraft"}
-            - {name: MAX_PLAYERS, value: "12"}
+            - {name: MAX_PLAYERS, value: "6"}
           ports:
             - {containerPort: 8081, name: eagler}
             - {containerPort: 25565, name: java}
@@ -99,8 +100,8 @@ spec:
             periodSeconds: 30
             failureThreshold: 10
           resources:
-            requests: {cpu: 200m, memory: 1536Mi}
-            limits: {cpu: "2", memory: 3Gi}
+            requests: {cpu: 200m, memory: 1280Mi}
+            limits: {cpu: "2", memory: 2304Mi}
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: plugins, mountPath: /plugins, readOnly: true}

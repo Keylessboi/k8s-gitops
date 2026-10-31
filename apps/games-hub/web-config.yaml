@@ -46,7 +46,7 @@ data:
     small{display:block;color:var(--fg);opacity:.7;font-weight:400;margin-top:4px}
     </style></head><body><main>
     <h1>Games</h1>
-    <a href="https://mc.sandstorm.chat">Minecraft (Eaglercraft)<small>Add server address wss://mc.sandstorm.chat/</small></a>
+    <a href="https://mc.sandstorm.chat">Minecraft (Eaglercraft)<small>Sleeping server: ask the owner to wake it (about 2 min). Add server address wss://mc.sandstorm.chat/</small></a>
     <a href="https://draw.sandstorm.chat">Drawing game</a>
     <a href="https://party.sandstorm.chat">Party games</a>
     </main></body></html>
