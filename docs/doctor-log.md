@@ -167,6 +167,32 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
+## 2026-10-31 — Every Eaglercraft connection throws "Unable to access address of buffer": Paper 1.8.8's epoll Netty on Java 17
+
+**Symptom.** With the pod Ready on the Java 17 image, every incoming connection,
+including the kubelet's TCP probe, logged an exception that then repeated
+without end (over 100,000 lines in a minute in a throwaway test):
+
+```
+java.lang.RuntimeException: Unable to access address of buffer
+    at io.netty.channel.epoll.Native.read(Native Method)
+```
+
+**Root cause.** Paper 1.8.8 bundles an old Netty whose native epoll transport
+reads direct-buffer addresses by reflection, which Java 17 blocks. EaglerXServer
+needs Java 17, so the two requirements collide. `--add-opens` flags did not fix it
+(still 105050 exceptions in the same test).
+
+**Fix.** `USE_NATIVE_TRANSPORT=FALSE` (the `use-native-transport` server
+property), so Netty uses its NIO transport. In the throwaway container the same
+three probes produced 0 exceptions and EaglerXServer still loaded.
+
+**Prevention.** A 1.8-era server on a modern JVM needs a connection test, not
+only a startup test: it starts fine and fails on the first socket read.
+
+**Confidence.** CONFIRMED that the exception loop is gone with native transport
+off. A real Eaglercraft client join has still not been verified end to end.
+
 ## 2026-10-31 — Eaglercraft server never listens on 8081: EaglerXServer needs Java 17 and shares the Java port
 
 **Symptom.** After the games-hub merge, the `minecraft` pod ran but never became

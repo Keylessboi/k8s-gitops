@@ -94,6 +94,11 @@ spec:
             - {name: VERSION, value: "1.8.8"}
             # Eaglercraft clients cannot do Mojang auth.
             - {name: ONLINE_MODE, value: "FALSE"}
+            # Paper 1.8.8's bundled Netty epoll transport cannot read direct
+            # buffers on Java 17 ("Unable to access address of buffer", thrown in
+            # a loop on every connection, add-opens flags do not help). Native
+            # transport off makes it fall back to plain NIO, which works.
+            - {name: USE_NATIVE_TRANSPORT, value: "FALSE"}
             - {name: MEMORY, value: 1536M}
             - {name: VIEW_DISTANCE, value: "6"}
             - {name: MOTD, value: "sandstorm Eaglercraft"}
