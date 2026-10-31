@@ -167,6 +167,39 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
+## 2026-10-31 — Eaglercraft server never listens on 8081: EaglerXServer needs Java 17 and shares the Java port
+
+**Symptom.** After the games-hub merge, the `minecraft` pod ran but never became
+Ready: the readiness probe on 8081 failed with connection refused. The server log
+showed Paper 1.8.8 finishing startup normally.
+
+```
+[ERROR]: Could not load 'plugins/EaglerXServer.jar'
+UnsupportedClassVersionError: ... PlatformPluginBukkit ... class file version 61.0
+```
+
+**Root cause.** Two assumptions in the manifest were wrong. EaglerXServer v1.1.1
+is compiled for Java 17 (class file 61), and the pod ran the `java8` image, so the
+plugin never loaded and nothing listened on 8081. Separately, on the Bukkit
+platform the plugin does not open its own websocket port at all: it injects into
+the Java port, so the websocket and the Java protocol share 25565.
+
+**Fix.** `itzg/minecraft-server:java17` (digest-pinned), the pod's only port is
+25565, probes and the NetworkPolicy egress rule use it, and the Service still
+exposes 8081 to nginx via `targetPort: java`. Checked in a throwaway container on
+the backup server: with Java 17 the plugin logs `Loading EaglercraftXServer v1.1.1
+(Platform: Bukkit)` and the server reaches Done.
+
+**Prevention.** Read a plugin's Java requirement and listener model before wiring
+ports and probes around it; a plugin that fails to load leaves the server healthy
+and the probe red, which looks like a networking fault.
+
+**Confidence.** CONFIRMED for the Java 17 requirement (class version 61 in the
+log, plugin loads on java17). PROBABLE for the shared port: the plugin logs its
+Bukkit platform and the Java port is open, but a real Eaglercraft client has not
+connected yet. Raw HTTP and websocket probes were reset, so only a browser test
+will settle it.
+
 ## 2026-10-30 — PeerTube's certificate stuck at pending: the ACME solver pod was blocked by the namespace policy
 
 **Symptom.** Right after PeerTube was merged, `peertube-tls` stayed `Ready=False`
