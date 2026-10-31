@@ -113,6 +113,20 @@ spec:
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: games-scripts, mountPath: /scripts, readOnly: true}
+        # Copies the plugin configs from the ConfigMap over /data/plugins on every
+        # start (overwrite, so git stays the source of truth). itzg's own /config
+        # sync cannot do this: a ConfigMap mount makes /config/plugins a symlink,
+        # and copying that onto the real, non-empty /data/plugins fails with
+        # DirectoryNotEmptyException. cp -L follows the symlinks.
+        - name: copy-plugin-configs
+          image: itzg/minecraft-server:java17@sha256:a08cd9ced3e1c3f46a318af1fa393de21698afbf8746681f115dc923ba847ba5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          command: ["sh", "-c", "mkdir -p /data/plugins && cp -rL /config/plugins/. /data/plugins/"]
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: games-config, mountPath: /config, readOnly: true}
       containers:
         - name: minecraft
           image: itzg/minecraft-server:java17@sha256:a08cd9ced3e1c3f46a318af1fa393de21698afbf8746681f115dc923ba847ba5
@@ -134,11 +148,9 @@ spec:
             - {name: VIEW_DISTANCE, value: "6"}
             - {name: MOTD, value: "sandstorm Eaglercraft"}
             - {name: MAX_PLAYERS, value: "6"}
-            # Plugin configs come from the games-config ConfigMap, mounted at /config
-            # and copied over /data on every start (overwrite, so git stays the source
-            # of truth; the paths inside are plugins/<Plugin>/...).
-            - {name: COPY_CONFIG_DEST, value: /data}
-            - {name: SYNC_SKIP_NEWER_IN_DESTINATION, value: "FALSE"}
+            # Plugin configs are copied into /data/plugins by the copy-plugin-configs
+            # init container; /config is deliberately not mounted here, so itzg's
+            # own /config sync does not run.
             # Builds the lobby (y 229-236) and the two arenas high in the sky above the
             # spawn, so the existing terrain is untouched. /fill is idempotent. The
             # startup list can lose a race with RCON coming up, so the same list also
@@ -183,7 +195,6 @@ spec:
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: plugins, mountPath: /plugins, readOnly: true}
-            - {name: games-config, mountPath: /config, readOnly: true}
       volumes:
         # One ConfigMap, two views: the plugin configs (key -> path under /config)
         # and the spawn-pinning script for the init container.

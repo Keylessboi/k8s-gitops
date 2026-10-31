@@ -29,8 +29,8 @@ Full hashes and URLs are in the `fetch-plugin` init container.
 
 - `games-config` ConfigMap (from `apps/games-hub/games-config/`) holds the DeluxeHub config,
   menu and `/games` command, the MobArena config (arena `default`) and the TNT Run arena
-  `Arena1`. It is mounted at `/config` and copied over `/data` on every start
-  (`COPY_CONFIG_DEST=/data`, overwrite), so git is the source of truth for those files.
+  `Arena1`. It is copied over `/data/plugins` on every start by the `copy-plugin-configs` init container
+  (`cp -rL`, overwrite), so git is the source of truth for those files.
 - The lobby and arenas are physical blocks built by `RCON_CMDS_STARTUP` /
   `RCON_CMDS_FIRST_CONNECT` (`/fill`, idempotent). The console can only fill loaded chunks,
   which are the ones around the world spawn, hence the `pin-world-spawn` init container that
