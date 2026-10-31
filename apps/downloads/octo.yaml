@@ -391,7 +391,7 @@ spec:
               cpu: 50m
               memory: 128Mi
             limits:
-              cpu: "1"
+              cpu: "2"
               memory: 768Mi
           volumeMounts:
             # The library, narrowed to the music directory, exactly as
