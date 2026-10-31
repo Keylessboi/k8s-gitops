@@ -1,0 +1,33 @@
+# games-draw: public multiplayer browser game, no accounts, in-memory state.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: games-draw
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  labels:
+    app.kubernetes.io/name: games-draw
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/managed-by: argocd
+    argocd.argoproj.io/managed-by: argocd-applicationset
+
+namespace: games-draw
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: games-draw
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/component: games
+      app.kubernetes.io/managed-by: argocd
+      homelab/tier: apps
+    includeSelectors: true
+
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy.yaml
+  - ingress.yaml
+
+components:
+  - ../../components/protect-state
