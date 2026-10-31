@@ -66,7 +66,9 @@ spec:
                 sleep 2
               done
               exit 1
-        # EaglerXServer v1.1.1 from the maintainer's GitHub release, pinned by sha256.
+        # EaglerXServer v1.1.1 from the maintainer's GitHub release, pinned by sha256,
+        # plus the lobby and minigame plugins (all 1.8.8-capable, all sha256 pinned;
+        # versions, licences and why these ones: docs/games-minigames.md).
         - name: fetch-plugin
           image: curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
           securityContext:
@@ -80,8 +82,37 @@ spec:
               curl -fsSL --retry 5 --retry-delay 5 -o /plugins/EaglerXServer.jar \
                 https://github.com/lax1dude/eaglerxserver/releases/download/v1.1.1/EaglerXServer.jar
               echo "468cb07eb7ca466b21b439be75156d3d01579327f4c6dae5b67d471137a64208  /plugins/EaglerXServer.jar" | sha256sum -c -
+              # Lobby: DeluxeHub 3.5.2 (GPL-3.0). Menu, join items, world protection.
+              curl -fsSL --retry 5 --retry-delay 5 -o /plugins/DeluxeHub.jar \
+                https://github.com/ItsLewizzz/DeluxeHub/releases/download/release/DeluxeHub-3.5.2.jar
+              echo "db7d125b577ec12e8d96885cec12d3f5b9536b48bec3d1d1da0c1d335a95dcaa  /plugins/DeluxeHub.jar" | sha256sum -c -
+              # TNT Run: TNTRun_reloaded 6.8.9, the legacy 1.8-1.12.2 line (GPL-3.0). Needs WorldEdit.
+              curl -fsSL --retry 5 --retry-delay 5 -o /plugins/TNTRun_reloaded.jar \
+                https://github.com/steve4744/TNTRun/releases/download/v6.8.9/TNTRun_reloaded-6.8.9.jar
+              echo "b854e9c6b704a3bf0a65c76f4a1211d7d948bc174b4e86ae2179e8674e7c0654  /plugins/TNTRun_reloaded.jar" | sha256sum -c -
+              curl -fsSL --retry 5 --retry-delay 5 -o /plugins/WorldEdit.jar \
+                https://dev.bukkit.org/projects/worldedit/files/2597538/download
+              echo "5a7b88f6f75b4a0b6efd47ae03e9c26a2036ecd122b03a45ca635dde386d6186  /plugins/WorldEdit.jar" | sha256sum -c -
+              # Mob Arena: MobArena 0.106, the build published as MobArena-1.8.jar (GPL-3.0).
+              curl -fsSL --retry 5 --retry-delay 5 -o /plugins/MobArena.jar \
+                https://github.com/garbagemule/MobArena/releases/download/0.106/MobArena-1.8.jar
+              echo "ed2788f45326e4ce78dcdd2d64a14694da075103ca0f81ce0d737fd7fcde486a  /plugins/MobArena.jar" | sha256sum -c -
           volumeMounts:
             - {name: plugins, mountPath: /plugins}
+        # Moves the world spawn to 0,64,0 (once; level.dat is backed up as
+        # level.dat.pre-games). The lobby and arenas are built with /fill from the
+        # console, and the console can only touch chunks that are loaded, which in
+        # 1.8.8 means roughly 190 blocks around the world spawn. Without this the
+        # build depends on wherever the world's random spawn happened to land.
+        - name: pin-world-spawn
+          image: itzg/minecraft-server:java17@sha256:a08cd9ced3e1c3f46a318af1fa393de21698afbf8746681f115dc923ba847ba5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          command: ["python3", "/scripts/patch-spawn.py"]
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: games-scripts, mountPath: /scripts, readOnly: true}
       containers:
         - name: minecraft
           image: itzg/minecraft-server:java17@sha256:a08cd9ced3e1c3f46a318af1fa393de21698afbf8746681f115dc923ba847ba5
@@ -103,6 +134,34 @@ spec:
             - {name: VIEW_DISTANCE, value: "6"}
             - {name: MOTD, value: "sandstorm Eaglercraft"}
             - {name: MAX_PLAYERS, value: "6"}
+            # Plugin configs come from the games-config ConfigMap, mounted at /config
+            # and copied over /data on every start (overwrite, so git stays the source
+            # of truth; the paths inside are plugins/<Plugin>/...).
+            - {name: COPY_CONFIG_DEST, value: /data}
+            - {name: SYNC_SKIP_NEWER_IN_DESTINATION, value: "FALSE"}
+            # Builds the lobby (y 229-236) and the two arenas high in the sky above the
+            # spawn, so the existing terrain is untouched. /fill is idempotent. The
+            # startup list can lose a race with RCON coming up, so the same list also
+            # runs when the first player connects; DeluxeHub's join message is off so
+            # the "joined the game" line that triggers that hook stays in the log.
+            - name: RCON_CMDS_STARTUP
+              value: &buildcmds |-
+                fill -11 229 -11 11 236 11 glass 0 hollow
+                fill -10 229 -10 10 229 10 quartz_block
+                fill -9 229 0 9 229 0 sea_lantern
+                fill 0 229 -9 0 229 9 sea_lantern
+                fill 40 199 -10 60 199 10 tnt
+                fill 40 200 -10 60 200 10 sand
+                fill 40 191 -10 60 191 10 tnt
+                fill 40 192 -10 60 192 10 sand
+                fill -61 200 -11 -39 216 11 stonebrick 0 hollow
+                fill -60 215 -5 -40 215 -5 sea_lantern
+                fill -60 215 0 -40 215 0 sea_lantern
+                fill -60 215 5 -40 215 5 sea_lantern
+                fill -61 200 19 -39 208 31 stonebrick 0 hollow
+                fill -60 207 25 -40 207 25 sea_lantern
+            - name: RCON_CMDS_FIRST_CONNECT
+              value: *buildcmds
           ports:
             # EaglerXServer on the Bukkit platform injects into the Java port:
             # the websocket and the Java protocol both listen on 25565. (It also
@@ -124,7 +183,25 @@ spec:
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: plugins, mountPath: /plugins, readOnly: true}
+            - {name: games-config, mountPath: /config, readOnly: true}
       volumes:
+        # One ConfigMap, two views: the plugin configs (key -> path under /config)
+        # and the spawn-pinning script for the init container.
+        - name: games-config
+          configMap:
+            name: games-config
+            items:
+              - {key: deluxehub-config.yml, path: plugins/DeluxeHub/config.yml}
+              - {key: deluxehub-commands.yml, path: plugins/DeluxeHub/commands.yml}
+              - {key: deluxehub-menu-serverselector.yml, path: plugins/DeluxeHub/menus/serverselector.yml}
+              - {key: deluxehub-data.yml, path: plugins/DeluxeHub/data.yml}
+              - {key: mobarena-config.yml, path: plugins/MobArena/config.yml}
+              - {key: tntrun-arena1.yml, path: plugins/TNTRun_reloaded/arenas/Arena1.yml}
+        - name: games-scripts
+          configMap:
+            name: games-config
+            items:
+              - {key: patch-spawn.py, path: patch-spawn.py}
         - name: data
           persistentVolumeClaim:
             claimName: minecraft-data

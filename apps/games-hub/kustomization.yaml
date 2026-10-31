@@ -32,5 +32,16 @@ resources:
   - networkpolicy.yaml
   - ingress.yaml
 
+configMapGenerator:
+  - name: games-config
+    files:
+      - games-config/deluxehub-config.yml
+      - games-config/deluxehub-commands.yml
+      - games-config/deluxehub-menu-serverselector.yml
+      - games-config/deluxehub-data.yml
+      - games-config/mobarena-config.yml
+      - games-config/tntrun-arena1.yml
+      - games-config/patch-spawn.py
+
 components:
   - ../../components/protect-state

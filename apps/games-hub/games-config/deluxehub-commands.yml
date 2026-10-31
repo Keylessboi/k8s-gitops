@@ -1,0 +1,31 @@
+custom_commands:
+  games:
+    aliases:
+      - game
+      - menu
+    actions:
+      - '[MENU] serverselector'
+
+commands:
+  gamemode:
+    enabled: false
+  gms:
+    enabled: false
+  gmc:
+    enabled: false
+  gma:
+    enabled: false
+  gmsp:
+    enabled: false
+  clearchat:
+    enabled: true
+  fly:
+    enabled: false
+  lockchat:
+    enabled: false
+  setlobby:
+    enabled: true
+  lobby:
+    enabled: true
+  vanish:
+    enabled: false
