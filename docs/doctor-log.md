@@ -4320,3 +4320,21 @@ while serving **404 for all 35 Ingresses**, because it started before the API
 server was available and never rebuilt its routes. A running, ready Traefik
 answering 404 for the entire homelab is the same genre as everything else in
 this log: green status, no function. Deleting the pod fixed it.
+
+## 2026-10-31 — Minecraft minigames: a ConfigMap `/config` mount cannot be synced by itzg
+
+**Symptom.** The first wake after the minigames merge crashlooped in the main
+container: `Failed to sync and interpolate /config into /data:
+DirectoryNotEmptyException: /data/plugins`. All three init containers had
+completed, so the plugins and the spawn pin were fine.
+
+**Cause.** A ConfigMap volume makes each top-level key a symlink, so
+`/config/plugins` is a symlink to a directory. itzg copies it onto the real,
+non-empty `/data/plugins` and the copy refuses. The throwaway-container test
+mounted `/config` as a plain directory, which is why it passed there; the
+Kubernetes mount was the one thing listed as untested.
+
+**Fix.** A `copy-plugin-configs` init container runs
+`cp -rL /config/plugins/. /data/plugins/` (overwrite on every start, so git
+stays the source of truth) and the main container no longer mounts `/config`,
+so itzg's sync does not run. Verified only by the next wake, not by the file.
