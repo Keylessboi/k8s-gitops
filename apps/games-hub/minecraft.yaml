@@ -41,9 +41,16 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
+      # Runs on the NAS node: k3s-server sits at ~81% memory with limits
+      # already well over-committed, and this pod can use ~2.3Gi while a game
+      # is on. The NAS has ~17Gi allocatable at ~19% use. It carries a
+      # storage=true:NoSchedule taint, hence the toleration (same as Lidarr).
+      # The local-path PVC binds on first use, so it lands on the NAS too.
       nodeSelector:
         kubernetes.io/os: linux
-        homelab/node-class: compute
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
       initContainers:
         - name: wait-for-dns
           image: busybox:1.38@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
