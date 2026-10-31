@@ -14,8 +14,13 @@ kind: Deployment
 metadata:
   name: minecraft
 spec:
-  # OFF by default. Wake: kubectl -n games-hub scale deploy/minecraft --replicas=1
-  replicas: 0
+  # spec.replicas is deliberately NOT set. ArgoCD applies with server-side
+  # apply, so a field absent from git is not owned by ArgoCD and selfHeal never
+  # reverts a manual scale (the same arrangement an HPA relies on). The server
+  # is meant to be OFF unless someone is playing:
+  #   wake: kubectl -n games-hub scale deploy/minecraft --replicas=1   (~2 min)
+  #   stop: --replicas=0, or the nightly idle-stop CronJob does it.
+  # A fresh Deployment starts at 1 replica; scale it to 0 after the first sync.
   strategy:
     type: Recreate
   selector:
