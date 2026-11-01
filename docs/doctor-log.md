@@ -206,6 +206,11 @@ moved to `fast`, an encrypted ZFS pool on a file vdev on the NAS NVMe, exported 
 keep small-file app trees off the HDD mirror, and never let a recursive chown run
 on a volume that size.
 
+Follow-up: the scratch-perms init container's `chmod 1777` dropped setgid, so
+OnRootMismatch still walked /scratch on every start; now `3777`. Also: a child ZFS
+dataset must be exported itself; exporting only its parent made every NFS create
+take ~2 s (mountd: "below nearest filesystem").
+
 ## 2026-10-31 — Every Eaglercraft connection throws "Unable to access address of buffer": Paper 1.8.8's epoll Netty on Java 17
 
 **Symptom.** With the pod Ready on the Java 17 image, every incoming connection,
