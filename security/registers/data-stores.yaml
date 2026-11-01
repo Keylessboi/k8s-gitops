@@ -17,3 +17,4 @@ entries:
   - {id: D-08, store: agent transcripts, where: operator computer and the model provider, class: C4, at_rest: unverified, note: C4 when a secret was printed, backup: []}
   - {id: D-09, store: off-site borgmatic repository, where: off-site target (host unverified), class: C4, at_rest: encrypted, note: encryption mode unrecorded, backup: []}
   - {id: D-10, store: static local volumes on the nas (/extra/nfs-csi), where: nas, storage_classes: [static-local], class: C3, at_rest: encrypted, verified: "2026-10-06 tank/extra aes-256-gcm", backup: [zfs-snapshots, borgmatic-offsite]}
+  - {id: D-11, store: fast ZFS pool (file vdev on the nas NVMe), where: nas, storage_classes: [static-nfs], class: C3, at_rest: encrypted, verified: "2026-11-01 aes-256-gcm", note: "single device, NO redundancy; Nextcloud code/config/tmp only; key on the same host like D-01 (K-01 style)", backup: []}
