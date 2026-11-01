@@ -462,6 +462,12 @@ patches:
       spec:
         template:
           spec:
+            # fsGroup 33 + the NFS CSI driver's fsGroupPolicy=File made kubelet
+            # chown -R every volume (code tree, 300Gi scratch) over NFS on EVERY
+            # pod start: 10+ minutes at Init:0/1 on 2026-11-01. Only walk the
+            # tree when the root's ownership is wrong.
+            securityContext:
+              fsGroupChangePolicy: OnRootMismatch
             initContainers:
               - name: scratch-perms
                 image: busybox:1.38.0@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
