@@ -348,7 +348,7 @@ helmCharts:
         enabled: true
         initialDelaySeconds: 30
         periodSeconds: 10
-        timeoutSeconds: 5
+        timeoutSeconds: 20
         failureThreshold: 90
         successThreshold: 1
       # A 5s liveness budget (the chart default) kills Apache while it is doing

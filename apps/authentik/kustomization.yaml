@@ -138,7 +138,7 @@ helmCharts:
             port: http
           initialDelaySeconds: 15
           periodSeconds: 30
-          timeoutSeconds: 10
+          timeoutSeconds: 30
           failureThreshold: 5
         readinessProbe:
           httpGet:
@@ -146,14 +146,14 @@ helmCharts:
             port: http
           initialDelaySeconds: 15
           periodSeconds: 20
-          timeoutSeconds: 10
+          timeoutSeconds: 30
           failureThreshold: 5
         startupProbe:
           httpGet:
             path: /-/health/live/
             port: http
           periodSeconds: 10
-          timeoutSeconds: 10
+          timeoutSeconds: 30
           failureThreshold: 30
         resources:
           requests:

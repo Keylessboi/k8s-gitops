@@ -71,6 +71,10 @@ metadata:
   namespace: nextcloud
 spec:
   schedule: "*/20 * * * *"
+  # Suspended 2026-11-01: the scan execs `occ files:scan` into the live Nextcloud
+  # pod, which on a saturated NAS pool (tank 93% full) times the pod out and
+  # gets the scan killed (exit 137) every run. Re-enable once the pool has room.
+  suspend: true
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 2
