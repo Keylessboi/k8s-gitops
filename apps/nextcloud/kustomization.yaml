@@ -328,10 +328,13 @@ helmCharts:
         # Application code only. User data is in S3 above, so nextcloud-data
         # is no longer mounted.
         enabled: true
-        existingClaim: nextcloud-config-fast
+        existingClaim: nextcloud-config-fast-local
+      # On the NAS node, next to the local /fast volume (see pv-nextcloud-fast.yaml).
       nodeSelector:
         kubernetes.io/os: linux
-        homelab/node-class: compute
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
       resources:
         requests:
           cpu: 100m

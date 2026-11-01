@@ -44,3 +44,41 @@ spec:
   resources:
     requests:
       storage: 5Gi
+---
+# Same data, mounted as a LOCAL volume on the NAS node (no NFS in the path).
+#
+# 2026-11-01: Nextcloud on k3s-server read this tree over NFS and the CT's NFS
+# client took ~1 s per new-file create on /fast (20 creates: 22 s) while pve's own
+# client did 50 in 0.3 s. Root cause of the CT client's slowness was not found.
+# The NAS is a cluster node, /fast is local disk there, and lidarr, navidrome and
+# music already use this exact pattern - so run Nextcloud on the NAS node.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nextcloud-config-fast-local
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  local:
+    path: /fast/nextcloud
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - {key: kubernetes.io/hostname, operator: In, values: [nas]}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nextcloud-config-fast-local
+  namespace: nextcloud
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ""
+  volumeName: nextcloud-config-fast-local
+  resources:
+    requests:
+      storage: 5Gi
