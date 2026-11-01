@@ -28,6 +28,7 @@ the literal string you are seeing, then read the entry.
 | `[Unknown Album]` / `[Unknown Artist]` | Navidrome tags — 2026-08-29 |
 | Backups "succeeding" with nothing stored | MinIO zero drives — 2026-08-29 |
 | Everything on the host slow, API server 503 | swap thrash — 2026-08-31 |
+| Nextcloud 1/2 Ready, `Startup probe failed … context deadline exceeded`, D-state `nfs_wait_bit_killable` | saturated NAS pool, tight probes — 2026-11-01 |
 | `connection refused` on 127.0.0.1:6443, k3s restarting, `slow fdatasync` / `leaderelection lost` in its journal | etcd starved of disk I/O by parallel rollouts and pg_dumps — 2026-09-30 |
 | Downloads at ~300 kB/s from anything backed by NFS | NFS readahead — 2026-09-12 |
 | Sequential reads fast locally on the NAS but slow from a pod | NFS readahead — 2026-09-12 |
@@ -166,6 +167,34 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-11-01 — Nextcloud 1/2 Ready with 43 restarts, ghost/pelican/authentik restarting: the NAS pool was saturated and the probes were too tight
+
+**Symptom.** Nextcloud down: pod 1/2 Ready, 43 restarts, ~3100 failed startup
+probes (`context deadline exceeded` on `/status.php`). ghost, pelican and
+authentik restarting on `Unhealthy` probes (timeouts, 503). pve load average
+33-80, I/O pressure 23-40% "full", processes in D state on `nfs_wait_bit_killable`.
+
+**Root cause.** `tank` (one two-disk HDD mirror) is 93% full and 49% fragmented:
+disk wait was 46 ms reads / 259 ms writes at only ~8 MB/s, so NFS-backed pods
+answered probes slowly. Free space was not the limit; operations per second were.
+Contributors: a borg run on the NAS (1 d 8 h, stopped for ~20 min), and the
+`games-mount-scan` CronJob execing `occ files:scan` into the live Nextcloud pod
+every 20 minutes (killed, exit 137, each time). Nextcloud's startupProbe kept the
+chart's 5 s timeout while liveness/readiness were 20 s; pelican's startupProbe
+used the 1 s default.
+
+**Fix.** Probe timeouts raised (nextcloud startup 20 s, pelican 15 s, authentik
+server 30 s); `games-mount-scan` suspended. Borg paused, then resumed at idle I/O
+priority (ionice -c3, nice 19). Follow-up PR moves Nextcloud's PHP code off NFS.
+
+**Prevention.** Give every probe a timeout that covers the slowest dependency it
+touches, startup probe included. Do not exec heavy scans into a serving pod. Keep
+`tank` under ~80% full; the encrypted pool (policy 12.4) cannot be bypassed by
+moving volumes to pve's plain LVM.
+
+**Confidence.** PROBABLE. The pool and nfsd looked idle at the end of the
+investigation while pve stayed stalled, so the final cause is not fully pinned.
 
 ## 2026-10-31 — Every Eaglercraft connection throws "Unable to access address of buffer": Paper 1.8.8's epoll Netty on Java 17
 
