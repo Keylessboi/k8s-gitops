@@ -12,8 +12,9 @@ entries:
   - {id: D-03, store: MinIO, where: nas on tank, class: C4, at_rest: encrypted, note: through tank, backup: [zfs-snapshots, borgmatic-offsite]}
   - {id: D-04, store: local-path volumes, where: node local disks, storage_classes: [local-path], class: C4, at_rest: not-encrypted, note: app configs, SQLite, thumbnails, backup: []}
   - {id: D-05, store: k3s datastore (all Kubernetes objects, Secrets included), where: CT 200, class: C4, at_rest: encrypted, verified: "2026-10-07 k3s secrets-encrypt status: Enabled, reencrypt_finished, AES-CBC", backup: []}
-  - {id: D-06, store: NFS volumes (nfs-csi), where: nas on tank, storage_classes: [nfs-csi, static-nfs], class: C3, at_rest: encrypted, note: in transit plaintext on the LAN, backup: [zfs-snapshots, borgmatic-offsite]}
+  - {id: D-06, store: NFS volumes (nfs-csi), where: nas on tank and on the fast pool (D-11), storage_classes: [nfs-csi, static-nfs], class: C3, at_rest: encrypted, note: in transit plaintext on the LAN, backup: [zfs-snapshots, borgmatic-offsite]}
   - {id: D-07, store: Loki and Prometheus, where: cluster volumes, class: C3, at_rest: unverified, backup: []}
   - {id: D-08, store: agent transcripts, where: operator computer and the model provider, class: C4, at_rest: unverified, note: C4 when a secret was printed, backup: []}
   - {id: D-09, store: off-site borgmatic repository, where: off-site target (host unverified), class: C4, at_rest: encrypted, note: encryption mode unrecorded, backup: []}
   - {id: D-10, store: static local volumes on the nas (/extra/nfs-csi), where: nas, storage_classes: [static-local], class: C3, at_rest: encrypted, verified: "2026-10-06 tank/extra aes-256-gcm", backup: [zfs-snapshots, borgmatic-offsite]}
+  - {id: D-11, store: fast ZFS pool (file vdev on the nas NVMe), where: nas, class: C3, at_rest: encrypted, verified: "2026-11-01 aes-256-gcm", note: "static-nfs volumes on it are classified by D-06; single device, NO redundancy; Nextcloud code/config/tmp only; key on the same host like D-01 (K-01 style)", backup: []}

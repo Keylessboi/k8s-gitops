@@ -1,0 +1,46 @@
+---
+# Nextcloud application code, config and tmp on the NVMe-backed encrypted pool
+# `fast` on the NAS (aes-256-gcm, key in /etc/zfs/keys on the host, same custody
+# as tank), instead of the HDD mirror `tank`.
+#
+# WHY. tank is 93% full and 49% fragmented; every PHP request stats thousands of
+# files over NFS and every pod start made kubelet chown -R the whole tree, which
+# held Nextcloud at Init for an hour on 2026-11-01. This tree is ~32k small files
+# and a few GB - exactly what an SSD is for. User files are in MinIO, not here.
+#
+# The pool is a single file vdev on the NAS NVMe: NO REDUNDANCY. That is
+# acceptable for restorable app code/config; do not put databases here. The old
+# claim nextcloud-config-tank stays declared for rollback. Register entry D-11.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nextcloud-config-fast
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.1
+    - hard
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: nextcloud-config-fast
+    volumeAttributes:
+      server: 192.168.1.67
+      share: /fast
+      subDir: nextcloud
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nextcloud-config-fast
+  namespace: nextcloud
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ""
+  volumeName: nextcloud-config-fast
+  resources:
+    requests:
+      storage: 5Gi

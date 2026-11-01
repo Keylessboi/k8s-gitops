@@ -196,6 +196,16 @@ moving volumes to pve's plain LVM.
 **Confidence.** PROBABLE. The pool and nfsd looked idle at the end of the
 investigation while pve stayed stalled, so the final cause is not fully pinned.
 
+**Update, 2026-11-01 evening.** Kubelet's recursive fsGroup chown over NFS
+(31,905 files at ~0.1 s each on the saturated pool) held every new Nextcloud pod
+at Init:0/1 for over an hour, and the Recreate strategy plus kubelet's
+one-operation-per-volume lock meant the next pod could not mount until the walk
+ended. Fixes: `fsGroupChangePolicy: OnRootMismatch` (#195); the application tree
+moved to `fast`, an encrypted ZFS pool on a file vdev on the NAS NVMe, exported at
+/fast (register D-11); an NVMe write log and L2ARC added to `tank`. Prevention:
+keep small-file app trees off the HDD mirror, and never let a recursive chown run
+on a volume that size.
+
 ## 2026-10-31 — Every Eaglercraft connection throws "Unable to access address of buffer": Paper 1.8.8's epoll Netty on Java 17
 
 **Symptom.** With the pod Ready on the Java 17 image, every incoming connection,
