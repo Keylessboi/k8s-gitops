@@ -214,20 +214,21 @@ spec:
             httpGet:
               path: /up
               port: http
+            timeoutSeconds: 15
             periodSeconds: 10
             failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /up
               port: http
-            timeoutSeconds: 5
+            timeoutSeconds: 15
             periodSeconds: 15
             failureThreshold: 4
           livenessProbe:
             httpGet:
               path: /up
               port: http
-            timeoutSeconds: 5
+            timeoutSeconds: 15
             periodSeconds: 30
             failureThreshold: 5
           volumeMounts:
