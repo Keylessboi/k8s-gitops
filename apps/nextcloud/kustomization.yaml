@@ -469,7 +469,10 @@ patches:
             initContainers:
               - name: scratch-perms
                 image: busybox:1.38.0@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
-                command: ["sh", "-c", "chmod 1777 /scratch && echo scratch ready"]
+                # 3777, not 1777: keep the setgid bit. fsGroupChangePolicy
+                # OnRootMismatch treats a root without it as "ownership wrong"
+                # and chowns the whole volume over NFS on every start.
+                command: ["sh", "-c", "chmod 3777 /scratch && echo scratch ready"]
                 volumeMounts:
                   - name: nextcloud-scratch
                     mountPath: /scratch
