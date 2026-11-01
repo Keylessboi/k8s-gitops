@@ -290,6 +290,9 @@ helmCharts:
             ; would leave the 50 GB buffer exactly where it was.
             upload_tmp_dir = /scratch
             sys_temp_dir = /scratch
+            ; Code lives on a pod-local volume now, but custom_apps and config are
+            ; still NFS: check timestamps every 5 min, not the image default 60s.
+            opcache.revalidate_freq = 300
       internalDatabase:
         enabled: false
       externalDatabase:
@@ -469,6 +472,14 @@ patches:
             containers:
               - name: nextcloud
                 volumeMounts:
+                  # Application code comes from the image, not from tank: it is
+                  # public, and every PHP request stats thousands of its files,
+                  # which over NFS to a saturated HDD mirror stalled /status.php.
+                  # Config, data, custom_apps, themes and tmp stay on the
+                  # encrypted claim. subPath: null drops the chart's html subPath.
+                  - name: nextcloud-code
+                    mountPath: /var/www/html
+                    subPath: null
                   - name: nextcloud-scratch
                     mountPath: /scratch
                   # readOnly at BOTH the PV and the mount. qBittorrent is
@@ -480,12 +491,18 @@ patches:
               # Background jobs touch the same files as web requests.
               - name: nextcloud-cron
                 volumeMounts:
+                  - name: nextcloud-code
+                    mountPath: /var/www/html
+                    subPath: null
                   - name: nextcloud-scratch
                     mountPath: /scratch
                   - name: media-data
                     mountPath: /media
                     readOnly: true
             volumes:
+              - name: nextcloud-code
+                emptyDir:
+                  sizeLimit: 3Gi
               - name: nextcloud-scratch
                 persistentVolumeClaim:
                   claimName: nextcloud-scratch
