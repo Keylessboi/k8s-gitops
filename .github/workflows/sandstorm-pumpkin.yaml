@@ -6,9 +6,7 @@ name: sandstorm-pumpkin
 
 "on":
   push:
-    # The feature branch builds too, so the image exists (and its digest can be
-    # pinned) before this reaches main. Drop it once merged.
-    branches: [main, claude/eaglercraft-server-optimization-5yzh9t]
+    branches: [main]
     paths:
       - 'images/sandstorm-pumpkin/**'
       - 'plugins/sandstorm-games/**'
