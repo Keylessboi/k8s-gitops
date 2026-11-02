@@ -351,6 +351,19 @@ spec:
               # 1,312 queuedUP are seedless leecher torrents that never
               # finished - they cost a tracker announce and nothing else.
               #
+              # LOWERED 2026-10-31 to 8 dl / 16 ul / 32 active, for the HDD mirror.
+              # The pool is ONE two-disk mirror shared with Lidarr, Navidrome and
+              # Nextcloud and was 97% full, so every concurrent random piece
+              # write or seed read costs the whole stack. What changed since the
+              # numbers above: the dead-pruner now clears dead swarms (the stalled
+              # reaper found 0 stalledDL), and the protected-forcestart job
+              # reported 8 torrents on protected trackers, not the 51 once
+              # quoted. Force-started torrents still count against these limits,
+              # so 32 = 8 protected + 8 downloads + 16 uploads.
+              # NOT added: a global ratio/seed-time stop. It would also stop the
+              # protected private torrents (MyAnonamouse holds 30 days), so it
+              # needs a per-torrent unlimited override for them first.
+              #
               # seedpool.org IS NOT ADDED TO THE PROTECTED LIST, on purpose.
               # It is 1,165 of the 2,424 torrents (520 seeding, 604 queuedDL)
               # and NOT ONE of its announce URLs carries a passkey - there is
@@ -363,9 +376,9 @@ spec:
                 /^\[BitTorrent\]$/ {
                   print
                   print "Session\\QueueingSystemEnabled=true"
-                  print "Session\\MaxActiveDownloads=15"
-                  print "Session\\MaxActiveUploads=40"
-                  print "Session\\MaxActiveTorrents=60"
+                  print "Session\\MaxActiveDownloads=8"
+                  print "Session\\MaxActiveUploads=16"
+                  print "Session\\MaxActiveTorrents=32"
                   print "Session\\IgnoreSlowTorrentsForQueueing=false"
                   next
                 }
@@ -376,7 +389,7 @@ spec:
                 /^Session\\IgnoreSlowTorrentsForQueueing=/ { next }
                 { print }
               ' "$F" > "$F.tmp" && mv "$F.tmp" "$F"
-              echo "qBittorrent queueing enabled (15 dl / 40 ul / 60 active)"
+              echo "qBittorrent queueing enabled (8 dl / 16 ul / 32 active)"
               echo "qBittorrent SOCKS5 proxy + AutoRun configured"
           volumeMounts:
             - name: config
