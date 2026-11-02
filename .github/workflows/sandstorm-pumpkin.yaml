@@ -1,0 +1,55 @@
+# Build the sandstorm-pumpkin image (Pumpkin server + sandstorm-games plugin)
+# and publish it to GHCR. Same shape as octo.yaml: no personal access token
+# (GITHUB_TOKEN with packages: write), and the Deployment pins the digest this
+# prints, so what the cluster runs only changes when a human edits the pin.
+name: sandstorm-pumpkin
+
+"on":
+  push:
+    # The feature branch builds too, so the image exists (and its digest can be
+    # pinned) before this reaches main. Drop it once merged.
+    branches: [main, claude/eaglercraft-server-optimization-5yzh9t]
+    paths:
+      - 'images/sandstorm-pumpkin/**'
+      - 'plugins/sandstorm-games/**'
+      - '.github/workflows/sandstorm-pumpkin.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/keylessboi/sandstorm-pumpkin
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: images/sandstorm-pumpkin/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          provenance: false
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Report the digest to pin
+        run: echo "::notice::${IMAGE}@${{ steps.build.outputs.digest }}"

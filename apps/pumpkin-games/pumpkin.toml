@@ -1,0 +1,29 @@
+# Pumpkin settings for the sandstorm games server. Only what differs from the
+# defaults; the init container copies this over /data/pumpkin.toml on every
+# start, so git is the source of truth.
+default_difficulty = "Normal"
+default_gamemode = "Adventure"
+allow_nether = false
+allow_end = false
+white_list = false
+spawn_protection = 0
+
+[telemetry]
+# Pumpkin phones home every 5 minutes by default. No.
+enabled = false
+
+[networking.java]
+enabled = true
+address = "0.0.0.0:25565"
+# OFFLINE MODE, by the owner's decision (friends play from reset computers
+# and cannot sign in every time). Anyone who can reach this port can join
+# under any name, including an operator's. Keep the port off the public
+# internet. See docs/pumpkin-games.md.
+online_mode = false
+max_players = 20
+view_distance = 8
+simulation_distance = 6
+motd = "sandstorm games: /games"
+
+[networking.bedrock]
+enabled = false
