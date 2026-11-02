@@ -234,7 +234,7 @@ fn run(server: &Server) {
             continue;
         }
         // The block(s) under the feet: sample the four corners of the hitbox.
-        let by = (y - 0.05).floor() as i32 - 1;
+        let by = (y - 0.05).floor() as i32;
         for (dx, dz) in [(-0.3, -0.3), (0.3, -0.3), (-0.3, 0.3), (0.3, 0.3)] {
             let bx = (x + dx).floor() as i32;
             let bz = (z + dz).floor() as i32;
