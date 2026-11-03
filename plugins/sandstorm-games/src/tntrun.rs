@@ -280,7 +280,7 @@ fn run(server: &Server) {
             if bx < X0 || bx > X1 || bz < Z0 || bz > Z1 {
                 continue;
             }
-            if w.get_block(BlockPos { x: bx, y: by, z: bz }).name == "minecraft:sand" {
+            if same_block(&w.get_block(BlockPos { x: bx, y: by, z: bz }).name, "minecraft:sand") {
                 newly.push((bx, by, bz));
             }
         }

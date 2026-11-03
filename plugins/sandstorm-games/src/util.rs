@@ -100,12 +100,24 @@ pub fn load_chunks(world: &World, x0: i32, z0: i32, x1: i32, z1: i32) {
     }
 }
 
+/// Compare block names ignoring the `minecraft:` prefix: the host reports the
+/// bare name in some places and the namespaced one in others.
+pub fn same_block(a: &str, b: &str) -> bool {
+    a.trim_start_matches("minecraft:") == b.trim_start_matches("minecraft:")
+}
+
 /// Is this block really there? Used to refuse a game start with no floor.
+/// Logs what it saw when the answer is no, so a wrong guess is visible.
 pub fn block_is(world: &World, x: i32, y: i32, z: i32, name: &str) -> bool {
-    world
-        .get_block(pumpkin_plugin_api::world::BlockPos { x, y, z })
-        .name
-        == name
+    let seen = world.get_block(pumpkin_plugin_api::world::BlockPos { x, y, z });
+    let ok = same_block(&seen.name, name);
+    if !ok {
+        pumpkin_plugin_api::logging::log(
+            pumpkin_plugin_api::logging::LogLevel::Info,
+            &format!("sandstorm-games: expected {name} at {x},{y},{z}, found {:?} (air: {})", seen.name, seen.is_air),
+        );
+    }
+    ok
 }
 
 /// Fill a box with a block by name. The host has no /fill, so loop. Returns
