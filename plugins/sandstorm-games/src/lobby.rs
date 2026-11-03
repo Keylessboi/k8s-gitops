@@ -5,11 +5,15 @@ use pumpkin_plugin_api::{
     Context, Result, Server,
     command::{CommandError, CommandSender, ConsumedArgs},
     commands::CommandHandler,
-    common::GameMode,
+    common::{GameMode, Hand},
+    ItemStackExt,
     events::{
         BlockBreakEvent, BlockPlaceEvent, EventHandler, EventPriority, FoodLevelChangeEvent,
-        PlayerJoinEvent, PlayerLeaveEvent,
+        InventoryClickEvent, PlayerInteractEvent, PlayerJoinEvent, PlayerLeaveEvent,
     },
+    gui::Gui,
+    item_stack::ItemStack,
+    screens_wit::Screen,
     permission::{Permission, PermissionDefault},
     scheduler::SchedulerExt,
     text::TextComponent,
@@ -33,6 +37,8 @@ pub fn init(ctx: &Context) -> Result<()> {
     ctx.register_event_handler::<BlockBreakEvent, _>(NoBreak, EventPriority::High, true)?;
     ctx.register_event_handler::<BlockPlaceEvent, _>(NoPlace, EventPriority::High, true)?;
     ctx.register_event_handler::<FoodLevelChangeEvent, _>(NoHunger, EventPriority::High, true)?;
+    ctx.register_event_handler::<PlayerInteractEvent, _>(Interact, EventPriority::High, true)?;
+    ctx.register_event_handler::<InventoryClickEvent, _>(MenuClick, EventPriority::High, true)?;
 
     let games = pumpkin_plugin_api::command::Command::new(
         &["games".to_string()],
@@ -80,7 +86,102 @@ pub fn send_to_lobby(p: &pumpkin_plugin_api::player::Player, server: &Server) {
     }
     p.set_gamemode(GameMode::Adventure);
     p.set_health(20.0);
+    give_compass(p);
     set_place(key_of(&p.get_id()), Place::Lobby);
+}
+
+/// The one item a lobby player carries: right-click it for the games menu.
+fn give_compass(p: &pumpkin_plugin_api::player::Player) {
+    let inv = p.get_inventory();
+    inv.clear_all();
+    let compass = ItemStack::of("minecraft:compass", 1);
+    compass.set_custom_name(Some(text("&a&lGames &7(right-click)")));
+    compass.set_lore(vec![text("&7Pick a minigame to join")]);
+    inv.as_inventory().set_item(4, Some(compass));
+    inv.set_selected_slot(4);
+}
+
+const SLOT_TNT: i16 = 11;
+const SLOT_ARENA: i16 = 15;
+
+fn menu_item(key: &str, name: &str, lore: &[&str]) -> ItemStack {
+    let it = ItemStack::of(key, 1);
+    it.set_custom_name(Some(text(name)));
+    let lines: Vec<TextComponent> = lore.iter().map(|l| text(l)).collect();
+    it.set_lore(lines);
+    it
+}
+
+fn open_menu(p: &pumpkin_plugin_api::player::Player) {
+    let gui = Gui::new(Screen::Generic9x3, text("&6Pick a game"));
+    gui.set_allow_grab_items(false);
+    gui.set_allow_put_items(false);
+    gui.set_item(
+        SLOT_TNT as u32,
+        menu_item(
+            "minecraft:tnt",
+            "&c&lTNT Run",
+            &["&72-6 players", "&7The floor falls away under you.", "&eClick to join"],
+        ),
+    );
+    gui.set_item(
+        SLOT_ARENA as u32,
+        menu_item(
+            "minecraft:iron_sword",
+            "&a&lMob Arena",
+            &["&71-6 players, co-op", "&7Survive the waves together.", "&eClick to join"],
+        ),
+    );
+    p.open_gui(gui);
+}
+
+struct Interact;
+impl EventHandler<PlayerInteractEvent> for Interact {
+    fn handle(
+        &self,
+        _s: Server,
+        mut ev: <PlayerInteractEvent as pumpkin_plugin_api::FromIntoEvent>::Data,
+    ) -> <PlayerInteractEvent as pumpkin_plugin_api::FromIntoEvent>::Data {
+        use pumpkin_plugin_api::events_wit::InteractAction as A;
+        let right = matches!(ev.action, A::RightClickAir | A::RightClickBlock);
+        let holds = ev
+            .player
+            .get_inventory()
+            .get_item_in_hand(Hand::Right)
+            .is_some_and(|i| i.matches_item("minecraft:compass"));
+        if right && holds && place_of(key_of(&ev.player.get_id())) == Place::Lobby {
+            open_menu(&ev.player);
+            ev.cancelled = true;
+        }
+        ev
+    }
+}
+
+/// Clicks in the games menu join a game. Lobby players cannot move items.
+struct MenuClick;
+impl EventHandler<InventoryClickEvent> for MenuClick {
+    fn handle(
+        &self,
+        server: Server,
+        mut ev: <InventoryClickEvent as pumpkin_plugin_api::FromIntoEvent>::Data,
+    ) -> <InventoryClickEvent as pumpkin_plugin_api::FromIntoEvent>::Data {
+        if place_of(key_of(&ev.player.get_id())) != Place::Lobby || is_op(&ev.player) {
+            return ev;
+        }
+        ev.cancelled = true;
+        let cmd = match ev.raw_slot {
+            SLOT_TNT if ev.window_type == Some(Screen::Generic9x3) => Some("tntrun join"),
+            SLOT_ARENA if ev.window_type == Some(Screen::Generic9x3) => Some("arena join"),
+            _ => None,
+        };
+        if let Some(cmd) = cmd {
+            // The event keeps its own player handle; the command takes one by value.
+            if let Some(p) = server.get_player_by_uuid(ev.player.get_id()) {
+                server.execute_command(cmd, pumpkin_plugin_api::server::CommandSender::Player(p));
+            }
+        }
+        ev
+    }
 }
 
 struct Join;
@@ -124,7 +225,11 @@ fn flush_joins(server: &Server) {
     for k in ready {
         if let Some(p) = server.get_player_by_uuid(uuid_of(k)) {
             send_to_lobby(&p, server);
-            p.send_system_message(text("&6Welcome! &7Type &e/games&7 to pick a game."), false);
+            p.send_system_message(
+                text("&6Welcome! &7Right-click the &acompass&7 in your hand, or click a game below."),
+                false,
+            );
+            send_menu_lines(&p);
         }
     }
 }
@@ -193,6 +298,19 @@ impl EventHandler<FoodLevelChangeEvent> for NoHunger {
     }
 }
 
+fn send_menu_lines(p: &pumpkin_plugin_api::player::Player) {
+    p.send_system_message(text("&6&lGames"), false);
+    for (label, cmd, blurb) in [
+        ("TNT Run", "/tntrun join", "2-6 players, the floor falls away"),
+        ("Mob Arena", "/arena join", "1-6 players, co-op waves"),
+    ] {
+        let line = text(&format!("&e[{label}] &7{blurb}"))
+            .click_run_command(cmd)
+            .hover_show_text(text(&format!("&aClick to run {cmd}")));
+        p.send_system_message(line, false);
+    }
+}
+
 struct Menu;
 impl CommandHandler for Menu {
     fn handle(
@@ -204,16 +322,7 @@ impl CommandHandler for Menu {
         let Some(p) = sender.as_player() else {
             return Ok(0);
         };
-        p.send_system_message(text("&6&lGames"), false);
-        for (label, cmd, blurb) in [
-            ("TNT Run", "/tntrun join", "2-6 players, the floor falls away"),
-            ("Mob Arena", "/arena join", "1-6 players, co-op waves"),
-        ] {
-            let line = text(&format!("&e[{label}] &7{blurb}"))
-                .click_run_command(cmd)
-                .hover_show_text(text(&format!("&aClick to run {cmd}")));
-            p.send_system_message(line, false);
-        }
+        send_menu_lines(&p);
         Ok(1)
     }
 }
