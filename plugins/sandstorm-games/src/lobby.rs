@@ -9,7 +9,7 @@ use pumpkin_plugin_api::{
     ItemStackExt,
     events::{
         BlockBreakEvent, BlockPlaceEvent, EventHandler, EventPriority, FoodLevelChangeEvent,
-        InventoryClickEvent, PlayerInteractEvent, PlayerJoinEvent, PlayerLeaveEvent,
+        InventoryClickEvent, PlayerInteractEvent, PlayerJoinEvent, PlayerLeaveEvent, PlayerMoveEvent,
     },
     gui::Gui,
     item_stack::ItemStack,
@@ -39,6 +39,7 @@ pub fn init(ctx: &Context) -> Result<()> {
     ctx.register_event_handler::<FoodLevelChangeEvent, _>(NoHunger, EventPriority::High, true)?;
     ctx.register_event_handler::<PlayerInteractEvent, _>(Interact, EventPriority::High, true)?;
     ctx.register_event_handler::<InventoryClickEvent, _>(MenuClick, EventPriority::High, true)?;
+    ctx.register_event_handler::<PlayerMoveEvent, _>(Moved, EventPriority::Lowest, false)?;
 
     let games = pumpkin_plugin_api::command::Command::new(
         &["games".to_string()],
@@ -197,29 +198,51 @@ impl EventHandler<PlayerJoinEvent> for Join {
         with_shared(|s| {
             s.by_entity.insert(eid, k);
             s.place.insert(k, Place::Lobby);
-            s.join_queue.push((k, false));
+            s.join_queue.push((k, 0));
         });
         ev
     }
 }
 
-/// Runs every JOIN_PERIOD ticks. A queued player is sent on its second pass,
-/// so at least one full period has passed since the join event and the client
-/// has confirmed the spawn teleport.
+/// Runs every JOIN_PERIOD ticks. A queued player is sent once they have moved
+/// (so they have confirmed the spawn teleport) and at least one pass has gone,
+/// or after JOIN_GIVE_UP passes whatever happens.
 const JOIN_PERIOD: u64 = 10;
+const JOIN_GIVE_UP: u32 = 20;
+
+struct Moved;
+impl EventHandler<PlayerMoveEvent> for Moved {
+    fn handle(
+        &self,
+        _s: Server,
+        ev: <PlayerMoveEvent as pumpkin_plugin_api::FromIntoEvent>::Data,
+    ) -> <PlayerMoveEvent as pumpkin_plugin_api::FromIntoEvent>::Data {
+        let k = key_of(&ev.player.get_id());
+        with_shared(|s| {
+            if s.join_queue.iter().any(|(q, _)| *q == k) {
+                s.moved.insert(k);
+            }
+        });
+        ev
+    }
+}
 
 fn flush_joins(server: &Server) {
     let ready: Vec<Key> = with_shared(|s| {
         let mut ready = Vec::new();
-        s.join_queue.retain_mut(|(k, seen)| {
-            if *seen {
+        let moved = s.moved.clone();
+        s.join_queue.retain_mut(|(k, age)| {
+            *age += 1;
+            if (*age >= 2 && moved.contains(k)) || *age >= JOIN_GIVE_UP {
                 ready.push(*k);
                 false
             } else {
-                *seen = true;
                 true
             }
         });
+        for k in &ready {
+            s.moved.remove(k);
+        }
         ready
     });
     for k in ready {
@@ -247,6 +270,7 @@ impl EventHandler<PlayerLeaveEvent> for Leave {
         with_shared(|s| {
             s.place.remove(&k);
             s.join_queue.retain(|(q, _)| *q != k);
+            s.moved.remove(&k);
             s.by_entity.retain(|_, v| *v != k);
         });
         ev
