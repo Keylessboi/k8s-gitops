@@ -1,16 +1,12 @@
-# Default deny both ways for the whole namespace, then one small allow per pod
-# kind. NetworkPolicies need both ends: Pumpkin's own policy (apps/pumpkin-games)
+# One policy per pod kind, each selecting its pods for Ingress and Egress, so
+# anything not listed for them is denied. There is deliberately no catch-all
+# "default deny" over every pod: a pod selected by a policy is already deny by
+# default in that direction, and a namespace-wide allow (which repo invariants
+# ask for next to a catch-all) would let any pod here reach the bridge.
+# NetworkPolicies need both ends: Pumpkin's own policy (apps/pumpkin-games)
 # admits this namespace on 25565, and only the bridge pod is allowed to egress
 # there from here. (Pumpkin's end cannot name the bridge pod: its kustomization
 # adds its own labels to every selector, including the ones in this rule.)
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: default-deny
-spec:
-  podSelector: {}
-  policyTypes: [Ingress, Egress]
----
 # nginx: Traefik in, the bridge out, DNS out.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
