@@ -87,6 +87,8 @@ pub fn send_to_lobby(p: &pumpkin_plugin_api::player::Player, server: &Server) {
     }
     p.set_gamemode(GameMode::Adventure);
     p.set_health(20.0);
+    p.set_food_level(20);
+    p.set_saturation(20.0);
     give_compass(p);
     set_place(key_of(&p.get_id()), Place::Lobby);
 }
