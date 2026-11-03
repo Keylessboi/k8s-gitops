@@ -269,14 +269,12 @@ pub fn forget(k: Key) {
 }
 
 fn kit(p: &pumpkin_plugin_api::player::Player, class: Class) {
+    crate::lobby::fresh(p);
     let inv = p.get_inventory();
-    inv.clear_all();
     let main = inv.as_inventory();
     let give = |slot: u32, id: &str, n: u8| main.set_item(slot, Some(ItemStack::of(id, n)));
     give(8, "minecraft:cooked_beef", 24);
     main.set_item(7, Some(crate::abilities::item(class)));
-    p.set_food_level(20);
-    p.set_saturation(20.0);
     match class {
         Class::Knight => {
             give(0, "minecraft:iron_sword", 1);
@@ -410,6 +408,9 @@ fn spawn_wave(server: &Server) {
 
 fn tick(server: &Server) {
     crate::abilities::advance(PERIOD as u64);
+    if with(|g| g.phase != Phase::Idle) {
+        crate::lobby::sweep_loot(server);
+    }
     enum Next {
         Nothing,
         Start,
@@ -462,6 +463,7 @@ fn tick(server: &Server) {
 
 /// Round over: report, clear the arena, send everyone home.
 fn reset(server: &Server) {
+    crate::lobby::sweep_loot(server);
     let (wave, members) = with(|g| {
         let r = (g.wave, g.members.clone());
         g.phase = Phase::Idle;

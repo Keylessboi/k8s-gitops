@@ -197,6 +197,7 @@ fn start(server: &Server) {
             if let Some(w) = overworld(server) {
                 p.teleport((SPAWN.0 + off, SPAWN.1, SPAWN.2), Some(0.0), Some(0.0), w);
             }
+            crate::lobby::fresh(&p);
             p.set_gamemode(GameMode::Adventure);
             set_place(*k, Place::Tnt);
             p.send_system_message(text("&6&lGO! &7Keep moving."), false);
