@@ -1,6 +1,7 @@
 # Unit tests: conftest verify --policy policy
 package policy_test
 
+import data.cache
 import data.data_handling
 import data.permissions
 import data.publish
@@ -143,4 +144,45 @@ test_unknown_storage_class_is_denied if {
 		with data.registers["data-stores"] as []
 	some m in d
 	startswith(m, "HS-REST-01")
+}
+
+cache_pvc(ns, name, owner) := {
+	"kind": "PersistentVolumeClaim",
+	"metadata": {
+		"namespace": ns, "name": name,
+		"labels": {"homelab/role": "cache", "homelab/cache-owner": owner},
+		"annotations": {"homelab/cache-source": "nextcloud"},
+	},
+}
+
+mounts(ns, name, claim) := {
+	"kind": "Deployment",
+	"metadata": {"namespace": ns, "name": name},
+	"spec": {"template": {"spec": {
+		"containers": [{"name": "c", "image": "x"}],
+		"volumes": [{"name": "v", "persistentVolumeClaim": {"claimName": claim}}],
+	}}},
+}
+
+test_cache_mounted_by_its_owner_passes if {
+	d := cache.deny with input as wrap([cache_pvc("w", "cache", "sync"), mounts("w", "sync", "cache")])
+	count(d) == 0
+}
+
+test_cache_mounted_by_another_workload_is_denied if {
+	d := cache.deny with input as wrap([cache_pvc("w", "cache", "sync"), mounts("w", "sync", "cache"), mounts("w", "cleaner", "cache")])
+	some m in d
+	startswith(m, "HS-CACHE-02 ")
+	contains(m, "cleaner")
+}
+
+test_cache_without_owner_or_source_is_denied if {
+	pvc := {"kind": "PersistentVolumeClaim", "metadata": {"namespace": "w", "name": "c", "labels": {"homelab/role": "cache"}}}
+	d := cache.deny with input as wrap([pvc])
+	count(d) == 2
+}
+
+test_same_name_in_another_namespace_is_not_the_owner if {
+	d := cache.deny with input as wrap([cache_pvc("w", "cache", "sync"), mounts("w", "sync", "cache"), mounts("other", "sync", "cache")])
+	count(d) == 0
 }
