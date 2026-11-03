@@ -12,13 +12,20 @@ use pumpkin_plugin_api::{
 };
 use std::sync::Mutex;
 
-const X0: i32 = 40;
-const X1: i32 = 60;
+// Every arena sits in the chunks around the world spawn (x and z within
+// -11..11), the same ones the lobby uses. Blocks placed in chunks nobody has
+// loaded vanish without an error, which is how the arenas went missing when
+// they were 40-60 blocks out. Stacked by height: this game 161-170, the Mob
+// Arena 200-216, the lobby 229-236.
+const X0: i32 = -10;
+const X1: i32 = 10;
 const Z0: i32 = -10;
 const Z1: i32 = 10;
-const SPAWN: (f64, f64, f64) = (50.5, 202.0, 0.5);
+const SPAWN: (f64, f64, f64) = (0.5, 172.0, 0.5);
+/// (tnt_y, sand_y) of the two floors.
+const FLOORS: [(i32, i32); 2] = [(169, 170), (161, 162)];
 /// Fall below this and you are out (the lower floor is at 191..192).
-const OUT_Y: f64 = 185.0;
+const OUT_Y: f64 = 155.0;
 const MIN_PLAYERS: usize = 2;
 const MAX_PLAYERS: usize = 6;
 const COUNTDOWN_TICKS: i32 = 400; // 20 s
@@ -73,7 +80,7 @@ fn build(server: &Server) {
     };
     load_chunks(&w, X0, Z0, X1, Z1);
     let mut failed = 0;
-    for (tnt_y, sand_y) in [(199, 200), (191, 192)] {
+    for (tnt_y, sand_y) in FLOORS {
         failed += fill(&w, (X0, tnt_y, Z0), (X1, tnt_y, Z1), "minecraft:tnt", false);
         failed += fill(&w, (X0, sand_y, Z0), (X1, sand_y, Z1), "minecraft:sand", false);
     }
@@ -151,7 +158,7 @@ fn eliminate(server: &Server, k: Key, why: &str) {
 
 /// Is the floor really under the spawn? If not, try one rebuild.
 fn arena_ready(server: &Server) -> bool {
-    let probe = |w: &World| block_is(w, SPAWN.0 as i32, 200, SPAWN.2 as i32, "minecraft:sand");
+    let probe = |w: &World| block_is(w, SPAWN.0 as i32, FLOORS[0].1, SPAWN.2 as i32, "minecraft:sand");
     let Some(w) = overworld(server) else {
         return false;
     };
@@ -325,7 +332,7 @@ fn finish(server: &Server) {
     }
     // The arena floor is rebuilt for the next round.
     if let Some(w) = overworld(server) {
-        for (tnt_y, sand_y) in [(199, 200), (191, 192)] {
+        for (tnt_y, sand_y) in FLOORS {
             fill(&w, (X0, tnt_y, Z0), (X1, tnt_y, Z1), "minecraft:tnt", false);
             fill(&w, (X0, sand_y, Z0), (X1, sand_y, Z1), "minecraft:sand", false);
         }

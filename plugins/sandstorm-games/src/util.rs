@@ -6,7 +6,7 @@ use pumpkin_plugin_api::{
     uuid::Uuid,
     world::{BlockFlags, World},
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard};
 
 /// Where the lobby glass box sits: high above the terrain, so the terrain
@@ -39,11 +39,15 @@ pub struct Shared {
     /// entity id -> player key, for events that only carry an entity id.
     pub by_entity: HashMap<i32, Key>,
     pub place: HashMap<Key, Place>,
-    /// Players who just joined and still owe a trip to the lobby. The bool is
-    /// "has survived one pass of the join task": Pumpkin remembers only the
-    /// newest teleport id, so teleporting inside the join event makes the
-    /// client's confirmation of the first one a "Wrong teleport id" kick.
-    pub join_queue: Vec<(Key, bool)>,
+    /// Players who just joined and still owe a trip to the lobby, with the
+    /// number of join-task passes they have waited. Pumpkin remembers only the
+    /// newest teleport id, so a teleport sent before the client confirmed the
+    /// spawn teleport gets it kicked with "Wrong teleport id". A browser client
+    /// can take several seconds to load the world and confirm, so we wait for
+    /// the player's first accepted movement (see `moved`) or a long timeout.
+    pub join_queue: Vec<(Key, u32)>,
+    /// Queued players whose first movement was accepted: they have confirmed.
+    pub moved: HashSet<Key>,
 }
 
 static SHARED: Mutex<Option<Shared>> = Mutex::new(None);

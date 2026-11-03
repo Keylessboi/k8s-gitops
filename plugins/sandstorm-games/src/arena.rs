@@ -16,13 +16,14 @@ use pumpkin_plugin_api::{
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
-const X0: i32 = -61;
-const X1: i32 = -39;
+// In the lobby's chunks on purpose; see the note in tntrun.rs.
+const X0: i32 = -11;
+const X1: i32 = 11;
 const Z0: i32 = -11;
 const Z1: i32 = 11;
 const FLOOR_Y: i32 = 200;
 const TOP_Y: i32 = 216;
-const SPAWN: (f64, f64, f64) = (-50.0, 201.0, 0.5);
+const SPAWN: (f64, f64, f64) = (0.5, 201.0, 0.5);
 const MAX_PLAYERS: usize = 6;
 const START_DELAY: i32 = 600; // 30 s
 const NEXT_WAVE_DELAY: i32 = 100; // 5 s
@@ -343,7 +344,7 @@ fn spawn_wave(server: &Server) {
     for i in 0..count {
         // Ring of spawn points, kept clear of the walls.
         let ang = (i as f64 / count as f64) * std::f64::consts::TAU;
-        let (x, z) = (-50.0 + 8.0 * ang.cos(), 0.5 + 8.0 * ang.sin());
+        let (x, z) = (SPAWN.0 + 8.0 * ang.cos(), SPAWN.2 + 8.0 * ang.sin());
         let e = w.spawn_entity(pick(wave, i), (x, SPAWN.1, z));
         ids.push(e.get_id() as i32);
     }
