@@ -10,15 +10,15 @@ spec:
   podSelector: {}
   policyTypes: [Ingress, Egress]
   ingress:
-    # The browser bridge, and nothing else: offline mode makes this port a way
-    # in under any name. apps/notmc/networkpolicy.yaml is the other end.
+    # The notmc namespace, which holds the browser bridge. Offline mode makes
+    # this port a way in under any name, so nothing else may reach it. The
+    # selector stops at the namespace on purpose: this app's kustomization adds
+    # its own labels to every pod selector, including ones naming another app.
+    # apps/notmc/networkpolicy.yaml lets only the bridge pod egress here.
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: notmc
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: notmc-bridge
       ports:
         - {protocol: TCP, port: 25565}
   egress:
