@@ -46,12 +46,20 @@ PVC).
    account (Horizon keeps them in browser storage today): sync them to the
    server keyed by the OIDC subject, restore on any machine. Do after step 1-4
    work; needs its own design (storage API, size limits, who can read what).
-6. **Retire the old stack.** PR #204 removes `apps/games-hub` from git; the
-   running objects must then be deleted by hand, Namespace and PVC last (owner).
+6. **Old stack retired.** PR 204 merged 2026-11-03 and the workloads and
+   Ingress went with the Application. The `games-hub` Namespace and
+   `minecraft-data` PVC remain for the owner to delete.
+7. **Authentik app `notmc` exists** (created 2026-11-03 with the owner's
+   go-ahead): proxy provider "Notmc (forward-auth)", `forward_single`, external
+   host `https://notmc.sandstorm.chat`, application slug `notmc`, bound to
+   groups `game-friends` and `authentik Admins`, attached to the embedded
+   outpost. No stray `ak-outpost-*` Ingress appeared.
 
 ## Not done / open
 
-- The Rust client build: `./incari build --only rust --no-sounds` on the VM
+- The Rust client build (the vmhub VM and its overnight build were lost on
+  2026-11-03, the lease vanished despite a renewal; it must be redone):
+  `./incari build --only rust --no-sounds`
   (needs clang, rustup, nightly-2026-10-14 + rust-src, wasm-bindgen-cli 0.2.129,
   binaryen). First attempt failed on missing clang. Output is not on the cluster
   yet; the VM cannot reach the LAN, so getting it there needs a plan (build as a
