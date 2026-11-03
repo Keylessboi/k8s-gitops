@@ -51,7 +51,7 @@ spec:
         # truth), and the plugin comes from the image so it always matches the
         # server build it was compiled against.
         - name: install-config-and-plugins
-          image: ghcr.io/keylessboi/sandstorm-pumpkin@sha256:973788cdbac9e64c042c16d017d160b6c55ee78192606872f01b395e8777a30f
+          image: ghcr.io/keylessboi/sandstorm-pumpkin@sha256:a84311c6147d87159ab02b654e896f65f2a49de2a325300b97ebff983f285660
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -68,7 +68,7 @@ spec:
             - {name: config, mountPath: /cfg, readOnly: true}
       containers:
         - name: pumpkin
-          image: ghcr.io/keylessboi/sandstorm-pumpkin@sha256:973788cdbac9e64c042c16d017d160b6c55ee78192606872f01b395e8777a30f
+          image: ghcr.io/keylessboi/sandstorm-pumpkin@sha256:a84311c6147d87159ab02b654e896f65f2a49de2a325300b97ebff983f285660
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
