@@ -9,7 +9,7 @@ use pumpkin_plugin_api::{
     command::{Arg, Command, CommandError, CommandNode, CommandSender, ConsumedArgs, ArgumentType, StringType},
     commands::CommandHandler,
     common::GameMode,
-    events::{EntityDamageEvent, EntityDeathEvent, EntityDropItemEvent, EventHandler, EventPriority, FromIntoEvent},
+    events::{EntityDamageEvent, EntityDeathEvent, EntityDropItemEvent, PlayerInteractEvent, EventHandler, EventPriority, FromIntoEvent},
     scheduler::SchedulerExt,
     world::World,
 };
@@ -32,7 +32,7 @@ const PERIOD: i32 = 10;
 const WAVE_TIMEOUT: i32 = 20 * 120;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Class {
+pub enum Class {
     Knight,
     Archer,
     Tank,
@@ -103,10 +103,36 @@ pub fn init(ctx: &Context) -> Result<()> {
 
     ctx.register_event_handler::<EntityDamageEvent, _>(Damage, EventPriority::High, true)?;
     ctx.register_event_handler::<EntityDropItemEvent, _>(NoMobDrops, EventPriority::High, true)?;
+    ctx.register_event_handler::<PlayerInteractEvent, _>(AbilityUse, EventPriority::High, true)?;
     ctx.register_event_handler::<EntityDeathEvent, _>(Death, EventPriority::Monitor_or_normal(), false)?;
     ctx.schedule_delayed_task(220, |server| build(&server));
     ctx.schedule_repeating_task(300, PERIOD as u64, |server| tick(&server));
     Ok(())
+}
+
+/// Right-click the nether star to fire the class ability.
+struct AbilityUse;
+impl EventHandler<PlayerInteractEvent> for AbilityUse {
+    fn handle(
+        &self,
+        server: Server,
+        mut ev: <PlayerInteractEvent as FromIntoEvent>::Data,
+    ) -> <PlayerInteractEvent as FromIntoEvent>::Data {
+        use pumpkin_plugin_api::events_wit::InteractAction as A;
+        let k = key_of(&ev.player.get_id());
+        let right = matches!(ev.action, A::RightClickAir | A::RightClickBlock);
+        let holds = ev
+            .player
+            .get_inventory()
+            .get_item_in_hand(pumpkin_plugin_api::common::Hand::Right)
+            .is_some_and(|i| i.matches_item("minecraft:nether_star"));
+        if right && holds && place_of(k) == Place::Arena {
+            let class = with(|g| g.class.get(&k).copied().unwrap_or(Class::Knight));
+            crate::abilities::fire(&server, &ev.player, class);
+            ev.cancelled = true;
+        }
+        ev
+    }
 }
 
 /// Mobs drop nothing: Mob Arena zombies were dropping music discs, and loose
@@ -187,6 +213,14 @@ impl CommandHandler for Act {
             }
             Act::Join => {
                 let msg = with(|g| {
+                    // A round with nobody left alive is over; do not make the next
+                    // player wait for the tick to notice.
+                    if (g.phase == Phase::Running || g.phase == Phase::Between) && g.alive.is_empty() {
+                        g.phase = Phase::Idle;
+                        g.members.clear();
+                        g.mobs.clear();
+                        g.wave = 0;
+                    }
                     if g.phase == Phase::Running || g.phase == Phase::Between {
                         Some("&cA round is running. Try again soon.")
                     } else if g.members.contains(&k) {
@@ -227,6 +261,7 @@ fn say(server: &Server, msg: &str) {
 
 /// Drop a player from the round (left, disconnected, or sent back).
 pub fn forget(k: Key) {
+    crate::abilities::forget(k);
     with(|g| {
         g.members.retain(|x| *x != k);
         g.alive.retain(|x| *x != k);
@@ -239,6 +274,9 @@ fn kit(p: &pumpkin_plugin_api::player::Player, class: Class) {
     let main = inv.as_inventory();
     let give = |slot: u32, id: &str, n: u8| main.set_item(slot, Some(ItemStack::of(id, n)));
     give(8, "minecraft:cooked_beef", 24);
+    main.set_item(7, Some(crate::abilities::item(class)));
+    p.set_food_level(20);
+    p.set_saturation(20.0);
     match class {
         Class::Knight => {
             give(0, "minecraft:iron_sword", 1);
@@ -371,6 +409,7 @@ fn spawn_wave(server: &Server) {
 }
 
 fn tick(server: &Server) {
+    crate::abilities::advance(PERIOD as u64);
     enum Next {
         Nothing,
         Start,
@@ -478,7 +517,7 @@ impl EventHandler<EntityDamageEvent> for Damage {
                         ev.cancelled = true;
                         forget(k);
                         p.get_inventory().clear_all();
-                        p.send_system_message(text("&cYou fell in the arena."), false);
+                        p.send_system_message(text("&cYou were taken down. Use the menu to try again."), false);
                         crate::lobby::send_to_lobby(&p, &server);
                     }
                 }

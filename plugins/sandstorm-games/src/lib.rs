@@ -1,3 +1,4 @@
+mod abilities;
 mod arena;
 mod lobby;
 mod tntrun;
