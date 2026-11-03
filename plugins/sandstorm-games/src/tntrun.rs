@@ -71,11 +71,16 @@ fn build(server: &Server) {
     let Some(w) = overworld(server) else {
         return;
     };
+    load_chunks(&w, X0, Z0, X1, Z1);
+    let mut failed = 0;
     for (tnt_y, sand_y) in [(199, 200), (191, 192)] {
-        fill(&w, (X0, tnt_y, Z0), (X1, tnt_y, Z1), "minecraft:tnt", false);
-        fill(&w, (X0, sand_y, Z0), (X1, sand_y, Z1), "minecraft:sand", false);
+        failed += fill(&w, (X0, tnt_y, Z0), (X1, tnt_y, Z1), "minecraft:tnt", false);
+        failed += fill(&w, (X0, sand_y, Z0), (X1, sand_y, Z1), "minecraft:sand", false);
     }
-    pumpkin_plugin_api::logging::log(pumpkin_plugin_api::logging::LogLevel::Info, "sandstorm-games: tnt run arena built");
+    pumpkin_plugin_api::logging::log(
+        pumpkin_plugin_api::logging::LogLevel::Info,
+        &format!("sandstorm-games: tnt run arena built ({failed} blocks refused)"),
+    );
 }
 
 enum Act {
@@ -144,7 +149,34 @@ fn eliminate(server: &Server, k: Key, why: &str) {
     }
 }
 
+/// Is the floor really under the spawn? If not, try one rebuild.
+fn arena_ready(server: &Server) -> bool {
+    let probe = |w: &World| block_is(w, SPAWN.0 as i32, 200, SPAWN.2 as i32, "minecraft:sand");
+    let Some(w) = overworld(server) else {
+        return false;
+    };
+    if probe(&w) {
+        return true;
+    }
+    build(server);
+    probe(&w)
+}
+
 fn start(server: &Server) {
+    if !arena_ready(server) {
+        let queued = {
+            let mut g = game();
+            g.phase = Phase::Idle;
+            std::mem::take(&mut g.queue)
+        };
+        for k in queued {
+            if let Some(p) = server.get_player_by_uuid(uuid_of(k)) {
+                p.send_system_message(text("&cThe TNT Run arena is not ready. Try again in a minute."), false);
+                crate::lobby::send_to_lobby(&p, server);
+            }
+        }
+        return;
+    }
     let mut g = game();
     g.alive = std::mem::take(&mut g.queue);
     g.phase = Phase::Running;
