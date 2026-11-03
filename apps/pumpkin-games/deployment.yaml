@@ -102,17 +102,16 @@ spec:
         - name: tmp
           emptyDir: {sizeLimit: 64Mi}
 ---
-# Plain TCP, so it cannot go through Traefik's HTTP ingress. A MetalLB address
-# from the pool (see apps/ejabberd for the same pattern); `kubectl -n
-# pumpkin-games get svc pumpkin` shows which. `Local` keeps the real client
-# address for the NetworkPolicy and logs. Join with that address on 25565.
+# ClusterIP only. Pumpkin runs in offline mode, so anything that can open this
+# port can join under any name: the only way in is apps/notmc's bridge, which
+# binds each player to their Authentik account, and the NetworkPolicy admits
+# nothing else. (It used to be a MetalLB LoadBalancer on 25565 for Java clients.)
 apiVersion: v1
 kind: Service
 metadata:
   name: pumpkin
 spec:
-  type: LoadBalancer
-  externalTrafficPolicy: Local
+  type: ClusterIP
   selector:
     app.kubernetes.io/name: pumpkin-games
     app.kubernetes.io/instance: pumpkin

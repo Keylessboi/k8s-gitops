@@ -1,6 +1,6 @@
 # notmc: browser client for the Pumpkin games server
 
-Status 2026-11-02: designed and partly proven, nothing deployed. Written so any
+Status 2026-11-03: bridge built and merged (PR 206); manifests in apps/notmc open as a PR; the client files still have to be built and copied in. Written so any
 agent can resume. Owner decisions are marked **(owner)**.
 
 ## Goal
@@ -70,3 +70,19 @@ PVC).
 - Bridge image: build in CI, pin by digest in a second commit.
 - Doctor log / registers: add a publication register entry for notmc
   (`status: proposed`, owner signs).
+
+## Loading the client files (manual, once per build)
+
+The client is Minecraft-derived and is never in git or an image. After
+`apps/notmc` syncs, the `notmc-client` PVC is empty, so the page 404s until it is
+filled. The build is `./incari build --only rust --no-sounds` (see "Not done"),
+run on the nas in a rootless podman container under `~/notmc-build`; its output
+is `incari-client/dist/web`. Copy it into the PVC's directory on the nas node:
+
+```sh
+ssh pve 'pct exec 200 -- kubectl -n notmc get pvc notmc-client -o jsonpath={.spec.volumeName}'
+ssh nas "doas cp -a ~/notmc-build/incari-client/dist/web/. /var/lib/rancher/k3s/storage/<pv-name>_notmc_notmc-client/"
+```
+
+Files must be world-readable (nginx runs as uid 101). Nothing here is
+committed, and the directory under `~/notmc-build` is mode 700.

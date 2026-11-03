@@ -1,0 +1,57 @@
+# Default deny both ways, then only the flows each pod needs. The bridge is
+# reachable from nginx alone, and reaches Pumpkin alone (whose own policy, in
+# apps/pumpkin-games, admits only this pod): NetworkPolicies need both ends.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Traefik, for the page and the WebSocket upgrade.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: TCP, port: 8080}
+    # cert-manager's HTTP-01 solver pods are created here on demand.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: TCP, port: 8089}
+    # nginx hands upgrades to the bridge.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: notmc-client
+      ports:
+        - {protocol: TCP, port: 8080}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    # nginx to the bridge, in this namespace.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: notmc-bridge
+      ports:
+        - {protocol: TCP, port: 8080}
+    # The bridge to Pumpkin.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: pumpkin-games
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pumpkin-games
+      ports:
+        - {protocol: TCP, port: 25565}
