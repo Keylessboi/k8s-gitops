@@ -1,0 +1,62 @@
+# notmc-bridge: WebSocket to TCP in front of Pumpkin. Source and tests:
+# images/notmc-bridge. It trusts X-authentik-username, which Traefik's
+# forward-auth sets (and overwrites, so a client cannot forge it), and which
+# reaches it only through nginx; the NetworkPolicy lets nothing else in.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notmc-bridge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notmc-bridge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: notmc-bridge
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        kubernetes.io/os: linux
+        homelab/node-class: compute
+      containers:
+        - name: bridge
+          image: ghcr.io/keylessboi/notmc-bridge@sha256:e7238f072861637b1c95460ebf33c95825995010cc4eef2773980c1959970ef3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          env:
+            - {name: TARGET_HOST, value: pumpkin.pumpkin-games.svc.cluster.local}
+            - {name: TARGET_PORT, value: "25565"}
+            - {name: ALLOWED_ORIGIN, value: "https://notmc.sandstorm.chat"}
+            - {name: LISTEN_PORT, value: "8080"}
+          ports:
+            - {containerPort: 8080, name: http}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests: {cpu: 20m, memory: 48Mi}
+            limits: {cpu: 500m, memory: 192Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notmc-bridge
+spec:
+  selector:
+    app.kubernetes.io/name: notmc-bridge
+  ports:
+    - {name: http, port: 8080, targetPort: http, protocol: TCP}

@@ -1,4 +1,5 @@
-# Default deny both ways, then one flow in (the game port) and DNS out. The
+# Default deny both ways, then one flow in (the game port, from the notmc
+# bridge only) and DNS out. The
 # server needs nothing else from the network: telemetry is off in
 # pumpkin.toml and offline mode makes no Mojang session calls.
 apiVersion: networking.k8s.io/v1
@@ -9,10 +10,15 @@ spec:
   podSelector: {}
   policyTypes: [Ingress, Egress]
   ingress:
-    # Players. Who can actually reach this address is decided by the router
-    # and Tailscale, not here.
+    # The browser bridge, and nothing else: offline mode makes this port a way
+    # in under any name. apps/notmc/networkpolicy.yaml is the other end.
     - from:
-        - ipBlock: {cidr: 0.0.0.0/0}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: notmc
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: notmc-bridge
       ports:
         - {protocol: TCP, port: 25565}
   egress:

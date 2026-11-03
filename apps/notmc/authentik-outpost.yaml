@@ -1,0 +1,42 @@
+# The Authentik outpost's endpoints under notmc.sandstorm.chat. Same routing and
+# same reasons as apps/books/authentik-outpost.yaml: after login Authentik
+# redirects back to /outpost.goauthentik.io/callback on this host, which has to
+# reach the outpost and not the app, on a SEPARATE Ingress so the callback is not
+# itself sent through forward-auth. No cert-manager annotation: it would race the
+# app's Ingress over the same secret (notmc-tls).
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: authentik-outpost
+spec:
+  type: ExternalName
+  externalName: ak-outpost-authentik-embedded-outpost.authentik.svc.cluster.local
+  ports:
+    - name: http
+      port: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: notmc-outpost
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - notmc.sandstorm.chat
+      secretName: notmc-tls
+  rules:
+    - host: notmc.sandstorm.chat
+      http:
+        paths:
+          - path: /outpost.goauthentik.io
+            pathType: Prefix
+            backend:
+              service:
+                name: authentik-outpost
+                port:
+                  number: 9000

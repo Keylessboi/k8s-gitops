@@ -1,0 +1,29 @@
+# notmc.sandstorm.chat. Forward-auth is not optional: it is what makes the
+# bridge safe, because the bridge binds each player to the Authentik account
+# this middleware vouches for. The Authentik application "notmc" admits the
+# game-friends and authentik Admins groups.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: notmc
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - notmc.sandstorm.chat
+      secretName: notmc-tls
+  rules:
+    - host: notmc.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: notmc-client
+                port:
+                  number: 8080

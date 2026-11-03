@@ -8,8 +8,10 @@ until the owner deletes them (see "Retiring games-hub" below).
 
 ## What it is, and is not
 
-- Java Edition **26.3** clients (vanilla launcher, or Horizon). Not a browser
-  game: Eaglercraft speaks 1.8.8, this server speaks 26.3.
+- Java Edition **26.3** clients. Players come in through the browser client at
+  `notmc.sandstorm.chat` (apps/notmc), which speaks 26.3 over a WebSocket bridge.
+  A desktop Java client can no longer connect directly: the server has no
+  LoadBalancer any more (see "Offline mode").
 - Idle cost is about 60 MiB (measured with all three arenas built), against
   1.3-2.3 GiB for the Paper pod. The image is about 120 MB, nearly all of it the
   server binary. It is always on; there is no wake/stop dance.
@@ -18,8 +20,8 @@ until the owner deletes them (see "Retiring games-hub" below).
 
 ## Playing
 
-Join `<address>:25565` (the MetalLB address from `kubectl -n pumpkin-games get
-svc pumpkin`). You land in the glass lobby. `/games` lists the games with
+Open `https://notmc.sandstorm.chat`, sign in with Authentik, and add the server
+`notmc.sandstorm.chat:443` (Multiplayer). You land in the glass lobby. `/games` lists the games with
 click-to-run buttons; `/lobby` brings you home.
 
 | Game | Commands | Rules |
@@ -30,13 +32,25 @@ click-to-run buttons; `/lobby` brings you home.
 Everything is built high in the sky (lobby y 229-236, TNT Run x 40..60, Mob
 Arena x -61..-39), as the Paper version did. The plugin builds it on start.
 
-## Offline mode (owner's decision)
+## Offline mode (owner's decision) and the join gate
 
 `online_mode = false` in `apps/pumpkin-games/pumpkin.toml`, because friends play
-from machines that are reset and cannot sign in each time. The consequence:
-**anyone who can reach port 25565 can join under any name, including an
-operator's.** Keep it on the LAN or Tailscale; do not forward the port from the
-internet. If it must be public, add a join gate first.
+from machines that are reset and cannot sign in to Microsoft each time. The
+consequence for any offline-mode server is that whoever can open the port can
+join under any name, including an operator's. So the port has no public path:
+
+- The Service is **ClusterIP**, and the NetworkPolicy admits only the
+  `notmc-bridge` pod (`apps/notmc`). There is no LoadBalancer.
+- The bridge is reachable only through nginx behind Authentik forward-auth, and
+  it rewrites each player's Login Start so their in-game name and offline UUID
+  are the ones derived from their Authentik account. Nobody can play as someone
+  else, and the server's per-player data is keyed by that stable UUID.
+- Keep the `ops` list empty. A name is bound to an account, but an operator
+  name would still be a fixed target if its account were ever compromised.
+
+To debug from a desktop client, port-forward over Tailscale
+(`kubectl -n pumpkin-games port-forward svc/pumpkin 25565`); the NetworkPolicy
+still blocks that path only for other pods, not for the API server's forward.
 
 ## Known gaps
 
