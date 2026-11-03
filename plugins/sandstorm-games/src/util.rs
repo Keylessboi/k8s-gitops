@@ -39,6 +39,11 @@ pub struct Shared {
     /// entity id -> player key, for events that only carry an entity id.
     pub by_entity: HashMap<i32, Key>,
     pub place: HashMap<Key, Place>,
+    /// Players who just joined and still owe a trip to the lobby. The bool is
+    /// "has survived one pass of the join task": Pumpkin remembers only the
+    /// newest teleport id, so teleporting inside the join event makes the
+    /// client's confirmation of the first one a "Wrong teleport id" kick.
+    pub join_queue: Vec<(Key, bool)>,
 }
 
 static SHARED: Mutex<Option<Shared>> = Mutex::new(None);

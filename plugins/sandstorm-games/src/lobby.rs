@@ -49,6 +49,7 @@ pub fn init(ctx: &Context) -> Result<()> {
 
     // Build the lobby shortly after start, once the world is up.
     ctx.schedule_delayed_task(100, |server| build(&server));
+    ctx.schedule_repeating_task(40, JOIN_PERIOD, |server| flush_joins(&server));
     Ok(())
 }
 
@@ -94,11 +95,37 @@ impl EventHandler<PlayerJoinEvent> for Join {
         let k = key_of(&ev.player.get_id());
         with_shared(|s| {
             s.by_entity.insert(eid, k);
+            s.place.insert(k, Place::Lobby);
+            s.join_queue.push((k, false));
         });
-        send_to_lobby(&ev.player, &server);
-        ev.player
-            .send_system_message(text("&6Welcome! &7Type &e/games&7 to pick a game."), false);
         ev
+    }
+}
+
+/// Runs every JOIN_PERIOD ticks. A queued player is sent on its second pass,
+/// so at least one full period has passed since the join event and the client
+/// has confirmed the spawn teleport.
+const JOIN_PERIOD: u64 = 10;
+
+fn flush_joins(server: &Server) {
+    let ready: Vec<Key> = with_shared(|s| {
+        let mut ready = Vec::new();
+        s.join_queue.retain_mut(|(k, seen)| {
+            if *seen {
+                ready.push(*k);
+                false
+            } else {
+                *seen = true;
+                true
+            }
+        });
+        ready
+    });
+    for k in ready {
+        if let Some(p) = server.get_player_by_uuid(uuid_of(k)) {
+            send_to_lobby(&p, server);
+            p.send_system_message(text("&6Welcome! &7Type &e/games&7 to pick a game."), false);
+        }
     }
 }
 
@@ -114,6 +141,7 @@ impl EventHandler<PlayerLeaveEvent> for Leave {
         crate::arena::forget(k);
         with_shared(|s| {
             s.place.remove(&k);
+            s.join_queue.retain(|(q, _)| *q != k);
             s.by_entity.retain(|_, v| *v != k);
         });
         ev
