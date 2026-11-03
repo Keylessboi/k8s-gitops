@@ -1,7 +1,7 @@
 # Pumpkin games: a Rust Minecraft server (Pumpkin) with the sandstorm-games
 # plugin (lobby, TNT Run, Mob Arena). Java Edition 26.3 clients, no browser.
-# Replaces nothing yet: apps/games-hub (Paper + Eaglercraft) keeps running
-# until the owner retires it. See docs/pumpkin-games.md.
+# Replaced apps/games-hub (Paper + Eaglercraft), retired from git on
+# 2026-11-02. See docs/pumpkin-games.md.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 metadata:

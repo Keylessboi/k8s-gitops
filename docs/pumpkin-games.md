@@ -2,8 +2,9 @@
 
 A Rust Minecraft server ([Pumpkin](https://github.com/Pumpkin-MC/Pumpkin)) with
 our own plugin, `plugins/sandstorm-games`, giving a lobby and two minigames.
-It is the Rust replacement for the Paper + Eaglercraft server in
-`apps/games-hub`, which keeps running until the owner retires it.
+It replaced the Paper + Eaglercraft server (`apps/games-hub`), retired from git
+on 2026-11-02. That namespace's volume and Namespace are still on the cluster
+until the owner deletes them (see "Retiring games-hub" below).
 
 ## What it is, and is not
 
@@ -55,3 +56,11 @@ The plugin ABI follows the server release, so both move together: bump
 the `tag =` of `pumpkin-plugin-api` in `plugins/sandstorm-games/Cargo.toml`,
 let `.github/workflows/sandstorm-pumpkin.yaml` build, then change the digest in
 `apps/pumpkin-games/deployment.yaml` (both containers) in a deliberate commit.
+
+## Retiring games-hub
+
+`apps/games-hub` was removed from git. The root ApplicationSet preserves
+resources when an Application goes away (ADR-0012), so nothing was pruned: the
+old Deployments, Ingress (`mc.` and `games.sandstorm.chat`), and CronJob keep
+running until they are deleted by hand. The owner deletes the games-hub
+Namespace and its PVC last, after taking whatever they want from the world.
