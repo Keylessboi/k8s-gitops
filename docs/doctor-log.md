@@ -20,6 +20,7 @@ the literal string you are seeing, then read the entry.
 |---|---|
 | `connection refused` from a pod that just started, where the NetworkPolicy allows it | kube-router race — 2026-08-29 (lidarr), 2026-09-03 (pg_dump) |
 | `connection refused` between two namespaces, at any time | one-sided NetworkPolicy — 2026-09-03 (hermes → lidarr) |
+| `connection refused` to an app whose NetworkPolicy "names" the caller, rendered selector shows the *target's* labels | kustomize `labels: includeSelectors` rewrote the podSelector — 2026-11-03 (notmc → pumpkin) |
 | `ComparisonError`, `mapping key … already defined` | duplicate YAML key — 2026-09-03 |
 | A pod Running and Healthy but doing nothing | one-sided NetworkPolicy — 2026-09-03; Obsidian never initialised — 2026-09-03 |
 | Endless restarts behind a green dashboard | ghost probe redirect — 2026-09-03 |
@@ -167,6 +168,34 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-11-03 — The notmc bridge got `ECONNREFUSED` from Pumpkin although the NetworkPolicy "allowed" it: kustomize rewrote the podSelector
+
+**Symptom.** After `apps/notmc` deployed, the bridge pod could not open
+10.43.71.19:25565 (`connect ECONNREFUSED`), so no browser client could log in.
+Pods Running, ArgoCD Healthy, probes green. Nothing else could reach Pumpkin
+either.
+
+**Root cause.** `apps/pumpkin-games/kustomization.yaml` sets `labels:` with
+`includeSelectors: true`, which adds that app's labels to every selector kustomize
+knows, including the `podSelector` inside a NetworkPolicy `from:` rule. My rule
+named `app.kubernetes.io/name: notmc-bridge`; the rendered object required
+`app.kubernetes.io/name: pumpkin-games` plus the app's other labels, which the
+bridge pod does not carry. The live policy showed it
+(`kubectl get networkpolicy app-isolation -o jsonpath='{.spec.ingress}'`).
+
+**Fix.** Pumpkin's rule admits the `notmc` namespace and stops there; inside
+`notmc` (no `includeSelectors`) one policy per pod kind lets only the bridge
+egress to Pumpkin. #208 introduced it, #211 fixed it.
+
+**Prevention.** Render the app with `kustomize build` and read the selectors in
+the output, not in the source, before relying on a cross-namespace rule. In an app
+whose kustomization has `includeSelectors: true`, never use a `podSelector` that
+names another app's pods: select the namespace and enforce the pod-level
+restriction at the other end.
+
+**Confidence.** CONFIRMED. Rendered output and the live policy both showed the
+rewritten selector; the bridge connected as soon as the namespace-only rule synced.
 
 ## 2026-11-01 — Nextcloud 1/2 Ready with 43 restarts, ghost/pelican/authentik restarting: the NAS pool was saturated and the probes were too tight
 
