@@ -11,6 +11,7 @@ use pumpkin_plugin_api::{
     common::GameMode,
     events::{EntityDamageEvent, EntityDeathEvent, EventHandler, EventPriority, FromIntoEvent},
     scheduler::SchedulerExt,
+    world::World,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -121,13 +122,14 @@ fn build(server: &Server) {
     let Some(w) = overworld(server) else {
         return;
     };
-    fill(&w, (X0, FLOOR_Y, Z0), (X1, TOP_Y, Z1), "minecraft:stone_bricks", true);
+    load_chunks(&w, X0, Z0, X1, Z1);
+    let mut failed = fill(&w, (X0, FLOOR_Y, Z0), (X1, TOP_Y, Z1), "minecraft:stone_bricks", true);
     for z in [-5, 0, 5] {
-        fill(&w, (X0 + 1, TOP_Y - 1, z), (X1 - 1, TOP_Y - 1, z), "minecraft:sea_lantern", false);
+        failed += fill(&w, (X0 + 1, TOP_Y - 1, z), (X1 - 1, TOP_Y - 1, z), "minecraft:sea_lantern", false);
     }
     pumpkin_plugin_api::logging::log(
         pumpkin_plugin_api::logging::LogLevel::Info,
-        "sandstorm-games: mob arena built",
+        &format!("sandstorm-games: mob arena built ({failed} blocks refused)"),
     );
 }
 
@@ -254,7 +256,34 @@ fn kit(p: &pumpkin_plugin_api::player::Player, class: Class) {
     }
 }
 
+/// Is the floor really under the spawn? If not, try one rebuild.
+fn arena_ready(server: &Server) -> bool {
+    let probe = |w: &World| block_is(w, SPAWN.0 as i32, FLOOR_Y, SPAWN.2 as i32, "minecraft:stone_bricks");
+    let Some(w) = overworld(server) else {
+        return false;
+    };
+    if probe(&w) {
+        return true;
+    }
+    build(server);
+    probe(&w)
+}
+
 fn start(server: &Server) {
+    if !arena_ready(server) {
+        let members = with(|g| {
+            g.phase = Phase::Idle;
+            g.alive.clear();
+            std::mem::take(&mut g.members)
+        });
+        for k in members {
+            if let Some(p) = server.get_player_by_uuid(uuid_of(k)) {
+                p.send_system_message(text("&cThe Mob Arena is not ready. Try again in a minute."), false);
+                crate::lobby::send_to_lobby(&p, server);
+            }
+        }
+        return;
+    }
     let members = with(|g| {
         g.members.retain(|k| server.get_player_by_uuid(uuid_of(*k)).is_some());
         g.alive = g.members.clone();

@@ -86,8 +86,33 @@ pub fn overworld(server: &Server) -> Option<World> {
     worlds.into_iter().next()
 }
 
-/// Fill a box with a block by name. The host has no /fill, so loop.
-pub fn fill(world: &World, a: (i32, i32, i32), b: (i32, i32, i32), name: &str, hollow: bool) {
+/// Load the chunks a build touches. Placing blocks in a chunk nobody has
+/// loaded can fail without any error, which leaves the arena missing.
+pub fn load_chunks(world: &World, x0: i32, z0: i32, x1: i32, z1: i32) {
+    for cx in (x0 >> 4)..=(x1 >> 4) {
+        for cz in (z0 >> 4)..=(z1 >> 4) {
+            let _ = world.get_chunk(cx, cz);
+        }
+    }
+}
+
+/// Is this block really there? Used to refuse a game start with no floor.
+pub fn block_is(world: &World, x: i32, y: i32, z: i32, name: &str) -> bool {
+    world
+        .get_block(pumpkin_plugin_api::world::BlockPos { x, y, z })
+        .name
+        == name
+}
+
+/// Fill a box with a block by name. The host has no /fill, so loop. Returns
+/// how many blocks the host refused to place.
+pub fn fill(world: &World, a: (i32, i32, i32), b: (i32, i32, i32), name: &str, hollow: bool) -> u32 {
+    let mut failed = 0;
+    let mut set = |x: i32, y: i32, z: i32, n: &str| {
+        if !world.set_block_by_name(pumpkin_plugin_api::world::BlockPos { x, y, z }, n, flags()) {
+            failed += 1;
+        }
+    };
     let (x0, x1) = (a.0.min(b.0), a.0.max(b.0));
     let (y0, y1) = (a.1.min(b.1), a.1.max(b.1));
     let (z0, z1) = (a.2.min(b.2), a.2.max(b.2));
@@ -97,19 +122,12 @@ pub fn fill(world: &World, a: (i32, i32, i32), b: (i32, i32, i32), name: &str, h
                 let edge = x == x0 || x == x1 || y == y0 || y == y1 || z == z0 || z == z1;
                 if hollow && !edge {
                     // Clear the inside so a rebuild over old blocks is clean.
-                    world.set_block_by_name(
-                        pumpkin_plugin_api::world::BlockPos { x, y, z },
-                        "minecraft:air",
-                        flags(),
-                    );
+                    set(x, y, z, "minecraft:air");
                     continue;
                 }
-                world.set_block_by_name(
-                    pumpkin_plugin_api::world::BlockPos { x, y, z },
-                    name,
-                    flags(),
-                );
+                set(x, y, z, name);
             }
         }
     }
+    failed
 }
