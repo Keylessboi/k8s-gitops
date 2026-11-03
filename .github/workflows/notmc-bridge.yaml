@@ -1,0 +1,70 @@
+# Test and build the notmc-bridge image and publish it to GHCR. Same shape as
+# sandstorm-pumpkin.yaml: no personal access token (GITHUB_TOKEN with
+# packages: write), and the Deployment pins the digest this prints, so what the
+# cluster runs only changes when a human edits the pin.
+name: notmc-bridge
+
+"on":
+  push:
+    branches: [main]
+    paths:
+      - 'images/notmc-bridge/**'
+      - '.github/workflows/notmc-bridge.yaml'
+  pull_request:
+    paths:
+      - 'images/notmc-bridge/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/keylessboi/notmc-bridge
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      # The runner's own Node is enough: node --test and ws need nothing newer.
+      - name: Test
+        working-directory: images/notmc-bridge
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          node --test
+
+  build:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: images/notmc-bridge/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          provenance: false
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Report the digest to pin
+        run: echo "::notice::${IMAGE}@${{ steps.build.outputs.digest }}"

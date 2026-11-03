@@ -59,8 +59,11 @@ let `.github/workflows/sandstorm-pumpkin.yaml` build, then change the digest in
 
 ## Retiring games-hub
 
-`apps/games-hub` was removed from git. The root ApplicationSet preserves
-resources when an Application goes away (ADR-0012), so nothing was pruned: the
-old Deployments, Ingress (`mc.` and `games.sandstorm.chat`), and CronJob keep
-running until they are deleted by hand. The owner deletes the games-hub
-Namespace and its PVC last, after taking whatever they want from the world.
+`apps/games-hub` was removed from git (PR 204, 2026-11-03). Removing the app
+deleted the Application and, with it, the Deployments, Services, Ingress
+(`mc.` and `games.sandstorm.chat`) and the idle-stop CronJob. The protect-state
+objects stayed: the `games-hub` Namespace and the `minecraft-data` PVC (5Gi,
+local-path, Paper world data). The owner deletes those last, after taking
+whatever they want from the world. The Authentik applications "Games hub",
+"Minecraft minigames" and "Party games" still exist and point at hostnames
+that no longer serve anything.
