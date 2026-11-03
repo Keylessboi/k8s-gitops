@@ -9,7 +9,7 @@ use pumpkin_plugin_api::{
     command::{Arg, Command, CommandError, CommandNode, CommandSender, ConsumedArgs, ArgumentType, StringType},
     commands::CommandHandler,
     common::GameMode,
-    events::{EntityDamageEvent, EntityDeathEvent, EventHandler, EventPriority, FromIntoEvent},
+    events::{EntityDamageEvent, EntityDeathEvent, EntityDropItemEvent, EventHandler, EventPriority, FromIntoEvent},
     scheduler::SchedulerExt,
     world::World,
 };
@@ -102,10 +102,28 @@ pub fn init(ctx: &Context) -> Result<()> {
     ctx.register_command(cmd, crate::lobby::PERM);
 
     ctx.register_event_handler::<EntityDamageEvent, _>(Damage, EventPriority::High, true)?;
+    ctx.register_event_handler::<EntityDropItemEvent, _>(NoMobDrops, EventPriority::High, true)?;
     ctx.register_event_handler::<EntityDeathEvent, _>(Death, EventPriority::Monitor_or_normal(), false)?;
     ctx.schedule_delayed_task(220, |server| build(&server));
     ctx.schedule_repeating_task(300, PERIOD as u64, |server| tick(&server));
     Ok(())
+}
+
+/// Mobs drop nothing: Mob Arena zombies were dropping music discs, and loose
+/// items on the ground cost the client frames. Players are not affected.
+struct NoMobDrops;
+impl EventHandler<EntityDropItemEvent> for NoMobDrops {
+    fn handle(
+        &self,
+        _s: Server,
+        mut ev: <EntityDropItemEvent as FromIntoEvent>::Data,
+    ) -> <EntityDropItemEvent as FromIntoEvent>::Data {
+        let is_player = with_shared(|s| s.by_entity.contains_key(&ev.entity_id));
+        if !is_player {
+            ev.cancelled = true;
+        }
+        ev
+    }
 }
 
 // `EventPriority` has no Monitor; keep the call site readable.
