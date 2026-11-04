@@ -53,6 +53,12 @@ pub fn init(ctx: &Context) -> Result<()> {
     )
     .execute(ToLobby);
     ctx.register_command(lobby, PERM);
+    let smp = pumpkin_plugin_api::command::Command::new(
+        &["smp".to_string()],
+        "Join the survival server",
+    )
+    .execute(ToSmp);
+    ctx.register_command(smp, PERM);
 
     // Build the lobby shortly after start, once the world is up.
     ctx.schedule_delayed_task(100, |server| build(&server));
@@ -136,7 +142,20 @@ fn give_compass(p: &pumpkin_plugin_api::player::Player) {
 }
 
 const SLOT_TNT: i16 = 11;
+const SLOT_SMP: i16 = 13;
 const SLOT_ARENA: i16 = 15;
+
+/// Where the browser client reconnects after a Transfer packet: the same public
+/// address it joined by. The notmc bridge sees the packet leave this server and
+/// sends that account's next connection to the SMP (apps/notmc, bridge.mjs).
+const PUBLIC_HOST: &str = "notmc.sandstorm.chat";
+const PUBLIC_PORT: u16 = 443;
+
+/// Hand the player over to the SMP server.
+fn go_smp(p: &pumpkin_plugin_api::player::Player) {
+    p.send_system_message(text("&aSending you to the SMP..."), false);
+    p.transfer(PUBLIC_HOST, PUBLIC_PORT);
+}
 
 fn menu_item(key: &str, name: &str, lore: &[&str]) -> ItemStack {
     let it = ItemStack::of(key, 1);
@@ -156,6 +175,14 @@ fn open_menu(p: &pumpkin_plugin_api::player::Player) {
             "minecraft:tnt",
             "&c&lTNT Run",
             &["&72-6 players", "&7The floor falls away under you.", "&eClick to join"],
+        ),
+    );
+    gui.set_item(
+        SLOT_SMP as u32,
+        menu_item(
+            "minecraft:grass_block",
+            "&2&lSurvival (SMP)",
+            &["&7A normal survival world.", "&7Build, mine, explore.", "&eClick to join"],
         ),
     );
     gui.set_item(
@@ -203,6 +230,10 @@ impl EventHandler<InventoryClickEvent> for MenuClick {
             return ev;
         }
         ev.cancelled = true;
+        if ev.raw_slot == SLOT_SMP && ev.window_type == Some(Screen::Generic9x3) {
+            go_smp(&ev.player);
+            return ev;
+        }
         let cmd = match ev.raw_slot {
             SLOT_TNT if ev.window_type == Some(Screen::Generic9x3) => Some("tntrun join"),
             SLOT_ARENA if ev.window_type == Some(Screen::Generic9x3) => Some("arena join"),
@@ -360,6 +391,7 @@ fn send_menu_lines(p: &pumpkin_plugin_api::player::Player) {
     for (label, cmd, blurb) in [
         ("TNT Run", "/tntrun join", "2-6 players, the floor falls away"),
         ("Mob Arena", "/arena join", "1-6 players, co-op waves"),
+        ("Survival SMP", "/smp", "a normal survival world"),
     ] {
         let line = text(&format!("&e[{label}] &7{blurb}"))
             .click_run_command(cmd)
@@ -380,6 +412,22 @@ impl CommandHandler for Menu {
             return Ok(0);
         };
         send_menu_lines(&p);
+        Ok(1)
+    }
+}
+
+struct ToSmp;
+impl CommandHandler for ToSmp {
+    fn handle(
+        &self,
+        sender: CommandSender,
+        _server: Server,
+        _args: ConsumedArgs,
+    ) -> std::result::Result<i32, CommandError> {
+        let Some(p) = sender.as_player() else {
+            return Ok(0);
+        };
+        go_smp(&p);
         Ok(1)
     }
 }

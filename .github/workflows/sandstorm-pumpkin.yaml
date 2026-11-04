@@ -10,6 +10,7 @@ name: sandstorm-pumpkin
     paths:
       - 'images/sandstorm-pumpkin/**'
       - 'plugins/sandstorm-games/**'
+      - 'plugins/sandstorm-smp/**'
       - '.github/workflows/sandstorm-pumpkin.yaml'
   workflow_dispatch:
 

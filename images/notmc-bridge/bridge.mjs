@@ -10,7 +10,13 @@
 //   * The Login Start packet is rewritten so the in-game name (and so the
 //     offline UUID Pumpkin derives) is the one bound to that account, whatever
 //     name the client typed. Nobody can log in as somebody else.
-//   * Only protocol 777 handshakes for status or login pass; transfers do not.
+//   * Only protocol 777 handshakes for status, login or transfer pass.
+//   * Two upstreams: the games lobby (default) and the SMP. When the server a
+//     player is on sends them a Transfer packet, the bridge notes that this
+//     account's NEXT connection (within ROUTE_TTL_MS) goes to the other server.
+//     The client then reconnects to this same host (it follows the packet) or
+//     the player re-enters the address; either way they land on the other
+//     server, behind the same forward-auth, with the same bound name.
 //   * Origin, per-IP and per-account limits, a frame cap, a byte-rate cap and
 //     an idle timeout keep one client from hurting Pumpkin.
 //
@@ -23,6 +29,9 @@ import { WebSocketServer } from "ws";
 
 export const PROTOCOL = 777;
 const MAX_PRELOGIN = 2048; // bytes buffered before the handshake and login are parsed
+const PLAY_TRANSFER_ID = 132; // clientbound play "transfer", protocol 777 (assets/packets.json)
+const MAX_TRANSFER_FRAME = 600; // a Transfer packet is a short hostname and a port
+const ROUTE_TTL_MS = 60_000;
 
 // --- Minecraft framing -------------------------------------------------------
 
@@ -87,6 +96,64 @@ export function buildLoginStart(name, uuid) {
   return Buffer.concat([writeVarInt(body.length), body]);
 }
 
+/**
+ * Watches the server -> client stream for a play-state Transfer packet.
+ *
+ * After login Pumpkin compresses packets over its threshold; shorter ones carry
+ * a Data Length of 0 and are sent as they are, and a Transfer packet is always
+ * short. Bigger frames are skipped without being buffered. A packet counts only
+ * if its body is exactly id, host string, port (so a stray byte pattern in some
+ * other frame does not).
+ */
+export function transferScanner(onTransfer) {
+  let head = []; // length VarInt bytes so far
+  let need = 0; // body bytes still to come in the current frame
+  let body = null; // collected body, or null to skip it
+  let lost = false; // framing no longer makes sense (a length over 3 bytes); stop looking
+  const done = () => {
+    if (body) {
+      try {
+        const dl = readVarInt(body, 0);
+        const id = dl && dl[0] === 0 ? readVarInt(body, dl[1]) : null;
+        if (id && id[0] === PLAY_TRANSFER_ID) {
+          const hl = readVarInt(body, id[1]);
+          const hostEnd = hl[1] + hl[0];
+          const port = readVarInt(body, hostEnd);
+          if (hl[0] > 0 && port && port[1] === body.length) {
+            onTransfer(body.subarray(hl[1], hostEnd).toString("utf8"), port[0]);
+          }
+        }
+      } catch {
+        // not a Transfer packet
+      }
+    }
+    body = null;
+  };
+  return (chunk) => {
+    let i = 0;
+    while (!lost && i < chunk.length) {
+      if (need === 0) {
+        const b = chunk[i++];
+        head.push(b);
+        if (head.length > 3) lost = true; // packets are at most 2 MiB: a 4-byte length is not framing
+        else if ((b & 0x80) === 0) {
+          const len = readVarInt(Buffer.from(head), 0)[0];
+          head = [];
+          if (len <= 0) continue;
+          need = len;
+          body = len <= MAX_TRANSFER_FRAME ? Buffer.alloc(0) : null;
+        }
+      } else {
+        const take = Math.min(need, chunk.length - i);
+        if (body) body = Buffer.concat([body, chunk.subarray(i, i + take)]);
+        need -= take;
+        i += take;
+        if (need === 0) done();
+      }
+    }
+  };
+}
+
 // --- identity ----------------------------------------------------------------
 
 /**
@@ -121,6 +188,15 @@ export function createBridge(cfg) {
     return n;
   };
 
+  // account name -> {to, until}: where that account's next login goes.
+  const routes = new Map();
+  const pickUpstream = (name) => {
+    const r = routes.get(name);
+    routes.delete(name);
+    const to = r && r.until > Date.now() ? r.to : "lobby";
+    return to === "smp" && cfg.smpHost ? { to, host: cfg.smpHost, port: cfg.smpPort } : { to: "lobby", host: cfg.host, port: cfg.port };
+  };
+
   const http = createServer((req, res) => {
     // Traefik only forwards Upgrade requests; this answers the kubelet probe.
     res.writeHead(req.url === "/healthz" ? 200 : 404).end();
@@ -148,6 +224,7 @@ export function createBridge(cfg) {
     }
 
     let tcp = null;
+    let upstream = "lobby";
     let closed = false;
     let pre = Buffer.alloc(0);
     let handshake = null;
@@ -167,12 +244,21 @@ export function createBridge(cfg) {
       ws.terminate();
     };
 
-    const connect = (first) => {
+    const connect = (first, status = false) => {
       clearTimeout(idle);
       idle = setTimeout(finish, cfg.idleMs);
-      tcp = net.connect({ host: cfg.host, port: cfg.port, noDelay: true });
+      const up = status ? { to: "lobby", host: cfg.host, port: cfg.port } : pickUpstream(name);
+      upstream = up.to;
+      tcp = net.connect({ host: up.host, port: up.port, noDelay: true });
       tcp.write(first);
-      tcp.on("data", (d) => ws.send(d, { binary: true }));
+      // Only players on the first server or the SMP can be sent to the other one.
+      const scan = status || !cfg.smpHost
+        ? null
+        : transferScanner(() => routes.set(name, { to: upstream === "lobby" ? "smp" : "lobby", until: Date.now() + ROUTE_TTL_MS }));
+      tcp.on("data", (d) => {
+        scan?.(d);
+        ws.send(d, { binary: true });
+      });
       tcp.on("close", finish);
       tcp.on("error", finish);
     };
@@ -196,11 +282,11 @@ export function createBridge(cfg) {
           const f = readFrame(pre, 0);
           if (!f) return;
           const hs = parseHandshake(f[0]);
-          if (hs.protocol !== PROTOCOL || (hs.nextState !== 1 && hs.nextState !== 2)) throw new Error("handshake refused");
+          if (hs.protocol !== PROTOCOL || (hs.nextState < 1 || hs.nextState > 3)) throw new Error("handshake refused");
           handshake = { raw: pre.subarray(0, f[1]), state: hs.nextState };
           pre = pre.subarray(f[1]);
         }
-        if (handshake.state === 1) return connect(Buffer.concat([handshake.raw, pre])); // status: untouched
+        if (handshake.state === 1) return connect(Buffer.concat([handshake.raw, pre]), true); // status: untouched
         const f = readFrame(pre, 0);
         if (!f) return;
         parseLoginStart(f[0]); // must be well formed; the name itself is replaced
@@ -221,6 +307,9 @@ const env = (k, d) => process.env[k] ?? d;
 export const configFromEnv = () => ({
   host: env("TARGET_HOST", "pumpkin"),
   port: Number(env("TARGET_PORT", "25565")),
+  // The SMP server; leave SMP_HOST unset and transfers are not routed.
+  smpHost: env("SMP_HOST", ""),
+  smpPort: Number(env("SMP_PORT", "25565")),
   origin: env("ALLOWED_ORIGIN", "https://notmc.sandstorm.chat"),
   perIp: Number(env("MAX_CONN_PER_IP", "6")),
   perAccount: Number(env("MAX_CONN_PER_ACCOUNT", "2")),
