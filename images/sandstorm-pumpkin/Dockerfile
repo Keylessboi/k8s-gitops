@@ -16,7 +16,7 @@
 # here AND the `tag = ` of pumpkin-plugin-api in plugins/sandstorm-games/Cargo.toml
 # (the plugin ABI follows the server release), then rebuild and re-pin.
 
-FROM rust:1.97-slim AS plugin
+FROM rust:1.98-slim AS plugin
 RUN rustup target add wasm32-wasip2
 WORKDIR /src
 COPY plugins/sandstorm-games/ ./
