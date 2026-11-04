@@ -122,6 +122,7 @@ pub fn sweep_loot(server: &Server) {
 
 pub fn send_to_lobby(p: &pumpkin_plugin_api::player::Player, server: &Server) {
     if let Some(w) = overworld(server) {
+        note(&format!("teleport {} to the lobby", p.get_name()));
         p.teleport(LOBBY_SPAWN, Some(0.0), Some(0.0), w);
     }
     p.set_gamemode(GameMode::Adventure);
