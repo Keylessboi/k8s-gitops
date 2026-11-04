@@ -49,6 +49,9 @@ from http.server import BaseHTTPRequestHandler
 AK_URL = os.environ["AUTHENTIK_URL"].rstrip("/")
 AK_TOKEN = os.environ["AUTHENTIK_TOKEN"]
 REQUIRED_GROUP = os.environ.get("REQUIRED_GROUP", "authentik Admins")
+# Every account made here joins this group: it is what admits people to the
+# game apps (notmc and the rest). Not a privileged group.
+DEFAULT_GROUP = os.environ.get("DEFAULT_GROUP", "game-friends")
 NTFY_URL = os.environ.get("NTFY_URL", "")
 PORT = int(os.environ.get("PORT", "8080"))
 
@@ -102,7 +105,20 @@ def authentik_provision(username, email, password):
     call(f"{AK_URL}/api/v3/core/users/{uid}/set_password/",
          data=json.dumps({"password": password}).encode(),
          headers=ak_headers(), method="POST")
-    return ("created" if created else "existed, password set"), f"id {uid}"
+    grp = add_to_default_group(uid)
+    return ("created" if created else "existed, password set"), f"id {uid}, {grp}"
+
+
+def add_to_default_group(uid):
+    """Put the account in DEFAULT_GROUP (idempotent). Raises if the group is missing."""
+    q = urllib.parse.urlencode({"name": DEFAULT_GROUP})
+    _, found = call(f"{AK_URL}/api/v3/core/groups/?{q}", headers=ak_headers())
+    groups = [g for g in (found.get("results") or []) if g.get("name") == DEFAULT_GROUP]
+    if not groups:
+        raise RuntimeError(f"group {DEFAULT_GROUP!r} not found in authentik")
+    call(f"{AK_URL}/api/v3/core/groups/{groups[0]['pk']}/add_user/",
+         data=json.dumps({"pk": uid}).encode(), headers=ak_headers(), method="POST")
+    return f"in {DEFAULT_GROUP}"
 
 
 TARGETS = [
