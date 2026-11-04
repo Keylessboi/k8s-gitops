@@ -81,14 +81,45 @@ pub fn build(server: &Server) {
     pumpkin_plugin_api::logging::log(pumpkin_plugin_api::logging::LogLevel::Info, "sandstorm-games: lobby built");
 }
 
+/// Put a player back to a clean slate: full health and food, no effects,
+/// not on fire, empty inventory. Called on every entry to the lobby and every
+/// game, so nothing (hunger, potions, worn tools) carries over.
+pub fn fresh(p: &pumpkin_plugin_api::player::Player) {
+    use pumpkin_plugin_api::wit::pumpkin::plugin::status_effect::StatusEffectType as E;
+    p.set_health(20.0);
+    p.set_food_level(20);
+    p.set_saturation(20.0);
+    for e in [E::Speed, E::Slowness, E::JumpBoost, E::Regeneration, E::Resistance, E::Strength, E::Poison, E::Weakness] {
+        p.remove_effect(e);
+    }
+    p.as_entity().set_on_fire(false);
+    p.get_inventory().clear_all();
+}
+
+/// Remove loose items, experience orbs and arrows everywhere. Mob loot
+/// ignores the item-drop event, so this sweeps it instead.
+pub fn sweep_loot(server: &Server) {
+    let Some(w) = overworld(server) else {
+        return;
+    };
+    for e in w.get_entities() {
+        if matches!(
+            e.get_type(),
+            pumpkin_plugin_api::EntityType::Item
+                | pumpkin_plugin_api::EntityType::ExperienceOrb
+                | pumpkin_plugin_api::EntityType::Arrow
+        ) {
+            e.remove();
+        }
+    }
+}
+
 pub fn send_to_lobby(p: &pumpkin_plugin_api::player::Player, server: &Server) {
     if let Some(w) = overworld(server) {
         p.teleport(LOBBY_SPAWN, Some(0.0), Some(0.0), w);
     }
     p.set_gamemode(GameMode::Adventure);
-    p.set_health(20.0);
-    p.set_food_level(20);
-    p.set_saturation(20.0);
+    fresh(p);
     give_compass(p);
     set_place(key_of(&p.get_id()), Place::Lobby);
 }
