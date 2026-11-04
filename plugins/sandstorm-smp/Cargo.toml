@@ -1,0 +1,20 @@
+[package]
+name = "sandstorm-smp"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "The sandstorm survival server: the way back to the lobby"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Must match the server release in the image (apps/pumpkin-games): the plugin
+# ABI follows the host's WIT version.
+pumpkin-plugin-api = { git = "https://github.com/Pumpkin-MC/Pumpkin", tag = "0.2.1+26.3-26.51" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+codegen-units = 1

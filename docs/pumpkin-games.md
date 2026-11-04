@@ -52,6 +52,29 @@ To debug from a desktop client, port-forward over Tailscale
 (`kubectl -n pumpkin-games port-forward svc/pumpkin 25565`); the NetworkPolicy
 still blocks that path only for other pods, not for the API server's forward.
 
+## The survival server (SMP)
+
+A second Pumpkin, `apps/pumpkin-smp`, runs a plain survival world with its own
+volume and its own plugin directory, so SMP plugins never load into the
+minigames and the lobby's rules (no building, no hunger, wiped inventories) do
+not touch it. It is the same image (`sandstorm-pumpkin`) with a different
+config and only `sandstorm_smp.wasm`, which gives players `/lobby`.
+
+Getting there: the games menu's grass block (or `/smp`) makes the plugin send a
+Transfer packet to `notmc.sandstorm.chat:443`. The packet passes through the
+notmc bridge, which notes that this account's next connection (within 60 s)
+goes to the *other* server. The browser client reconnects to the same address,
+behind the same Authentik forward-auth, and lands on the SMP; `/lobby` there
+does the same in reverse. If a client does not follow Transfer packets, the
+player simply re-enters the address within a minute and the bridge still routes
+them. A fresh login with no pending route always goes to the lobby.
+
+Only the bridge can reach either server (NetworkPolicy on both ends), both are
+offline-mode, and the bridge binds each player's name to their Authentik
+account on whichever server they are sent to. The SMP world is persistent state
+(PVC protected by `components/protect-state`); like every world here it is not
+yet in Nextcloud.
+
 ## Known gaps
 
 - Built and loaded against the real 0.2.1 server binary, but **not yet played**:
