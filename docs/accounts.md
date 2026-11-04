@@ -47,7 +47,9 @@ themselves, and Invidious is the one that cannot.** This file records which is
 which and why, because "does a new user get an account here?" is answered
 differently by every app and none of them say so on their config page.
 
-Create the user in Authentik, add them to whatever groups gate the
+Accounts made with the account creator (apps/accounts) are put in `game-friends`
+automatically, which admits them to notmc and the other game apps. For anything
+else, create the user in Authentik, add them to whatever groups gate the
 applications, and then:
 
 | Service | New account appears | Mechanism |
