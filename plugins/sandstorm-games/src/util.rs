@@ -147,3 +147,9 @@ pub fn fill(world: &World, a: (i32, i32, i32), b: (i32, i32, i32), name: &str, h
     }
     failed
 }
+
+/// One log line from the plugin. Teleports are logged with the player and the
+/// reason so a "Wrong teleport id" kick can be matched to what we sent.
+pub fn note(msg: &str) {
+    pumpkin_plugin_api::logging::log(pumpkin_plugin_api::logging::LogLevel::Info, &format!("sandstorm-games: {msg}"));
+}

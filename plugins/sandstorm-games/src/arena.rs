@@ -358,6 +358,7 @@ fn start(server: &Server) {
         };
         let class = with(|g| g.class.get(k).copied().unwrap_or(Class::Knight));
         if let Some(w) = overworld(server) {
+            note(&format!("teleport {} to the mob arena", p.get_name()));
             p.teleport(SPAWN, Some(0.0), Some(0.0), w);
         }
         p.set_gamemode(GameMode::Survival);

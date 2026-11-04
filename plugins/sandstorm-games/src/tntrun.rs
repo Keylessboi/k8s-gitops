@@ -195,6 +195,7 @@ fn start(server: &Server) {
             // Spread them out a little so nobody starts on the same block.
             let off = (i as f64 - players.len() as f64 / 2.0) * 2.0;
             if let Some(w) = overworld(server) {
+                note(&format!("teleport {} to the tnt run arena", p.get_name()));
                 p.teleport((SPAWN.0 + off, SPAWN.1, SPAWN.2), Some(0.0), Some(0.0), w);
             }
             crate::lobby::fresh(&p);
@@ -227,6 +228,11 @@ fn tick(server: &Server) {
                 g.phase = Phase::Countdown;
                 g.countdown = COUNTDOWN_TICKS;
                 drop(g);
+                // A round that ended early leaves the floor part-gone. Rebuild it
+                // now, with 20 s to spare, not in the same instant as the
+                // teleports: thousands of block updates make a browser client
+                // slow to confirm a teleport it is sent right after.
+                arena_ready(server);
                 announce(server, "&6TNT Run starts in 20 seconds!");
             }
         }
