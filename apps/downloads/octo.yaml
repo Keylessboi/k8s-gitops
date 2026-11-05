@@ -123,10 +123,12 @@ spec:
           #   - TitleMatch, which compares owned tracks to provider tracks
           #     without their typography, so a curly apostrophe stops making a
           #     song you own look missing (winters27/octo#46).
-          # Once a release carries both, return to ghcr.io/winters27/octo.
+          # 2026-11-04: moved to upstream release 2026.10.28 for the apps' extensions (octoAcquisitions and
+          # the rest). The two fork fixes above are NOT carried: the radio seed code was rewritten upstream and
+          # they no longer apply cleanly. Re-check "Ye" instant mix and curly-apostrophe duplicates after deploy.
           # Config backed up before this upgrade from
           # 2026.08.24 at <octo-config subDir>.bak-before-2026.09.14 on the NAS.
-          image: ghcr.io/keylessboi/octo:fork-bf7cf4b6683c@sha256:98cd9bebb6c61966b137ca284412487feec515bdb9a7fe1854d4bb8af2c6ca2a
+          image: ghcr.io/winters27/octo:2026.10.28@sha256:a08823172a5a2a5d8845e1feda6ab6191bbc89ce65908c900ea66b6207c2403b
           securityContext:
             # 1000:1000 matches every other writer in this stack - slskd,
             # qBittorrent and Lidarr all run as 1000 - so files Octo drops in
