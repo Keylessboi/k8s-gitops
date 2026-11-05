@@ -49,7 +49,7 @@ spec:
     spec:
       containers:
         - name: shim
-          image: ghcr.io/keylessboi/octo-yt-dlp-shim:upstream-2579262a5d5a@sha256:d7fc3cc53760aafdea506099bf83ec3de7008a6b2c63d6bc20b798f41c072c1f
+          image: ghcr.io/winters27/octo-yt-dlp-shim:2026.10.28@sha256:2b04c777914621a1682cfe0a0150d5962737c09a6de76d9df3c4b4e968bc0d70
           imagePullPolicy: IfNotPresent
           env:
             # Same VPN path Octo itself uses. yt-dlp and requests both honour
