@@ -692,6 +692,14 @@ spec:
               value: /data/media/music
             - name: SLSKD_NO_AUTH
               value: "false"
+            # Do not scan shares on startup. slskd opens neither 5030 nor 6874
+            # until its startup scan finishes, and over NFS that scan runs
+            # for hours (enumerating 12k directories alone took 50+ minutes
+            # on 2026-11-05), so Lidarr got connection refused throughout.
+            # The share cache on the /app PVC is restored at startup instead;
+            # run a scan from the web UI or API when the library has grown.
+            - name: SLSKD_NO_SHARE_SCAN
+              value: "true"
             - name: TZ
               value: UTC
             # NOTE: the Soulseek proxy is configured in slskd.yml above, not
