@@ -99,13 +99,21 @@ spec:
                   - /data/media/music
                 # Lidarr imports into the library continuously and the share
                 # cache is in-memory, so new music stays unshared until a
-                # rescan. A full-library scan takes ~2h, so the rescan
-                # interval is weekly - anything shorter would have slskd
-                # scanning nearly continuously. A pod restart rescans
-                # immediately, and a scan can be forced from the web UI or
-                # API when the library has grown a lot.
+                # rescan. A full-library scan is slow over NFS (see workers
+                # below), so the rescan interval is 30 days - anything
+                # shorter would have slskd scanning nearly continuously. A
+                # scan can be forced from the web UI or API when the library
+                # has grown a lot.
                 cache:
-                  retention: 10080
+                  retention: 43200
+                  # One worker (the default) reads files one at a time, and over
+                  # NFS each read costs ~100ms: a scan ran at ~1% an hour and
+                  # restarted from zero after every OOMKill, and slskd never
+                  # opened 5030/6874 meanwhile (2026-11-05). Parallel workers
+                  # hide the latency; a disk cache on the /app PVC survives
+                  # restarts instead of being rebuilt from nothing.
+                  workers: 16
+                  storage_mode: disk
               # Owner's connection timeouts from their pre-k8s slskd.yml.
               # inactivity: 150000 is 10x the default 15000 - keeps slow peers
               # and dnet parent connections from being dropped early.
