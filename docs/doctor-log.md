@@ -168,6 +168,23 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
+## 2026-11-06 — Octo OOMKilled every few hours while streaming (12 restarts): request 128Mi, allocator keeps freed buffers
+
+**Symptom.** `octo` in `downloads` restarted 12 times, `Last State: Terminated, Reason:
+OOMKilled, exit 137`, most recently 2026-11-06 19:39 UTC after ~8 h up. Memory idled ~300Mi and climbed
+a few Mi/min while Rhythm pulled YouTube previews (`Direct streaming track … youtube-m4a`, 2-5 MB each).
+
+**Root cause.** Not proven. Octo is a Rust service (the old manifest comment about .NET GC was wrong), so there is no
+GC ceiling to tune. The shape fits glibc arena fragmentation: freed stream buffers stay mapped. The 128Mi request also
+hid the real footprint from the scheduler.
+
+**Fix.** Request 128Mi -> 512Mi; `MALLOC_ARENA_MAX=2` and `MALLOC_TRIM_THRESHOLD_=131072`. Limit left at 1Gi.
+
+**Prevention.** Compare `kubectl top pod` growth per hour before and after; if it still climbs to the limit, the cause is
+a real leak or an unbounded buffer in Octo itself and needs an upstream report, not a bigger limit. Do not keep raising the limit.
+
+**Confidence.** PROVISIONAL.
+
 ## 2026-11-01 — Nextcloud 1/2 Ready with 43 restarts, ghost/pelican/authentik restarting: the NAS pool was saturated and the probes were too tight
 
 **Symptom.** Nextcloud down: pod 1/2 Ready, 43 restarts, ~3100 failed startup
