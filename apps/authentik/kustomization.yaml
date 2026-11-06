@@ -48,8 +48,12 @@ helmCharts:
     namespace: authentik
     valuesInline:
       global:
+        # On the NAS node to free compute-node RAM (2026-11-06). Revert by restoring
+        # `homelab/node-class: compute` and removing tolerations.
         nodeSelector:
-          homelab/node-class: compute
+          kubernetes.io/hostname: nas
+        tolerations:
+          - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
         # The secret key signs every session and token. It used to be set
         # inline to the literal string "MANAGED_BY_DOPPLER" — no DopplerSecret
         # ever replaced it, so that string WAS the signing key. Injected from a

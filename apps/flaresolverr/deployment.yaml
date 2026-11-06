@@ -19,6 +19,12 @@ spec:
       labels:
         app.kubernetes.io/name: flaresolverr
     spec:
+      # On the NAS node to free compute-node RAM (2026-11-06). Stateless, so safe to move.
+      # Revert by deleting these two keys.
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
       # Pod-level, so it also covers anything added later. Without it the pod
       # runs seccomp Unconfined: this node's kubelet has seccompDefault=false,
       # so nothing applies a profile unless a manifest asks.
