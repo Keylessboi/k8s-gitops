@@ -40,7 +40,8 @@ spec:
           resources:
             requests:
               cpu: 25m
-              memory: 128Mi
+              # was 128Mi; it sits near 300Mi (observed 2026-11-06).
+              memory: 256Mi
             limits:
               cpu: 500m
               memory: 512Mi

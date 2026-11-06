@@ -712,7 +712,8 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 256Mi
+              # was 256Mi; it sits near 550Mi (observed 2026-11-06). Limit unchanged.
+              memory: 512Mi
             limits:
               cpu: "1"
               memory: 1Gi
@@ -779,7 +780,8 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 256Mi
+              # was 256Mi; it sits near 960Mi (observed 2026-11-06). Limit unchanged.
+              memory: 768Mi
             limits:
               cpu: "2"
               memory: 2Gi

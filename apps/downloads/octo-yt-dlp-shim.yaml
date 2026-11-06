@@ -84,7 +84,8 @@ spec:
           resources:
             requests:
               cpu: 25m
-              memory: 128Mi
+              # was 128Mi; it sits near 360Mi (observed 2026-11-06).
+              memory: 320Mi
             limits:
               # Raised 1 -> 2 on 2026-10-30: at 1 CPU the shim was CFS-throttled
               # in roughly 20% of scheduling periods, because yt-dlp spawns
