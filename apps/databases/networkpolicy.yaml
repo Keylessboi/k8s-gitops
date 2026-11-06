@@ -29,9 +29,6 @@ spec:
               kubernetes.io/metadata.name: vaultwarden
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: forgejo
-        - namespaceSelector:
-            matchLabels:
               kubernetes.io/metadata.name: prowlarr
         - namespaceSelector:
             matchLabels:

@@ -50,17 +50,6 @@ spec:
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:
-  name: forgejo
-  namespace: databases
-spec:
-  name: forgejo
-  owner: forgejo
-  cluster:
-    name: app-databases
----
-apiVersion: postgresql.cnpg.io/v1
-kind: Database
-metadata:
   name: prowlarr-main
   namespace: databases
 spec:
@@ -78,45 +67,6 @@ metadata:
 spec:
   name: prowlarr_log
   owner: prowlarr
-  cluster:
-    name: app-databases
-
----
-apiVersion: postgresql.cnpg.io/v1
-kind: Database
-metadata:
-  name: readarr-main
-  namespace: databases
-spec:
-  name: readarr_main
-  owner: readarr
-  cluster:
-    name: app-databases
-
----
-apiVersion: postgresql.cnpg.io/v1
-kind: Database
-metadata:
-  name: readarr-log
-  namespace: databases
-spec:
-  name: readarr_log
-  owner: readarr
-  cluster:
-    name: app-databases
----
-# Readarr differs from Prowlarr and Lidarr: it opens a THIRD database for its
-# metadata cache. Without it Readarr aborts at startup with
-# 3D000 database "readarr-cache" does not exist - the default name it uses when
-# CACHEDB is unset - and never binds its port.
-apiVersion: postgresql.cnpg.io/v1
-kind: Database
-metadata:
-  name: readarr-cache
-  namespace: databases
-spec:
-  name: readarr_cache
-  owner: readarr
   cluster:
     name: app-databases
 
@@ -172,38 +122,6 @@ spec:
   cluster:
     name: app-databases
 
----
-# Invidious's single database. Video metadata, channels, users, sessions and
-# playlists all share one schema; no separate log db.
-apiVersion: postgresql.cnpg.io/v1
-kind: Database
-metadata:
-  name: invidious
-  namespace: databases
-spec:
-  name: invidious
-  owner: invidious
-  cluster:
-    name: app-databases
-
----
-# AIOStreams' single database. Addon configuration, user preferences and the
-# stream cache share one schema; no separate log db.
-#
-# Migrated off SQLite on 2026-09-03 under CONTRIBUTING.md rule 1: AIOStreams is
-# the only one of this cluster's four SQLite apps that actually supports
-# Postgres (`DATABASE_URI` accepts postgres://). Ghost, remux and convertx
-# cannot and are exempt.
-apiVersion: postgresql.cnpg.io/v1
-kind: Database
-metadata:
-  name: aiostreams
-  namespace: databases
-spec:
-  name: aiostreams
-  owner: aiostreams
-  cluster:
-    name: app-databases
 ---
 # Memos, the notes app that replaced the Obsidian CouchDB endpoint.
 apiVersion: postgresql.cnpg.io/v1
