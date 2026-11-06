@@ -30,8 +30,12 @@ spec:
       labels:
         app.kubernetes.io/name: hermes
     spec:
+      # On the NAS node to free compute-node RAM (2026-11-06). Its data is on NFS
+      # served by this node, so the mount is now local. Revert both lines to move back.
       nodeSelector:
-        homelab/node-class: compute
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
       securityContext:
         # s6-overlay remaps its internal hermes user to these before dropping
         # privileges. 1000:1000 matches the NFS export's anonuid/anongid, so
