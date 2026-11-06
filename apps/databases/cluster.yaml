@@ -91,22 +91,12 @@ spec:
         login: true
         passwordSecret:
           name: vaultwarden-db-credentials
-      - name: forgejo
-        ensure: present
-        login: true
-        passwordSecret:
-          name: forgejo-db-credentials
       # The *arr apps. Each needs two databases (main + log); one role owns both.
       - name: prowlarr
         ensure: present
         login: true
         passwordSecret:
           name: prowlarr-db-credentials
-      - name: readarr
-        ensure: present
-        login: true
-        passwordSecret:
-          name: readarr-db-credentials
       - name: lidarr
         ensure: present
         login: true
@@ -130,21 +120,6 @@ spec:
         login: true
         passwordSecret:
           name: bitmagnet-db-credentials
-      # Invidious (self-hosted YouTube front-end). One role, one database —
-      # like pelican/bitmagnet it keeps everything (channels, videos, users,
-      # sessions, playlists) in a single schema.
-      # AIOStreams (Stremio addon aggregator behind remux). One role, one
-      # database - addon config, preferences and stream cache in one schema.
-      - name: aiostreams
-        ensure: present
-        login: true
-        passwordSecret:
-          name: aiostreams-db-credentials
-      - name: invidious
-        ensure: present
-        login: true
-        passwordSecret:
-          name: invidious-db-credentials
       # Memos (notes). Postgres rather than its default SQLite under
       # CONTRIBUTING rule 1 - it ships a full store/db/postgres driver, so
       # there is no reason to add a fifth SQLite file to this cluster.

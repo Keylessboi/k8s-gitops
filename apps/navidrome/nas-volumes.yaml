@@ -13,7 +13,7 @@
 # pod could start before the dataset mounts and write into an empty directory
 # on the root disk.
 #
-# The old claims (media-data, navidrome-data-local) stay declared for rollback.
+# media-data stays declared: it is the shared music volume.
 apiVersion: v1
 kind: PersistentVolume
 metadata:

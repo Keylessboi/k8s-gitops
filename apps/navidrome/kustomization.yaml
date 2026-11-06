@@ -35,7 +35,6 @@ resources:
   - pvc-navidrome-data-nas-tank.yaml
   - namespace.yaml
   - media-data-pv.yaml
-  - pvc-data.yaml
   - nas-volumes.yaml
   - networkpolicy.yaml
   - deployment.yaml

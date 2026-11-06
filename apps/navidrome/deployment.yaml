@@ -209,9 +209,7 @@ spec:
             # do, while sequential streaming is the one thing it can. Migrated
             # 2026-09-11 with integrity_check ok: 35,837 media_file, 3,266
             # album, 1,329 artist, 790 annotation (play counts and stars).
-            # See apps/navidrome/pvc-data-local.yaml and docs/adr/0009.
-            # The nfs-csi claim in pvc-data.yaml still holds the pre-migration
-            # copy, so this is a one-line rollback.
+            # See docs/adr/0009. The pre-migration copies were retired on 2026-11-06.
             claimName: navidrome-data-nas-tank
         - name: music
           persistentVolumeClaim:
