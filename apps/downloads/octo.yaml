@@ -149,6 +149,17 @@ spec:
               value: Production
             - name: TZ
               value: UTC
+            # Octo is a Rust service (its log targets are octo::controllers::...), so the
+            # .NET GC remarks below do not apply. It was OOMKilled again on 2026-11-06 after
+            # ~8h of streaming, growing a few Mi/min while Rhythm pulled YouTube previews
+            # (2-5 MB each, buffered). The usual cause of that shape on glibc is arena
+            # fragmentation: freed buffers stay mapped. These two make glibc use fewer
+            # arenas and hand freed memory back. Harmless on a non-glibc image. A hypothesis,
+            # not a proven fix: compare memory growth per hour before/after.
+            - name: MALLOC_ARENA_MAX
+              value: "2"
+            - name: MALLOC_TRIM_THRESHOLD_
+              value: "131072"
 
             # --- Egress: direct, not through AirVPN (2026-09-14) ---
             #
@@ -392,7 +403,9 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 128Mi
+              # 128Mi -> 512Mi (2026-11-06): it idles ~300Mi and climbs past 600Mi while
+              # streaming, so 128Mi told the scheduler it was tiny.
+              memory: 512Mi
             limits:
               cpu: "2"
               memory: 1Gi
