@@ -162,7 +162,8 @@ helmCharts:
         resources:
           requests:
             cpu: 100m
-            memory: 256Mi
+            # was 256Mi; the server sits near 540Mi (observed 2026-11-06).
+            memory: 512Mi
           limits:
             cpu: "1"
             memory: 1Gi
