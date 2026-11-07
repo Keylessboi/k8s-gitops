@@ -113,7 +113,6 @@ spec:
         - https://qui.sandstorm.chat/
         - https://convertx.sandstorm.chat/
         - https://alertmanager.sandstorm.chat/
-        - https://pelican.sandstorm.chat/
       labels:
         probe_group: edge
 ---
