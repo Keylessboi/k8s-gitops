@@ -196,6 +196,12 @@ spec:
             # leaving it on only adds a failure mode with no upside.
             - name: Subsonic__AutoDetectDownloadPath
               value: "false"
+            # How many hearted songs the generated "Liked Songs" playlist
+            # holds (the newest hearts). Octo's default is 500, which cut the
+            # list short for a library with more than 500 hearts. 5000 is the
+            # most Octo accepts: it clamps the setting to 50..5000.
+            - name: GeneratedPlaylists__LikedSongsMax
+              value: "5000"
             # Optional. With these set Octo can trigger authenticated library
             # rescans itself after a download lands; without them it waits to
             # learn an admin token from the first admin sign-in through it.
