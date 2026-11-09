@@ -51,7 +51,7 @@ resources:
 helmCharts:
   - name: argocd-image-updater
     repo: https://argoproj.github.io/argo-helm
-    version: 1.4.0
+    version: 1.4.2
     releaseName: image-updater
     namespace: image-updater
     includeCRDs: true
