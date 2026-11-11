@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nyc-transit
+  namespace: nyc-transit
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls: [{hosts: [transit.sandstorm.chat], secretName: nyc-transit-tls}]
+  rules:
+    - host: transit.sandstorm.chat
+      http:
+        paths:
+          - {path: /, pathType: Prefix, backend: {service: {name: nyc-transit, port: {number: 8080}}}}
