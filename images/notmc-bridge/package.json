@@ -6,5 +6,5 @@
   "description": "WebSocket to TCP bridge in front of Pumpkin; binds the player's name to the Authentik account.",
   "engines": { "node": ">=24" },
   "scripts": { "test": "node --test" },
-  "dependencies": { "ws": "8.22.1" }
+  "dependencies": { "ws": "8.22.2" }
 }
