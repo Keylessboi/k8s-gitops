@@ -94,19 +94,35 @@ cluster_overview() {
   kubectl top node --no-headers 2>/dev/null | awk '{print "   cpu "$2" ("$3")  mem "$4" ("$5")"}' \
     || nope "kubectl top node (metrics-server)"
 
+  # Read once, and only trusted if kubectl succeeded: an empty list from a
+  # failed read would otherwise print "(none)" and "0" below, the
+  # missing-looks-like-empty case this script promises never to produce.
+  local pods pods_ok=yes
+  pods=$(kubectl get pods -A --no-headers 2>/dev/null) || pods_ok=no
+
   sec "PODS NOT READY"
   local out
   # Columns with -A are: NAMESPACE NAME READY STATUS RESTARTS AGE. Status is
   # $4 and restarts $5 - one further right than without -A, which is exactly
   # the off-by-one this script shipped with for its first five minutes.
-  out=$(kubectl get pods -A --no-headers 2>/dev/null \
-        | awk '$4!="Running" && $4!="Completed" && $4!="Succeeded" {print "   "$1"/"$2" "$4" ready="$3" restarts="$5}')
-  if [ -z "$out" ]; then echo "   (none)"; else echo "$out"; fi
+  # A Running pod is listed too when READY says fewer containers are ready
+  # than exist (0/1 Running): its status alone looks healthy.
+  if [ "$pods_ok" = no ]; then
+    nope "kubectl get pods -A"
+  else
+    out=$(printf '%s\n' "$pods" \
+          | awk 'NF {split($3, r, "/")} NF && (($4!="Running" && $4!="Completed" && $4!="Succeeded") || ($4=="Running" && r[1]+0 < r[2]+0)) {print "   "$1"/"$2" "$4" ready="$3" restarts="$5}')
+    if [ -z "$out" ]; then echo "   (none)"; else echo "$out"; fi
+  fi
 
   sec "PODS WITH RESTARTS"
-  out=$(kubectl get pods -A --no-headers 2>/dev/null \
-        | awk '$4=="Running" && $5+0 > 0 {print "   "$1"/"$2" restarts="$5}' | sort -t= -k2 -rn)
-  if [ -z "$out" ]; then echo "   (none)"; else echo "$out" | head -12; fi
+  if [ "$pods_ok" = no ]; then
+    nope "kubectl get pods -A"
+  else
+    out=$(printf '%s\n' "$pods" \
+          | awk '$4=="Running" && $5+0 > 0 {print "   "$1"/"$2" restarts="$5}' | sort -t= -k2 -rn)
+    if [ -z "$out" ]; then echo "   (none)"; else echo "$out" | head -12; fi
+  fi
 
   # Completed/Error pods from Deployments are residue, not workload. 123 of
   # them were cleared by hand on 2026-09-03 after the eviction loops; they
@@ -114,18 +130,21 @@ cluster_overview() {
   # cause any real harm.
   sec "FINISHED POD RECORDS STILL PRESENT"
   local n
-  n=$(kubectl get pods -A --no-headers 2>/dev/null | awk '$4=="Completed" || $4=="Error" {c++} END {print c+0}')
-  if [ "$n" -gt 20 ]; then
+  n=$(printf '%s\n' "$pods" | awk '$4=="Completed" || $4=="Error" {c++} END {print c+0}')
+  if [ "$pods_ok" = no ]; then
+    nope "kubectl get pods -A"
+  elif [ "$n" -gt 20 ]; then
     echo "   $n Completed/Error pod records (clutter; clear when convenient)"
   else
     echo "   $n"
   fi
 
   sec "ARGOCD APPS NOT Synced/Healthy"
-  out=$(kubectl -n argocd get applications --no-headers \
+  if ! out=$(kubectl -n argocd get applications --no-headers \
           -o custom-columns=N:.metadata.name,S:.status.sync.status,H:.status.health.status 2>/dev/null \
-        | awk '$2!="Synced" || $3!="Healthy" {print "   "$1" "$2"/"$3}')
-  if [ -z "$out" ]; then echo "   (all Synced/Healthy)"; else echo "$out"; fi
+        | awk '$2!="Synced" || $3!="Healthy" {print "   "$1" "$2"/"$3}'); then
+    nope "kubectl get applications -n argocd"
+  elif [ -z "$out" ]; then echo "   (all Synced/Healthy)"; else echo "$out"; fi
 
   sec "FIRING ALERTS"
   local json
@@ -223,8 +242,14 @@ print('\n'.join(rows) if rows else '   (no container has terminated)')
   # ----------------------------------------------------------------- argocd
   sec "ARGOCD"
   local argo
-  argo=$(kubectl -n argocd get app "$app" -o json 2>/dev/null)
-  if [ -z "$argo" ]; then
+  # NotFound is an answer; any other failure is a section that was not
+  # collected, and must not read as "no Application".
+  if ! argo=$(kubectl -n argocd get app "$app" -o json 2>&1); then
+    if printf '%s' "$argo" | grep -q NotFound; then argo=""; else argo="!"; fi
+  fi
+  if [ "$argo" = "!" ]; then
+    nope "kubectl get application $app -n argocd"
+  elif [ -z "$argo" ]; then
     echo "   (no ArgoCD Application named '$app' - it may be part of another app)"
   else
     echo "$argo" | python3 -c "
@@ -311,8 +336,9 @@ for a in hits[:12]:
   # ----------------------------------------------------------------- events
   sec "RECENT EVENTS (last $EVENT_LINES)"
   local ev
-  ev=$(kubectl -n "$ns" get events --sort-by=.lastTimestamp --no-headers 2>/dev/null | tail -"$EVENT_LINES")
-  if [ -z "$ev" ]; then
+  if ! ev=$(kubectl -n "$ns" get events --sort-by=.lastTimestamp --no-headers 2>/dev/null | tail -"$EVENT_LINES"); then
+    nope "kubectl get events -n $ns"
+  elif [ -z "$ev" ]; then
     echo "   (none in the API server - they expire after ~1h)"
     echo "   Older events are in Loki: {job=\"kubernetes-events\"} |= \"$ns\""
   else

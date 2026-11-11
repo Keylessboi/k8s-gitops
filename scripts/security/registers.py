@@ -48,12 +48,20 @@ REQUIRED = {
 ROTATABLE = {"yes", "coupled", "external", "no"}
 RELOAD = {"auto", "per-run", "operator", "manual", "none"}
 STATUSES = {"proposed", "approved", "rejected"}
+# Which registers need owner signatures is fixed here, not read from the
+# register's own `kind:` line: that line is in the file being checked, so
+# editing it to `inventory` would turn signature checking off for the file
+# and export every entry, proposed ones included, to Conftest.
+EXCEPTION = {"publication", "out-of-band", "waivers", "permissions"}
 
 
 def load():
     regs = {}
     for p in sorted(REG.glob("*.yaml")):
         doc = yaml.safe_load(p.read_text())
+        if doc["register"] in regs:
+            # A second file must not silently replace the first one's entries.
+            sys.exit(f"{p}: register {doc['register']!r} is already defined by another file")
         regs[doc["register"]] = doc
     return regs
 
@@ -104,6 +112,9 @@ def check(regs):
         if name not in REQUIRED:
             errors.append(f"{name}: unknown register")
             continue
+        want = "exception" if name in EXCEPTION else "inventory"
+        if doc.get("kind") != want:
+            errors.append(f"{name}: kind must be {want!r}, not {doc.get('kind')!r}")
         ids = set()
         for e in doc.get("entries") or []:
             where = f"{name} {e.get('id', '?')}"
@@ -126,7 +137,7 @@ def check(regs):
                         warnings.append(f"{where}: {e.get('secret')} was last rotated {lr}, more than {pm} months ago (HS-ROT-03)")
                 if e.get("reload") == "none":
                     warnings.append(f"{where}: {e.get('secret')} has no consumer in the repository (HS-ROT-04)")
-            if doc.get("kind") != "exception":
+            if name not in EXCEPTION:
                 continue
             st = e.get("status")
             if st not in STATUSES:
@@ -148,7 +159,7 @@ def data(regs, out):
     result = {}
     for name, doc in regs.items():
         entries = doc.get("entries") or []
-        if doc.get("kind") == "exception":
+        if name in EXCEPTION:
             entries = [e for e in entries if e.get("status") == "approved" and verify(name, e)[0]]
         result[name] = json.loads(json.dumps(entries, default=str))
     pathlib.Path(out).write_text(json.dumps({"registers": result}, indent=1, sort_keys=True))
@@ -156,7 +167,7 @@ def data(regs, out):
 
 def approve(regs, register, eid, key):
     doc = regs.get(register)
-    if not doc or doc.get("kind") != "exception":
+    if not doc or register not in EXCEPTION:
         sys.exit(f"{register}: not an exception register")
     path = next(p for p in REG.glob("*.yaml") if yaml.safe_load(p.read_text())["register"] == register)
     text = path.read_text()
