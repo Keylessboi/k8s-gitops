@@ -77,7 +77,7 @@ spec:
           # An explicit release, not :stable. The floating tag meant the pod
           # ran 0.30.0 while :stable had already moved to 0.31.0 - the next
           # restart would have upgraded the database schema without a commit.
-          image: neosmemo/memos:0.31.0
+          image: neosmemo/memos:26.11.0
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
