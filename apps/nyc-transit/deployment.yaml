@@ -19,8 +19,8 @@ spec:
       nodeSelector: {kubernetes.io/os: linux, homelab/node-class: compute}
       containers:
         - name: app
-          # TODO(HS-WL-01): pin by digest once the CI image exists (@sha256:...).
-          image: ghcr.io/keylessboi/nyc-transit-live:latest
+          # Pinned by digest (HS-WL-01).
+          image: ghcr.io/keylessboi/nyc-transit-live@sha256:9d16ba9ce8e224de213fe01ec36639ff67570405a32065ef4742e9965cc02277
           env:
             - {name: PUBLIC_URL, value: "https://transit.sandstorm.chat"}
             - {name: POLL_SECONDS, value: "15"}
