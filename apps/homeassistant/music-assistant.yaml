@@ -51,6 +51,11 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 6
+          livenessProbe:
+            tcpSocket: {port: http}
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 6
           resources:
             requests: {cpu: 100m, memory: 256Mi}
             limits: {cpu: "2", memory: 1Gi}
