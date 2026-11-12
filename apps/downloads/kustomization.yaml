@@ -47,6 +47,7 @@ resources:
   # Published so Subsonic clients can reach it; /rest is carved out of
   # forward-auth the same way Navidrome's is.
   - octo-ingress.yaml
+  - octo-from-music-assistant.yaml
   # The yt-dlp shim Octo's YouTube source needs; locally built image.
   - octo-yt-dlp-shim.yaml
   # Hearting a track adds the whole artist to Lidarr. Octo has no artist-level

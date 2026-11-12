@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: homeassistant
+  labels:
+    # c2 on purpose: with no presence, camera or location integrations, HA holds
+    # device state and automations only. The config volume is local-path
+    # (not encrypted, data-stores D-04) because SQLite must not sit on NFS
+    # (HS-STATE-04). The first integration that records who is home makes this
+    # c3, and then the volume has to move to an encrypted local store (HS-REST-02).
+    homelab/data-class: c2
+    homelab/criticality: tier-3
+    app.kubernetes.io/name: homeassistant
+    app.kubernetes.io/part-of: homelab
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

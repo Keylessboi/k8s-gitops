@@ -1,0 +1,95 @@
+# Music Assistant: the Sendspin server and the music hub. Providers are added in
+# its UI (not in git):
+#   - Subsonic -> http://octo.downloads.svc.cluster.local:5274 (Octo, so search
+#     reaches past the library and "heart to keep" works; Octo proxies the rest
+#     to Navidrome). The matching ingress rule is apps/downloads/octo-from-music-assistant.yaml.
+#   - Sendspin Source plugin -> the aux input on a server node (host side:
+#     docs/music-assistant-aux.md, done by the owner).
+#
+# Pod network on purpose, not hostNetwork: hostNetwork needs a permissions-register
+# entry the owner signs (HS-PERM-04) and escapes NetworkPolicy. The cost is that
+# mDNS/SSDP discovery of speakers does not work from the pod, so players are added
+# by address or connect to Sendspin themselves.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: music-assistant
+  namespace: homeassistant
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: music-assistant
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: music-assistant
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        kubernetes.io/os: linux
+        homelab/node-class: compute
+      containers:
+        - name: music-assistant
+          # 2.10.9; digest read from the registry index 2026-11-11.
+          image: ghcr.io/music-assistant/server:2.10.9@sha256:4ac0d5844363fbbefd6a61251df09d96cd546e05e01b8c1cc1a28803f0935e07
+          securityContext:
+            allowPrivilegeEscalation: false
+          env:
+            - name: TZ
+              value: America/New_York
+          ports:
+            - {containerPort: 8095, name: http}
+            - {containerPort: 8927, name: sendspin}
+          readinessProbe:
+            httpGet: {path: /info, port: http}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket: {port: http}
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "2", memory: 1Gi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: music-assistant-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: music-assistant
+  namespace: homeassistant
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: music-assistant
+  ports:
+    - {name: http, port: 8095, targetPort: http}
+---
+# Sendspin endpoint for LAN clients (the aux capture on the nas or vostro, and
+# any Sendspin speaker). Local keeps the real client address so the
+# NetworkPolicy can admit only named hosts.
+apiVersion: v1
+kind: Service
+metadata:
+  name: music-assistant-sendspin
+  namespace: homeassistant
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: music-assistant
+  ports:
+    - {name: sendspin, port: 8927, targetPort: sendspin, protocol: TCP}

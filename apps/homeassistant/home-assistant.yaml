@@ -1,0 +1,73 @@
+# Home Assistant. NOT published: no Ingress, no route. Reach it with
+# `kubectl port-forward` or over Tailscale. HA's own login is the only gate and
+# its mobile app cannot follow a forward-auth redirect, so publishing it would
+# need a publication-register entry (policy 9.7.4) that the owner signs.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: home-assistant
+  namespace: homeassistant
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate   # one writer on the SQLite database
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: home-assistant
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: home-assistant
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        kubernetes.io/os: linux
+        homelab/node-class: compute
+      containers:
+        - name: home-assistant
+          # 2026.11.1; digest read from the registry index 2026-11-11.
+          image: ghcr.io/home-assistant/home-assistant:2026.11.1@sha256:6785d1eca68747a524c156faae1b139ed415c07357386ae6fe17291986e59e82
+          securityContext:
+            # The upstream image starts as root under s6-overlay, so no
+            # runAsNonRoot here (HS-WL-10 is SHOULD). Privilege escalation off.
+            allowPrivilegeEscalation: false
+          env:
+            - name: TZ
+              value: America/New_York
+          ports:
+            - containerPort: 8123
+              name: http
+          readinessProbe:
+            httpGet: {path: /manifest.json, port: http}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket: {port: http}
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 100m, memory: 384Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts:
+            - {name: config, mountPath: /config}
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: home-assistant-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: home-assistant
+  namespace: homeassistant
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: home-assistant
+  ports:
+    - {name: http, port: 8123, targetPort: http}
