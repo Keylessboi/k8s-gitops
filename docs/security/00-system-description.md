@@ -114,6 +114,7 @@ fails, everything does.
 | ghost | Public blog (single pod, SQLite on a PVC) | Published posts (C1), staff accounts and drafts (C3) | C3 | 3 |
 | pelican | Game-server panel (Wings on the nas) | Panel accounts, game-server data | C3 | 3 |
 | navidrome | Music streaming | Library index, users' play history | C3 | 3 |
+| homeassistant | Home Assistant and Music Assistant (Sendspin server; Subsonic source is Octo). Not published. | Device state, automations, music-provider settings | C2 (becomes C3 if presence or location integrations are added) | 3 |
 | lidarr, prowlarr, bitmagnet, flaresolverr, downloads, books, music, kiwix, hermes, spatial-sidecar, applemusic-wrapper | Media acquisition, processing and serving | Media library, indexer API keys, tracker passkeys | C2 (API keys and passkeys are C4) | 3 |
 
 ### 4.1 Data stores

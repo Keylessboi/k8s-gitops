@@ -1,0 +1,64 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-isolation
+  namespace: homeassistant
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # port-forward / kubelet probes
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 8123, protocol: TCP}
+        - {port: 8095, protocol: TCP}
+    # Home Assistant <-> Music Assistant
+    - from:
+        - podSelector: {}
+      ports:
+        - {port: 8123, protocol: TCP}
+        - {port: 8095, protocol: TCP}
+    # Sendspin clients: only the nas (aux capture host) and pve. Source address
+    # survives because the Service uses externalTrafficPolicy: Local.
+    - from:
+        - ipBlock: {cidr: 192.168.1.67/32}
+        - ipBlock: {cidr: 192.168.1.153/32}
+      ports:
+        - {port: 8927, protocol: TCP}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    - to:
+        - podSelector: {}
+    # Music Assistant -> Octo (Subsonic). Other end: apps/downloads/octo-from-music-assistant.yaml
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: downloads
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: octo
+      ports:
+        - {port: 8080, protocol: TCP}
+    # Speakers and smart-home devices on the LAN (varied ports; HA and MA cannot
+    # list them in advance).
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.0/24
+            except: [192.168.1.172/32, 192.168.1.153/32, 192.168.1.67/32]
+    # Public internet for updates and metadata, never private ranges.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 192.168.0.0/16, 172.16.0.0/12]
+      ports:
+        - {port: 443, protocol: TCP}
+        - {port: 80, protocol: TCP}

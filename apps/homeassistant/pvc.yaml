@@ -1,0 +1,25 @@
+# SQLite lives in both of these, so local-path on the node that runs the pod
+# (HS-STATE-04, ADR-0009), never nfs-csi.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: home-assistant-config
+  namespace: homeassistant
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: music-assistant-data
+  namespace: homeassistant
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
