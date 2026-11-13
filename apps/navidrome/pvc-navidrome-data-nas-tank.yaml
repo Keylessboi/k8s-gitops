@@ -1,6 +1,5 @@
 ---
-# Navidrome SQLite database: moved to the encrypted tank pool (policy §12.4). The old claim
-# navidrome-data-nas stays declared for rollback.
+# Navidrome SQLite database: moved to the encrypted tank pool (policy §12.4).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
