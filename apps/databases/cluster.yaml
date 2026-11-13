@@ -112,16 +112,6 @@ spec:
         login: true
         passwordSecret:
           name: lidarr-db-credentials
-      # Pelican Panel (game-server management). Native PostgreSQL — verified by
-      # running ghcr.io/pelican/panel:v1.0.0-beta38 against this very cluster:
-      # `php -m` lists pdo_pgsql and a PDO connect returned "PostgreSQL 16.9",
-      # the exact opposite of Pterodactyl's "could not find driver" (ADR-0005).
-      # One role, one database — unlike the *arr apps it needs no separate log db.
-      - name: pelican
-        ensure: present
-        login: true
-        passwordSecret:
-          name: pelican-db-credentials
       # bitmagnet (DHT torrent indexer). One role, one database — like pelican
       # it keeps everything (torrents, files, classifier results, job queue)
       # in a single schema.
