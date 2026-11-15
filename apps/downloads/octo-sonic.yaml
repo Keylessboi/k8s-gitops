@@ -1,0 +1,127 @@
+# octo-sonic: Octo's audio-analysis sidecar.
+#
+# It reads every song in the library once and keeps two things: how the song
+# SOUNDS (a bliss feature vector, for "Sounds alike" radio and nearest-song
+# search) and its TRANSITION PROFILE (for the Octo apps' blends). Octo calls it
+# over HTTP (/health, /analyse) and stores the results in its own
+# sonic-features.json and transition-profiles.json under /app/config. The
+# sidecar itself keeps no state.
+#
+# Octo finds it at http://octo-sonic:8080 (RadioSources__SonicUrl defaults to
+# that), which is exactly this Service's name in the downloads namespace, so
+# octo.yaml needs no change. Until this existed, the Octo admin panel reported
+# octo-sonic as not set up and Sounds alike radio did nothing.
+#
+# VERSION: pinned to the same release as the Octo image in octo.yaml
+# (2026.10.28). Octo checks the feature version the sidecar writes and treats
+# an octo-sonic from a different generation as unusable ("off"), so bump the
+# two together, never one alone.
+#
+# READ-ONLY on the music: the library mount is readOnly, the root filesystem
+# is read-only (only /tmp is writable), and the pod runs as 1000:1000 like
+# every other reader of this volume. Each file is decoded by a child process,
+# so a damaged file costs only itself. The first pass over a large library is
+# slow by design (ANALYSE_CONCURRENCY=1, one CPU) and runs in the background;
+# Octo works without it and waits for it on its own.
+#
+# fsGroup is deliberately NOT set, for the same reason as octo.yaml: the media
+# volume is the whole library over NFS and fsGroup makes the kubelet walk it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: octo-sonic
+  namespace: downloads
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: octo-sonic
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: octo-sonic
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: sonic
+          image: ghcr.io/winters27/octo-sonic:2026.10.28@sha256:2ef5cf3c3f091e90fe4c43420be8c4de582328fb0368f823322218e064ece2d3
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: MUSIC_ROOT
+              value: /music
+            # One file at a time: bliss uses about six threads a song, and the
+            # node is already overcommitted on CPU.
+            - name: ANALYSE_CONCURRENCY
+              value: "1"
+            # false would keep transition profiles but stop working out how
+            # songs sound (Sounds alike radio).
+            - name: SONIC_ENABLED
+              value: "true"
+          ports:
+            - name: http
+              containerPort: 8080
+          # TCP, not HTTP: /health answers 503 while the sidecar is warming
+          # up or off, and a probe that kills a working pod for that is worse
+          # than none (see the octo probes).
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 5
+            failureThreshold: 5
+          # A long file is decoded whole in memory, so the limit is the real
+          # setting here (upstream's compose uses 2g). The request is what the
+          # scheduler reserves; usage is low between files.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          volumeMounts:
+            - name: data
+              mountPath: /music
+              subPath: media/music
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: media-data
+            readOnly: true
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: octo-sonic
+  namespace: downloads
+spec:
+  selector:
+    app.kubernetes.io/name: octo-sonic
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
