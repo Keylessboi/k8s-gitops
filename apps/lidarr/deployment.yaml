@@ -121,15 +121,19 @@ spec:
           #                 a measured 24h peak of 1.16 cores. Raising it
           #                 further would buy nothing and this node is at 299%
           #                 CPU-limit overcommit already.
-          #   memory: 2Gi - a live AlbumSearch across 15 active indexers holds
-          #                 a flat ~320Mi working set; the worst spike seen
-          #                 across every pod incarnation in 24h was 1508Mi
-          #                 (74% of this limit). Do not raise it: the node only
-          #                 has 13824Mi allocatable against 256% memory-limit
-          #                 overcommit, and .NET's GC expands to fill whatever
-          #                 ceiling it is given, so a bigger limit means more
-          #                 uncollected garbage and more node pressure, not a
-          #                 safer Lidarr.
+          #   memory: 3Gi - was 2Gi, raised 2026-11-15. The old comment said
+          #                 not to raise it: a live AlbumSearch held ~320Mi and
+          #                 the worst 24h spike was 1508Mi. After 19 days of
+          #                 uptime the pod reached 1706Mi, threw
+          #                 System.OutOfMemoryException from Kestrel's
+          #                 heartbeat and the thread pool, and stayed Running
+          #                 but failed /ping (Ready=False) for ~9 days, so
+          #                 Octo and the search jobs could not reach it. It
+          #                 was never OOMKilled, so nothing restarted it.
+          #                 A fresh pod sits at ~900Mi. 3Gi gives growth room
+          #                 on the nas node (about 8Gi available); .NET's GC
+          #                 still expands to the ceiling, so watch it rather
+          #                 than raising it again.
           #
           # The requests are what actually needed fixing for a multi-day run.
           # They were 50m/512Mi, which is what the scheduler reserves and what
@@ -145,7 +149,7 @@ spec:
               memory: 768Mi
             limits:
               cpu: "2"
-              memory: 2Gi
+              memory: 3Gi
           # /ping takes ~5s on this instance - the database is 3.6 GB and the
           # library is 498 artists - so the original timeoutSeconds: 1 failed
           # every single time. 119 failures in 53 minutes marked the pod
