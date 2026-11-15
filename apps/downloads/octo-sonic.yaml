@@ -24,6 +24,15 @@
 # slow by design (ANALYSE_CONCURRENCY=1, one CPU) and runs in the background;
 # Octo works without it and waits for it on its own.
 #
+# WHY IT RUNS ON THE NAS WITH A LOCAL VOLUME, NOT THE media-data NFS PVC:
+# its /health does read_dir(/music) and Octo gives up on a health answer after
+# 5 s. Listing the music root (1303 entries) took 3-5 s every time over the
+# nfs-csi mount, so the sidecar looked down to Octo about as often as up;
+# Lidarr lists the same directory in 4 ms through a node-local PV. So it
+# mounts the same directory the way Lidarr and Navidrome do (a `local` PV on
+# /extra/nfs-csi/data, below) and is pinned to the nas node. Analysis also
+# reads the whole library, which is far cheaper without the network hop.
+#
 # fsGroup is deliberately NOT set, for the same reason as octo.yaml: the media
 # volume is the whole library over NFS and fsGroup makes the kubelet walk it.
 apiVersion: apps/v1
@@ -42,6 +51,11 @@ spec:
         app.kubernetes.io/name: octo-sonic
     spec:
       automountServiceAccountToken: false
+      # A local PV only exists on the nas, which is tainted for storage work.
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
       securityContext:
         seccompProfile:
           type: RuntimeDefault
@@ -106,7 +120,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: media-data
+            claimName: media-data-nas
             readOnly: true
         - name: tmp
           emptyDir:
@@ -125,3 +139,39 @@ spec:
       port: 8080
       targetPort: http
       protocol: TCP
+---
+# The music library as a node-local volume on the nas: the same directory the
+# nfs-csi PV serves (/extra/nfs-csi/data), so paths inside the pod are
+# unchanged. Same pattern as apps/lidarr/nas-volumes.yaml and
+# apps/navidrome/nas-volumes.yaml; k3s-agent on the nas is ordered after
+# zfs-mount, so the dataset is there before a pod can start.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: media-data-downloads-nas
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  local:
+    path: /extra/nfs-csi/data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - {key: kubernetes.io/hostname, operator: In, values: [nas]}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media-data-nas
+  namespace: downloads
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: media-data-downloads-nas
+  resources:
+    requests:
+      storage: 500Gi
