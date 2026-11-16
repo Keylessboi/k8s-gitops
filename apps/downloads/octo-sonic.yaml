@@ -13,7 +13,7 @@
 # octo-sonic as not set up and Sounds alike radio did nothing.
 #
 # VERSION: pinned to the same release as the Octo image in octo.yaml
-# (2026.10.28). Octo checks the feature version the sidecar writes and treats
+# (2026.11.15). Octo checks the feature version the sidecar writes and treats
 # an octo-sonic from a different generation as unusable ("off"), so bump the
 # two together, never one alone.
 #
@@ -61,7 +61,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: sonic
-          image: ghcr.io/winters27/octo-sonic:2026.10.28@sha256:2ef5cf3c3f091e90fe4c43420be8c4de582328fb0368f823322218e064ece2d3
+          image: ghcr.io/winters27/octo-sonic:2026.11.15@sha256:4dbc9c8003ac569773c7e2e0b397f7ce2e731ad32d24322493e808b815a0cdd5
           imagePullPolicy: IfNotPresent
           securityContext:
             runAsUser: 1000

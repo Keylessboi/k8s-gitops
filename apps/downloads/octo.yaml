@@ -126,9 +126,18 @@ spec:
           # 2026-11-04: moved to upstream release 2026.10.28 for the apps' extensions (octoAcquisitions and
           # the rest). The two fork fixes above are NOT carried: the radio seed code was rewritten upstream and
           # they no longer apply cleanly. Re-check "Ye" instant mix and curly-apostrophe duplicates after deploy.
+          # 2026-11-16: moved to upstream release 2026.11.15 (playlist folders, songs found
+          # online in your playlists, Try another version, per-app format/bitrate for online
+          # songs). The MusicBrainz credit fix above is now upstream (winters27/octo PR #143), so
+          # "Ye" instant mix should work again; the curly-apostrophe TitleMatch fix is still not
+          # carried. NEW DEFAULT: Soulseek__VerifyDownloads flipped false -> true, so finished
+          # downloads now get a duration check; the Chromaprint/AcoustID lookup half does nothing
+          # without an AcoustID key, which is not set here. Config backed up to
+          # /app/config/bak-before-2026.11.15 first. After any image bump, re-run the /rest
+          # admin-route probes listed at the top of this file.
           # Config backed up before this upgrade from
           # 2026.08.24 at <octo-config subDir>.bak-before-2026.09.14 on the NAS.
-          image: ghcr.io/winters27/octo:2026.10.28@sha256:a08823172a5a2a5d8845e1feda6ab6191bbc89ce65908c900ea66b6207c2403b
+          image: ghcr.io/winters27/octo:2026.11.15@sha256:6b611939cc93105e0e7bb02168fcd5c229675b10d63650f2e601fd9224d8d523
           securityContext:
             # 1000:1000 matches every other writer in this stack - slskd,
             # qBittorrent and Lidarr all run as 1000 - so files Octo drops in
