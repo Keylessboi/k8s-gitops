@@ -1,0 +1,61 @@
+---
+# cellarr in SHADOW mode beside the live Lidarr: a read-only rehearsal of the
+# cutover. It migrates a snapshot of Lidarr's database, serves the same
+# /api/v1 on its own Service, and a daily CronJob diffs the two by id.
+#
+# What shadow mode guarantees (cellarr's CELLARR_SHADOW=true):
+#   - no scheduled jobs: no RSS sync, no search, no download-client polling,
+#     no imports, no renames - it never acts on anything;
+#   - every non-GET API request is refused with 403 on both listeners.
+# And this app adds, on top: Lidarr's config and the library are mounted
+# readOnly, so even a bug in cellarr cannot write to either.
+#
+# Nothing points at it. Lidarr's Service, Octo, Prowlarr and the CronJobs all
+# keep talking to Lidarr. Cutover and rollback: docs/runbooks/cellarr-cutover.md.
+#
+# It lives in the lidarr namespace because it reads Lidarr's PVCs, which are
+# namespaced. It ships no Namespace or NetworkPolicy of its own: apps/lidarr's
+# app-isolation policy (podSelector: {}) already covers these pods - in-namespace
+# ingress on any port, egress to lidarr:8686 and to 443 for metadata.
+#
+# Removing this directory removes the shadow; its PVC stays (protect-state).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: cellarr-shadow
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+
+namespace: lidarr
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/component: media
+      app.kubernetes.io/managed-by: argocd
+      homelab/tier: apps
+    includeSelectors: false
+
+resources:
+  - pvc.yaml
+  - deployment.yaml
+  - diff-cronjob.yaml
+
+configMapGenerator:
+  # Vendored from cellarr's scripts/lidarr-shadow-diff (standard library only,
+  # GET requests only). Re-copy it when cellarr's version changes.
+  - name: cellarr-shadow-diff
+    files:
+      - lidarr-shadow-diff.py
+
+# THE IMAGE IS NOT PUBLISHED YET. The digest below is a deliberate placeholder
+# (all zeros): it cannot pull, so the pod sits in ImagePullBackOff and does
+# nothing until a real build is pinned here. Build and pin it with the steps in
+# docs/runbooks/cellarr-cutover.md ("Build the image"), then replace `digest`.
+images:
+  - name: cellarr
+    newName: ghcr.io/keylessboi/cellarr
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+components:
+  - ../../components/protect-state

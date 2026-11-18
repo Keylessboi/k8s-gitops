@@ -1,0 +1,16 @@
+---
+# cellarr's own database (SQLite) plus the one-off snapshot of lidarr.db it is
+# migrated from. local-path on the NAS like Lidarr's (ADR-0009: SQLite never on
+# nfs-csi). Sized for the snapshot (~3.9 GB, transient) plus cellarr's database
+# (~0.5 GB at this library's size, measured in a full-scale rehearsal).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cellarr-shadow-data
+  namespace: lidarr
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi
