@@ -20,6 +20,7 @@ the literal string you are seeing, then read the entry.
 |---|---|
 | Octo admin panel shows Lidarr erroring; Lidarr pod `Running` but `0/1`, `OutOfMemoryException` in its log | Lidarr wedged by a .NET OOM, never OOMKilled — 2026-11-15 |
 | Octo admin panel shows octo-sonic not set up; or `/health` takes 3-5 s and Octo says "no answer in 5 s" | octo-sonic not deployed, then NFS directory listing too slow — 2026-11-15 |
+| Connection refused on a NodePort of the NAS, pod on another node | nyc-transit NodePort — 2026-11-18 |
 | Navidrome 500 `ambiguous column name: id` on `/api/song` with `_start` >= 50000 | Navidrome offset-optimisation bug — 2026-11-18 |
 | `Sign in to confirm you're not a bot` from the yt-dlp shim, Octo logs `shim /stream HTTP 502` | YouTube blocks the AirVPN exit — 2026-11-18 |
 | `connection refused` from a pod that just started, where the NetworkPolicy allows it | kube-router race — 2026-08-29 (lidarr), 2026-09-03 (pg_dump) |
@@ -171,6 +172,23 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-11-18 — nyc-transit moved to Tailscale only: a NodePort on the NAS refused connections
+
+**Symptom.** After the public Ingress was removed and the Service made a NodePort (30880), `http://192.168.1.172:30880`
+(the node running the pod) answered 200, but the NAS (the only tailnet node, 100.69.240.8) got `Connection refused` for the
+same port, from itself and over the LAN. Nothing reachable over Tailscale.
+
+**Root cause.** PROBABLE: the NAS agent does not forward node ports to a pod on the other node. Not diagnosed further
+(no root on the NAS to read the iptables rules); a hostPort avoids needing it.
+
+**Fix.** Pin the pod to the NAS (`kubernetes.io/hostname: nas`, with the `storage` toleration) and publish port 30880 as a
+hostPort; Service back to ClusterIP; NetworkPolicy admits 100.64.0.0/10 and 192.168.1.0/24 on 8080.
+
+**Prevention.** There is no public route any more, so HS-NET-06 no longer applies. A `lan-only` Ingress does not work for
+`*.sandstorm.chat` hosts (they resolve to the public IP). If the NAS is down, the app is down: it is pinned there.
+
+**Confidence.** PROVISIONAL until the hostPort is seen answering over 100.69.240.8.
 
 ## 2026-11-18 — Octo can't list ~64k of 115k songs: Navidrome `/api/song` returns 500 past offset 50,000
 
