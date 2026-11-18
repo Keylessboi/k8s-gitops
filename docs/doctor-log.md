@@ -18,6 +18,9 @@ the literal string you are seeing, then read the entry.
 
 | If you are seeing… | Start at |
 |---|---|
+| Octo admin panel shows Lidarr erroring; Lidarr pod `Running` but `0/1`, `OutOfMemoryException` in its log | Lidarr wedged by a .NET OOM, never OOMKilled — 2026-11-15 |
+| Octo admin panel shows octo-sonic not set up; or `/health` takes 3-5 s and Octo says "no answer in 5 s" | octo-sonic not deployed, then NFS directory listing too slow — 2026-11-15 |
+| `Sign in to confirm you're not a bot` from the yt-dlp shim, Octo logs `shim /stream HTTP 502` | YouTube blocks the AirVPN exit — 2026-11-18 |
 | `connection refused` from a pod that just started, where the NetworkPolicy allows it | kube-router race — 2026-08-29 (lidarr), 2026-09-03 (pg_dump) |
 | `connection refused` between two namespaces, at any time | one-sided NetworkPolicy — 2026-09-03 (hermes → lidarr) |
 | `ComparisonError`, `mapping key … already defined` | duplicate YAML key — 2026-09-03 |
@@ -167,6 +170,68 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-11-18 — Octo's YouTube previews fail (`shim /stream HTTP 502`): YouTube blocks the AirVPN exit
+
+**Symptom.** Octo logged `shim /stream HTTP 502` for almost every YouTube video and `Stream size lookups pause for 30
+minutes`. The shim logged `Sign in to confirm you're not a bot` for every yt-dlp run: 0 of 412 resolves in 2 h succeeded
+(34 distinct videos), and the shim sat at ~1 CPU retrying. The 2026-10-31 entry had already counted 83% of resolves failing.
+
+**Root cause.** YouTube rejects the AirVPN exit the shim proxied through (`HTTP_PROXY` to gluetun). Tested from the shim
+pod: eight yt-dlp player clients (default, visionos, tv, web_embedded, mweb, android_vr, ios, web_safari) all got the bot
+check on the same videos, and adding a bgutil PO token (plugin 2.0.2 plus a 2.0.2 sidecar) changed nothing, so it is the
+IP and not a missing token. One famous video did resolve early in the test, so the block is intermittent, not total.
+
+**Fix.** Owner decision: the shim connects directly, with no proxy variables. Same 20 videos, same yt-dlp: 0/20 through
+the VPN, 20/20 direct. Torrent and Soulseek traffic still goes through gluetun. After the rollout the shim's real
+traffic showed no bot checks and no 502s, and its CPU fell from ~1 core to ~0.
+
+**Prevention.** Test a yt-dlp path with a fixed sample of real IDs and count successes before and after, not one video. A
+datacenter or VPN exit is the first suspect for a bot check, and a PO token does not fix it. If the home IP is ever
+flagged, the options are a cookies file or putting the proxy back (values are in the comment in
+`apps/downloads/octo-yt-dlp-shim.yaml`). Note the exception this makes to "no Octo traffic leaves via the home WAN".
+
+**Confidence.** CONFIRMED for the fix (measured). PROBABLE for why the exit is flagged. Not proven at full volume.
+
+## 2026-11-15 — Octo shows octo-sonic as not set up, then it flaps: never deployed, then NFS listing too slow
+
+**Symptom.** The Octo admin panel reported octo-sonic as not set up or erroring. Nothing named octo-sonic ran in the
+cluster. After deploying it, `/health` took 2-5 s and Octo's analysis worker, which gives up on a health answer after 5 s,
+waits 10 minutes between checks when it gets none.
+
+**Root cause.** Two layers. (1) The sidecar was never deployed; Octo defaults to `http://octo-sonic:8080`, which did not
+exist in `downloads`. (2) Its `/health` does a `read_dir` of the music root, and over the nfs-csi mount that listing (1303
+entries) took 3-5 s every time, against 4 ms through the node-local volume Lidarr uses.
+
+**Fix.** `apps/downloads/octo-sonic.yaml`: the same release as Octo, pinned by digest, read-only on the music, run on the
+`nas` node over a `local` PV on the same directory (`media-data-downloads-nas`). `/health` then answered with the right
+feature version, and Octo wrote `transition-profiles.json`.
+
+**Prevention.** A sidecar that Octo health-checks with a 5 s timeout must read the library locally, not over NFS. Bump
+Octo, the shim and octo-sonic together, because Octo treats a sidecar from another feature generation as off. When testing
+reachability across nodes use a long-lived pod: a pod that lives ten seconds is refused until the other node's policy
+sets catch up, which looks exactly like a real NetworkPolicy fault.
+
+**Confidence.** CONFIRMED for both causes. Whether the full "Sounds alike" pass completes was not observed.
+
+## 2026-11-15 — Octo shows Lidarr erroring: the Lidarr pod was Running but not Ready for 9 days
+
+**Symptom.** The Octo admin panel showed Lidarr erroring. `lidarr` was `Running 0/1` with readiness probe failures (over
+18,000 over 9 days), no restarts. Octo's `octo-artist-on-heart` and the `lidarr-search-sniper` and `lidarr-maintenance`
+jobs failed with `connection refused` or Init:Error, because Lidarr never answered.
+
+**Root cause.** After 19 days of uptime Lidarr reached ~1.7Gi of its 2Gi limit and threw `System.OutOfMemoryException`
+from Kestrel's heartbeat and the thread pool, then stayed up but could not answer `/ping`. It was never OOMKilled, so
+nothing restarted it. The earlier comment in `deployment.yaml` said not to raise the limit, based on a 24 h peak of 1508Mi.
+
+**Fix.** Deleted the pod (the deployment is `Recreate`, config untouched; it came back at ~900Mi), then raised the limit
+2Gi -> 3Gi and rewrote the comment. The jobs recovered on their next runs.
+
+**Prevention.** A pod that is Running but not Ready for long is the signal, not the restart count. Alert on
+`kube_pod_container_status_ready == 0` for hours on workloads that have no liveness probe. Re-measure peaks after weeks of
+uptime, not 24 h, before calling a limit right.
+
+**Confidence.** CONFIRMED (logs show the OOM; a restart cleared it). The 3Gi figure is a judgement, not a measurement.
 
 ## 2026-11-06 — Octo OOMKilled every few hours while streaming (12 restarts): request 128Mi, allocator keeps freed buffers
 
