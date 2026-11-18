@@ -145,29 +145,257 @@ kubectl -n lidarr rollout restart deploy/cellarr-shadow
 
 Soulseek, YouTube, Lucida, DABMusic and Apple Music are .NET Lidarr plugins.
 cellarr runs them through a **sidecar**: a stock Lidarr with an empty library
-that hosts the plugins. cellarr mirrors its download clients into it, and asks
-it to search and grab. The sidecar imports into a staging folder, and cellarr
-takes it from there.
+that hosts the plugins. cellarr mirrors its download clients and indexers into
+it and asks it to search and grab. The sidecar imports into a staging root
+folder, and cellarr takes it from there.
 
-To rehearse, add a second container or Deployment beside the shadow:
+The rehearsal cannot run in shadow mode, because grabbing is a write. It runs a
+**separate** cellarr with its own empty database and library.
+`apps/cellarr-shadow/rehearsal/` holds it. ArgoCD never syncs that directory
+(the ApplicationSet only reads `apps/*`, and `apps/cellarr-shadow/kustomization.yaml`
+does not list it), so you apply it and remove it by hand.
 
-- the same image and plugin initContainer as `apps/lidarr` (hotio
-  `testing-3.1.3.4987`, `applemusicarr-plugin:0.1.2`), with a **fresh** config
-  PVC, never Lidarr's. Install Tubifarry v2.1.1 through its System → Plugins
-  page, as in `apps/lidarr`;
-- `/data` mounted read-write, with a staging root such as
-  `/data/torrents/music/.cellarr-staging`, on the same filesystem so imports
-  hardlink;
-- on cellarr: `CELLARR_PLUGINS__DOTNET_SIDECAR_URL`, `…_KEY` (the sidecar's
-  own key, through a secret) and `…_ROOT` set to the staging root.
+| Object | What |
+|---|---|
+| Deployment `cellarr-rehearsal` | One Pod on nas. Container `cellarr` (not shadow; API 8686, UI 9494) and container `lidarr-sidecar` (hotio `testing-3.1.3.4987` pinned by digest, on 8687, reached by cellarr at `127.0.0.1:8687`). initContainers: `install-plugin` (AppleMusicarr, copied from `apps/lidarr`) and `prepare-dirs` (`mkdir -p` only) |
+| PVC `cellarr-rehearsal-data` | cellarr's SQLite, new and empty, local-path on nas |
+| PVC `cellarr-rehearsal-sidecar-config` | the sidecar's `/config`, new and empty, local-path on nas. **Not** `lidarr-config-nas` |
+| Secret `cellarr-rehearsal` | not in git; you create it below. `sidecar-api-key` (read by both containers), `cellarr-api-key` |
 
-The rehearsal cannot run in shadow mode, because grabbing is a write. Run it
-against a **separate** cellarr instance with its own empty library and one
-test album. Never point a non-shadow cellarr at the production library before
-step 5.
+How it is kept away from production:
 
-**Gate:** one album each through Soulseek, YouTube and Apple Music lands
-complete in the test library.
+- **Only `/data/torrents` is mounted** (subPath `torrents` of `media-data-nas`).
+  The production library, `/data/media/music`, is not in the Pod's filesystem
+  at all, so no setting can import into it, rename it or tag it. What it
+  cannot avoid: production's downloads under `/data/torrents` are visible
+  read-write. slskd and the decryptor write to fixed folders there, and a
+  hardlink cannot cross mounts, so the mount cannot be any narrower.
+- **Its own folders**, all on that one mount so every step hardlinks:
+  `/data/torrents/cellarr-rehearsal/library` (the rehearsal library),
+  `…/staging` (the sidecar's root folder, `CELLARR_PLUGINS__DOTNET_SIDECAR_ROOT`),
+  `…/downloads` (Tubifarry's in-process clients: YouTube, Lucida, DABMusic) and
+  `…/qbittorrent` (the qBittorrent category's save path). Navidrome and beets
+  only read `/data/media/music`, so none of it shows up in the players.
+- **qBittorrent** gets its own category, `music-rehearsal`. seed-reaper only
+  lists category `music`, and production Lidarr only polls its own category.
+- **slskd and the Apple Music decryptor** each have one fixed output folder
+  (`/data/torrents/soulseek`, `/data/torrents/apple`) shared with production.
+  So the test album is by an artist **not** in production Lidarr's library:
+  neither Lidarr can match the other's download to anything it monitors.
+- **Tags.** The sidecar's tag writing stays off (Lidarr's default for a fresh
+  config; checked below), so nothing rewrites a hardlinked download. ADR-0004
+  is about the production library, which this never reaches.
+
+Network: everything is in the `lidarr` namespace, so `apps/lidarr`'s
+`app-isolation` policy (`podSelector: {}`) treats this Pod exactly like Lidarr.
+cellarr to the sidecar is the Pod's loopback and needs no rule. The flows the
+sidecar needs:
+
+| Flow | lidarr egress | other end's ingress |
+|---|---|---|
+| slskd `downloads:5030` | yes | yes (from `lidarr`, 5030) |
+| qBittorrent `downloads:8080` | yes | yes (from `lidarr`, 8080) |
+| Prowlarr `prowlarr:9696` | yes | yes (from `lidarr`, 9696) |
+| FlareSolverr `flaresolverr:8191` | yes | yes |
+| decryptor → applemusic-wrapper `:8080` | yes | yes (from `lidarr`, 8080) |
+| internet 443 (metadata, GitHub for the plugin install, YouTube, Apple, Lucida) | yes (`0.0.0.0/0` minus private) | n/a |
+| **in-namespace**: applemusic-decryptor `:8080`, bgutil-provider `:4416`, lucida-solver `:8080` | **no**: in-namespace egress is 8686 only | yes (from `lidarr`, any port) |
+
+The last row is the same for production Lidarr: on paper its AppleMusicarr,
+YouTube (PO token) and Lucida clients cannot reach their helpers either. If
+they work for Lidarr, kube-router is admitting the traffic despite the policy,
+and they work for the sidecar too. If the Apple Music or YouTube grab fails
+with `connection refused`, this is why. The fix belongs in
+`apps/lidarr/networkpolicy.yaml` (production, so a deliberate commit): an
+egress rule to `namespaceSelector: kubernetes.io/metadata.name: lidarr` on
+TCP 8080 and 4416, beside the existing 8686 rule.
+
+### 4.1 Before you start
+
+- Step 0 is done, and the same digest is in **both**
+  `apps/cellarr-shadow/kustomization.yaml` and
+  `apps/cellarr-shadow/rehearsal/kustomization.yaml`.
+- Pick the test album: a short album (a few tracks) by an artist that is
+  **not** in production Lidarr's library (search Lidarr's UI for it), and that
+  Apple Music, YouTube Music and Soulseek all have. Note its artist's and
+  release group's MusicBrainz ids.
+- Note from production Lidarr's Settings → Download Clients and Indexers the
+  settings of its Slskd, YouTube and AppleMusicarr entries (slskd URL and API
+  key, the decryptor URL, the PO token server). You will enter the same values.
+- Note Tubifarry's GitHub URL from production:
+  `GET /api/v1/system/plugins` on Lidarr, field `githubUrl`.
+
+### 4.2 Create the secret
+
+Two keys of 32 lowercase hex characters, the shape Lidarr generates. Keep both
+in your shell for the commands below; nothing here prints them.
+
+```sh
+kubectl -n lidarr create secret generic cellarr-rehearsal \
+  --from-literal=sidecar-api-key='<32 lowercase hex characters>' \
+  --from-literal=cellarr-api-key='<another 32 lowercase hex characters>'
+```
+
+Or generate them into variables and create the secret from those:
+
+```sh
+SIDECAR_KEY=$(openssl rand -hex 16); CELLARR_KEY=$(openssl rand -hex 16)
+kubectl -n lidarr create secret generic cellarr-rehearsal \
+  --from-literal=sidecar-api-key="$SIDECAR_KEY" \
+  --from-literal=cellarr-api-key="$CELLARR_KEY"
+```
+
+The sidecar takes its key from `LIDARR__AUTH__APIKEY`. That is Lidarr's own
+convention, checked in the source at tag `v3.1.3.4987`: `Bootstrap.cs` binds
+the `Lidarr:Auth` configuration section, environment variables included, and
+`ConfigFileProvider.ApiKey` prefers it over `config.xml`. Not yet checked
+against a running pod; 4.4 checks it.
+
+### 4.3 Apply
+
+```sh
+kubectl kustomize apps/cellarr-shadow/rehearsal | kubectl apply --dry-run=server --validate=strict -f -
+kubectl apply -k apps/cellarr-shadow/rehearsal
+kubectl -n lidarr rollout status deploy/cellarr-rehearsal --timeout=10m
+kubectl -n lidarr logs deploy/cellarr-rehearsal -c prepare-dirs
+```
+
+The sidecar runs Lidarr's binary directly as uid 1000 with a read-only root
+filesystem, not through hotio's s6 `/init` (which needs root). If it does not
+come up, `kubectl -n lidarr logs deploy/cellarr-rehearsal -c lidarr-sidecar`
+says why; a write to a path outside `/config` and `/tmp` is the likely one.
+
+Then, in a second terminal, keep a port-forward open (cellarr's Lidarr API, its
+UI, the sidecar):
+
+```sh
+kubectl -n lidarr port-forward deploy/cellarr-rehearsal 18686:8686 19494:9494 18687:8687
+```
+
+```sh
+C=http://127.0.0.1:18686/api/v1; S=http://127.0.0.1:18687/api/v1
+c() { curl -fsS -H "X-Api-Key: $CELLARR_KEY" -H 'Content-Type: application/json' "$@"; }
+s() { curl -fsS -H "X-Api-Key: $SIDECAR_KEY" -H 'Content-Type: application/json' "$@"; }
+```
+
+### 4.4 Check the sidecar, install Tubifarry
+
+```sh
+s "$S/system/status" | jq '{version, appData}'       # 3.1.3.4987, /config: the key from the Secret works
+s "$S/system/plugins" | jq '.[].name'                # AppleMusicarr, from the initContainer
+s "$S/config/metadataprovider" | jq .writeAudioTags  # must be "no"
+```
+
+Install Tubifarry through cellarr, which forwards the command to the sidecar
+(use the `githubUrl` production reports):
+
+```sh
+c -X POST "$C/command" -d '{"name": "InstallPlugin", "githubUrl": "<Tubifarry githubUrl from production>"}'
+```
+
+Or in the sidecar's own UI at `http://127.0.0.1:18687`, System → Plugins. A
+fresh Lidarr asks you to set up authentication on the first UI visit; the API
+key works without it. Lidarr restarts to load the plugin; if the port-forward
+drops, start it again. Then:
+
+```sh
+s "$S/system/plugins" | jq '.[] | {name, version: .installedVersion}'   # Tubifarry and AppleMusicarr
+c "$C/downloadclient/schema" | jq -r '.[].implementation'              # now lists the plugins' clients
+c "$C/indexer/schema" | jq -r '.[].implementation'
+```
+
+Lidarr installs the newest compatible Tubifarry release; its API cannot pin a
+tag. If that is not v2.1.1, write the version down: the rehearsal then tests a
+newer Tubifarry than production runs.
+
+### 4.5 Configure one test album
+
+In cellarr's UI at `http://127.0.0.1:19494` (or `POST $C/indexer` and
+`POST $C/downloadclient` from the schemas above), add the Slskd, YouTube and
+AppleMusicarr indexer and download client, with production's values except:
+
+- any **download path** for YouTube (and Lucida, DABMusic if you add them):
+  `/data/torrents/cellarr-rehearsal/downloads`. Any tool path the YouTube
+  client writes (ffmpeg) goes under `/config`: the sidecar's root filesystem is
+  read-only. Leave the cookie path empty (`bgutil-provider` supplies the PO
+  token);
+- AppleMusicarr's download path stays production's (`/data/torrents/apple`):
+  the decryptor's output folder is fixed;
+- slskd's download folder is fixed (`/data/torrents/soulseek`);
+- qBittorrent, if you add it: category `music-rehearsal`, created first in
+  qBittorrent with save path `/data/torrents/cellarr-rehearsal/qbittorrent`.
+
+Run `POST $C/indexer/test` and `POST $C/downloadclient/test` on each (the UI's
+Test button). Then the library and the album:
+
+```sh
+c -X POST "$C/rootfolder" -d '{"name": "rehearsal", "path": "/data/torrents/cellarr-rehearsal/library",
+  "defaultMetadataProfileId": 1, "defaultQualityProfileId": 1}'
+c -X POST "$C/artist" -d '{"foreignArtistId": "<artist MBID>", "artistName": "<artist>",
+  "qualityProfileId": 1, "metadataProfileId": 1, "monitored": true,
+  "rootFolderPath": "/data/torrents/cellarr-rehearsal/library",
+  "addOptions": {"monitor": "none", "searchForMissingAlbums": false}}' | jq .id
+c "$C/album?artistId=<artist id>" | jq '.[] | select(.foreignAlbumId == "<release group MBID>") | .id'
+c -X PUT "$C/album/monitor" -d '{"albumIds": [<album id>], "monitored": true}'
+```
+
+### 4.6 One search and grab per source
+
+For each of Soulseek, YouTube and Apple Music in turn, search, pick that
+source's best release, grab it and wait:
+
+```sh
+c "$C/release?albumId=<album id>" | jq '.[] | {indexer, indexerId, guid, title, rejections}'
+c -X POST "$C/release" -d '{"guid": "<guid>", "indexerId": <indexerId>}'
+c "$C/queue" | jq '.records[] | {title, status, trackedDownloadState, statusMessages}'   # until it leaves the queue
+c "$C/trackfile?albumId=<album id>" | jq '.[] | .path'
+kubectl -n lidarr exec deploy/cellarr-rehearsal -c cellarr -- ls -lR /data/torrents/cellarr-rehearsal/library
+```
+
+Before the next source, clear the album's files from the rehearsal library so
+the next import is not refused as "not an upgrade":
+
+```sh
+c -X DELETE "$C/trackfile/bulk" -d "{\"trackFileIds\": $(c "$C/trackfile?albumId=<album id>" | jq -c '[.[].id]')}"
+```
+
+**Success looks like**, for each of the three sources:
+
+- the grab goes through the sidecar: `s "$S/queue"` shows it while it downloads;
+- it lands in `/data/torrents/cellarr-rehearsal/staging` first, then in
+  `/data/torrents/cellarr-rehearsal/library/<artist>/<album>`, every track of the
+  album present (`trackfile` count equals the album's track count);
+- `ls -li` shows each library file with a link count of 2 or more wherever
+  its download still exists: a hardlink, not a copy;
+- the staged copy is removed once cellarr has imported, and nothing appeared in
+  `/data/media/music` or production Lidarr's queue/history (`Activity` in
+  Lidarr's UI).
+
+**Gate:** all three sources land complete. Lucida and DABMusic are worth one
+try each while you are here, but are not part of the gate.
+
+### 4.7 Teardown
+
+```sh
+kubectl delete -k apps/cellarr-shadow/rehearsal -l homelab/rehearsal-part=workload
+```
+
+The `-l` is load-bearing. protect-state's `Prune=false,Delete=false` stops
+**ArgoCD** deleting a PVC; `kubectl` ignores it, so a plain
+`kubectl delete -k apps/cellarr-shadow/rehearsal` deletes both PVCs as well, and
+local-path deletes their data with them. With the selector only the Deployment
+goes; the two PVCs and the Secret stay for a re-run. Deleting them is yours,
+when you are done:
+
+```sh
+kubectl delete -k apps/cellarr-shadow/rehearsal -l homelab/rehearsal-part=state
+kubectl -n lidarr delete secret cellarr-rehearsal
+```
+
+What is left on the media volume is yours to remove too:
+`/extra/nfs-csi/data/torrents/cellarr-rehearsal` on nas, the test album's
+folders under `/data/torrents/soulseek` and `/data/torrents/apple`, the
+transfers in slskd's UI, and the `music-rehearsal` category in qBittorrent.
 
 ## 5. Cutover
 

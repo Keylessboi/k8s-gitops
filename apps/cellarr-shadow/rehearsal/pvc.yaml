@@ -1,0 +1,39 @@
+---
+# The rehearsal's own state. Both are NEW and start empty; neither is a copy of
+# anything Lidarr has. local-path on the NAS (the Pod is pinned there), because
+# both hold SQLite (ADR-0009: never on nfs-csi).
+#
+# Labelled homelab/rehearsal-part=state so the runbook's teardown
+# (`kubectl delete -k ... -l homelab/rehearsal-part=workload`) leaves them.
+
+# cellarr's database: empty library, one test album.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cellarr-rehearsal-data
+  namespace: lidarr
+  labels:
+    homelab/rehearsal-part: state
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+# The sidecar Lidarr's /config: lidarr.db, config.xml and /config/plugins.
+# Never lidarr-config-nas. An empty Lidarr is tens of MB; the headroom is for
+# Tubifarry's caches and MediaCover.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cellarr-rehearsal-sidecar-config
+  namespace: lidarr
+  labels:
+    homelab/rehearsal-part: state
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi

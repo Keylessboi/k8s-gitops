@@ -1,0 +1,79 @@
+---
+# Step 4 of docs/runbooks/cellarr-cutover.md: the plugin sidecar rehearsal.
+#
+# OPT-IN. ArgoCD never syncs this directory: the ApplicationSet generates one
+# Application per apps/* directory, and ../kustomization.yaml does not list
+# this one. Apply and remove it by hand:
+#
+#   kubectl apply -k apps/cellarr-shadow/rehearsal
+#   kubectl delete -k apps/cellarr-shadow/rehearsal -l homelab/rehearsal-part=workload
+#
+# The -l on delete matters. protect-state's annotation stops ARGOCD deleting
+# a PVC; it does nothing for kubectl. A plain `kubectl delete -k` here deletes
+# both PVCs, and local-path's reclaim policy is Delete. The selector keeps
+# them; deleting them is a separate, deliberate step (see the runbook).
+#
+# What it is: one Pod, two containers.
+#   cellarr          NOT in shadow mode - it grabs and imports - but with its
+#                    own empty database and its own library. It never sees
+#                    Lidarr's config or the production library.
+#   lidarr-sidecar   a stock Lidarr (the same hotio build as apps/lidarr) with a
+#                    fresh config volume and an empty library. It hosts the
+#                    .NET plugins: AppleMusicarr from the initContainer, and
+#                    Tubifarry installed through the API once it is up.
+# cellarr reaches the sidecar on 127.0.0.1:8687 inside the Pod.
+#
+# Isolation from production, in order of strength:
+#   1. Mount. Only /data/torrents of the media volume is mounted (subPath
+#      `torrents`), not /data. The production library (/data/media/music) is
+#      not in either container's filesystem at all, so no configuration
+#      mistake can import into it, rename it or tag it.
+#   2. Paths. Everything the rehearsal owns lives under
+#      /data/torrents/cellarr-rehearsal/: library/, staging/ (the sidecar's
+#      root folder) and downloads/ (Tubifarry's in-process clients). One mount,
+#      so download -> staging -> library are all hardlinks.
+#   3. Download clients. qBittorrent gets its own category,
+#      `music-rehearsal`; seed-reaper only reads category `music`, and
+#      production Lidarr only polls its own category. slskd and the Apple
+#      Music decryptor have one fixed output folder each
+#      (/data/torrents/soulseek, /data/torrents/apple), shared with
+#      production, so the runbook picks a test artist that is NOT in
+#      production Lidarr's library: neither Lidarr can match the other's
+#      download to anything it monitors.
+#   4. No Lidarr config. lidarr-config-nas is not mounted. Both PVCs below are
+#      new and empty.
+#
+# Network: everything is in the lidarr namespace, so apps/lidarr's
+# app-isolation policy covers these pods exactly as it covers Lidarr. See the
+# runbook for the flows and the one gap (in-namespace egress is 8686 only).
+#
+# The Secret `cellarr-rehearsal` is created by hand and is not in git; the
+# runbook has the command.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: cellarr-rehearsal
+
+namespace: lidarr
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/component: media
+      homelab/tier: apps
+      homelab/rehearsal: cellarr-plugin-sidecar
+    includeSelectors: false
+
+resources:
+  - pvc.yaml
+  - deployment.yaml
+
+# The same placeholder as ../kustomization.yaml: an all-zero digest that cannot
+# pull. Pin the same build there and here (runbook step 0).
+images:
+  - name: cellarr
+    newName: ghcr.io/keylessboi/cellarr
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+components:
+  - ../../../components/protect-state
