@@ -30,6 +30,11 @@ spec:
             readOnlyRootFilesystem: true
             capabilities: {drop: ["ALL"]}
           readinessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 30, periodSeconds: 20, timeoutSeconds: 10, failureThreshold: 6}
+          # /healthz answers from the process itself (it reports poll age and
+          # error count as data and always returns 200; it checks no
+          # dependency). Grace is longer than readiness (30 + 20x6 = 150s) so
+          # the two never disagree about a pod that is merely starting.
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 60, periodSeconds: 30, timeoutSeconds: 10, failureThreshold: 6}
           resources:
             requests: {cpu: 50m, memory: 128Mi}
             limits: {cpu: 500m, memory: 384Mi}
