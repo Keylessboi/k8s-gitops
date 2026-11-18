@@ -1,0 +1,147 @@
+---
+# Daily: compare live Lidarr with the shadow cellarr, by id, GET requests only.
+# The report is the Job's log:
+#   kubectl -n lidarr logs job/<latest cellarr-shadow-diff job>
+# Exit 1 (Job failed) means a difference. Some churn in the queue and in the
+# newest albums is expected: the shadow is a snapshot, Lidarr keeps working.
+# Anything in config, artists or track files is not expected - that is the
+# signal the cutover runbook gates on.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cellarr-shadow-diff
+  namespace: lidarr
+spec:
+  # 04:41 UTC: clear of the search sniper (:17) and the maintenance window.
+  schedule: "41 4 * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      # The full album list from Lidarr is the slow call (minutes on 41k albums).
+      activeDeadlineSeconds: 5400
+      template:
+        metadata:
+          annotations:
+            homelab/no-wait-init: "the script retries each GET 5x with backoff, so a kube-router race on the first call is ridden out"
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: diff
+              image: python:3.14-alpine3.24@sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec55f1866cac66b01
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              command: ["python3", "-u", "/script/lidarr-shadow-diff.py"]
+              # Kept light on Lidarr: track files for 100 random artists rather
+              # than all 914, and no full album list. That list (41k albums) is
+              # the heaviest call Lidarr serves, and Lidarr has run out of memory
+              # before. cellarr-shadow-diff-full below does both, on demand.
+              args:
+                - http://lidarr.lidarr.svc.cluster.local:8686
+                - http://cellarr-shadow.lidarr.svc.cluster.local:8686
+                - --sample
+                - "100"
+                - --no-albums
+              env:
+                # One key for both: the shadow is configured with Lidarr's.
+                - name: LIDARR_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: lidarr-api
+                      key: api-key
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  # The full run holds both album lists (41k albums each).
+                  memory: 1536Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /script
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: cellarr-shadow-diff
+---
+# The same diff over every artist (no --sample), for the cutover gate.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cellarr-shadow-diff-full
+  namespace: lidarr
+spec:
+  # 04:41 UTC: clear of the search sniper (:17) and the maintenance window.
+  # Never scheduled: run on demand with
+  #   kubectl -n lidarr create job --from=cronjob/cellarr-shadow-diff-full diff-full-$(date +%s)
+  suspend: true
+  schedule: "41 4 * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      # The full album list from Lidarr is the slow call (minutes on 41k albums).
+      activeDeadlineSeconds: 5400
+      template:
+        metadata:
+          annotations:
+            homelab/no-wait-init: "the script retries each GET 5x with backoff, so a kube-router race on the first call is ridden out"
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: diff
+              image: python:3.14-alpine3.24@sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec55f1866cac66b01
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              command: ["python3", "-u", "/script/lidarr-shadow-diff.py"]
+              # Every artist's track files: the pre-cutover gate (runbook, step 3).
+              args:
+                - http://lidarr.lidarr.svc.cluster.local:8686
+                - http://cellarr-shadow.lidarr.svc.cluster.local:8686
+              env:
+                # One key for both: the shadow is configured with Lidarr's.
+                - name: LIDARR_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: lidarr-api
+                      key: api-key
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  # The full run holds both album lists (41k albums each).
+                  memory: 1536Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /script
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: cellarr-shadow-diff

@@ -1,0 +1,184 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cellarr-shadow
+  namespace: lidarr
+spec:
+  # SQLite, single writer: one replica, Recreate.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cellarr-shadow
+  template:
+    metadata:
+      labels:
+        # NOT app.kubernetes.io/name: lidarr - that would put this pod behind
+        # Lidarr's Service and send live clients to it. Cutover changes that
+        # deliberately (docs/runbooks/cellarr-cutover.md); until then it must
+        # differ.
+        app.kubernetes.io/name: cellarr-shadow
+    spec:
+      # On the NAS, beside Lidarr: lidarr-config-nas and media-data-nas are
+      # local volumes on that node.
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      # No fsGroup, on purpose: it would chown every mounted volume, which
+      # here includes Lidarr's config and the whole library. uid/gid 1000 is
+      # Lidarr's own PUID/PGID, so the read-only mounts are readable as-is, and
+      # local-path creates the shadow's own volume world-writable.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # First start only: snapshot Lidarr's live database and migrate it.
+        #
+        # `cellarr snapshot` copies lidarr.db with SQLite's VACUUM INTO on a
+        # read-only connection: one read transaction, so the copy is the
+        # database at one instant, and no write lock, so Lidarr keeps writing
+        # (WAL) throughout. The config volume is mounted readOnly as well.
+        #
+        # The marker makes later restarts skip this. To re-sync the shadow
+        # from today's Lidarr, see the runbook ("Re-sync the shadow").
+        - name: migrate
+          image: cellarr
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              if [ -f /cellarr/.migrated-from-lidarr ]; then
+                echo "already migrated: $(cat /cellarr/.migrated-from-lidarr)"
+                exit 0
+              fi
+              rm -f /cellarr/lidarr-snapshot.db
+              cellarr snapshot /lidarr-config/lidarr.db /cellarr/lidarr-snapshot.db
+              cellarr migrate /cellarr/lidarr-snapshot.db
+              rm -f /cellarr/lidarr-snapshot.db
+              date -u +%Y-%m-%dT%H:%M:%SZ > /cellarr/.migrated-from-lidarr
+          env:
+            - name: CELLARR_DATA_DIR
+              value: /cellarr
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Measured migrating a production-sized library (914 artists, 41k
+          # albums, 1M tracks, 935k history rows): 278 s, 119 MiB peak.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          volumeMounts:
+            - name: cellarr
+              mountPath: /cellarr
+            - name: lidarr-config
+              mountPath: /lidarr-config
+              readOnly: true
+      containers:
+        - name: cellarr
+          image: cellarr
+          args: ["run"]
+          env:
+            - name: CELLARR_DATA_DIR
+              value: /cellarr
+            # Read-only: no scheduled jobs, every non-GET request refused.
+            - name: CELLARR_SHADOW
+              value: "true"
+            - name: CELLARR_API__BIND
+              value: 0.0.0.0
+            - name: CELLARR_API__PORT
+              value: "9494"
+            # The Lidarr-compatible API on Lidarr's own port, as after cutover.
+            - name: CELLARR_MUSIC__LIDARR_PORT
+              value: "8686"
+            # Lidarr's key, so every client and the diff use one key for both.
+            - name: CELLARR_API__API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: lidarr-api
+                  key: api-key
+          ports:
+            - name: http
+              containerPort: 8686
+            - name: native
+              containerPort: 9494
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Measured on the production-scale rehearsal: 30 MiB idle, ~220 MiB
+          # after the full artist and album lists, 125 MiB peak streaming the
+          # whole 935k-row history. Lidarr requests 768Mi and sits near 900Mi.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 5
+          volumeMounts:
+            - name: cellarr
+              mountPath: /cellarr
+            # The library and downloads at the same paths Lidarr sees, so the
+            # migrated root folders and track-file paths resolve. readOnly: the
+            # shadow never touches a file (and only Lidarr writes tags,
+            # ADR-0004).
+            - name: data
+              mountPath: /data
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: cellarr
+          persistentVolumeClaim:
+            claimName: cellarr-shadow-data
+        - name: lidarr-config
+          persistentVolumeClaim:
+            claimName: lidarr-config-nas
+            readOnly: true
+        - name: data
+          persistentVolumeClaim:
+            claimName: media-data-nas
+            readOnly: true
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cellarr-shadow
+  namespace: lidarr
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: cellarr-shadow
+  ports:
+    - name: http
+      port: 8686
+      targetPort: http
