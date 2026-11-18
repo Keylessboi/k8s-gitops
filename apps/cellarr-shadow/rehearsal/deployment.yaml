@@ -1,0 +1,276 @@
+---
+# cellarr + a plugin-hosting Lidarr sidecar, for the step 4 rehearsal. See
+# kustomization.yaml for what is isolated from production and how.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cellarr-rehearsal
+  namespace: lidarr
+  labels:
+    homelab/rehearsal-part: workload
+spec:
+  # Two SQLite databases, one writer each: one replica, Recreate.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cellarr-rehearsal
+  template:
+    metadata:
+      labels:
+        # Neither `lidarr` nor `cellarr-shadow`: no Service selects this Pod,
+        # so nothing in production can reach it by name.
+        app.kubernetes.io/name: cellarr-rehearsal
+    spec:
+      # On the NAS: media-data-nas is a `local` PV on that node, and both PVCs
+      # are local-path there.
+      nodeSelector:
+        kubernetes.io/hostname: nas
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      # Neither container talks to the Kubernetes API.
+      automountServiceAccountToken: false
+      # No fsGroup, on purpose, as in ../deployment.yaml: it would chown every
+      # mounted volume, and /data/torrents holds production's seeding torrents
+      # and the only copy of every Soulseek download. uid/gid 1000 is Lidarr's
+      # own PUID/PGID, which owns that tree already, and local-path creates the
+      # two new volumes world-writable.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # AppleMusicarr, exactly as apps/lidarr installs it, into the SIDECAR's
+        # fresh /config. applemusicarr-plugin:0.1.2 is built on the NAS and
+        # imported into its containerd; there is no registry and so no digest
+        # to pin (docs/security/ssp/sa.md, SA-10). IfNotPresent, never pull,
+        # and it only works because this Pod is pinned to the NAS. Conftest
+        # warns HS-WL-01 for it here as it does for apps/lidarr.
+        - name: install-plugin
+          image: applemusicarr-plugin:0.1.2
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - mkdir -p /config/plugins/travis/AppleMusicarr &&
+              cp -f /plugin/Lidarr.Plugin.AppleMusicarr.dll /plugin/plugin.json
+              /config/plugins/travis/AppleMusicarr/
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: sidecar-config
+              mountPath: /config
+        # The rehearsal's folders on the media volume, owned by uid 1000. Only
+        # mkdir -p: it never removes or changes anything that exists.
+        - name: prepare-dirs
+          image: cellarr
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              mkdir -p /data/torrents/cellarr-rehearsal/library \
+                       /data/torrents/cellarr-rehearsal/staging \
+                       /data/torrents/cellarr-rehearsal/downloads \
+                       /data/torrents/cellarr-rehearsal/qbittorrent
+              ls -ld /data/torrents/cellarr-rehearsal/*
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: torrents
+              mountPath: /data/torrents
+              subPath: torrents
+      containers:
+        - name: cellarr
+          image: cellarr
+          args: ["run"]
+          env:
+            - name: CELLARR_DATA_DIR
+              value: /cellarr
+            # NOT shadow: grabbing and importing are the point. Safe because
+            # its database starts empty and its only library is
+            # /data/torrents/cellarr-rehearsal/library.
+            - name: CELLARR_API__BIND
+              value: 0.0.0.0
+            - name: CELLARR_API__PORT
+              value: "9494"
+            - name: CELLARR_MUSIC__LIDARR_PORT
+              value: "8686"
+            # A key of its own, not Lidarr's: this instance can write.
+            - name: CELLARR_API__API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: cellarr-rehearsal
+                  key: cellarr-api-key
+            # The sidecar, over the Pod's loopback.
+            - name: CELLARR_PLUGINS__DOTNET_SIDECAR_URL
+              value: http://127.0.0.1:8687
+            - name: CELLARR_PLUGINS__DOTNET_SIDECAR_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: cellarr-rehearsal
+                  key: sidecar-api-key
+            # The sidecar's root folder, at the same path in both containers,
+            # on the same mount as the downloads and the rehearsal library.
+            - name: CELLARR_PLUGINS__DOTNET_SIDECAR_ROOT
+              value: /data/torrents/cellarr-rehearsal/staging
+          ports:
+            - name: http
+              containerPort: 8686
+            - name: native
+              containerPort: 9494
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # An empty library: the shadow's 30 MiB idle is the right order, and
+          # one album's import is small next to the production-scale lists.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 5
+          volumeMounts:
+            - name: cellarr
+              mountPath: /cellarr
+            - name: torrents
+              mountPath: /data/torrents
+              subPath: torrents
+            - name: cellarr-tmp
+              mountPath: /tmp
+        - name: lidarr-sidecar
+          # The same build as apps/lidarr (hotio testing-3.1.3.4987, Lidarr's
+          # develop branch, which has System -> Plugins), pinned by the
+          # digest of its multi-arch index as GHCR served it on 2026-11-18.
+          image: ghcr.io/hotio/lidarr:testing-3.1.3.4987@sha256:6b63373eb6578f176b20dde875a4359b5852c93868071684731ab02bf3cdffd8
+          # Lidarr itself, not hotio's s6 /init. /init starts as root to apply
+          # PUID/PGID and then runs `s6-setuidgid hotio Lidarr`, which cannot
+          # work as uid 1000 with every capability dropped. These are the
+          # arguments hotio's own service script passes.
+          command: ["/app/bin/Lidarr"]
+          args: ["--nobrowser", "--data=/config"]
+          env:
+            # 8687, because cellarr's Lidarr-compatible API has 8686 in this
+            # Pod's network namespace. Lidarr reads its config.xml settings
+            # from LIDARR__<SECTION>__<KEY> (Bootstrap.cs binds the
+            # "Lidarr:Server" and "Lidarr:Auth" sections; env wins over
+            # config.xml).
+            - name: LIDARR__SERVER__PORT
+              value: "8687"
+            # The key cellarr uses, from the hand-made Secret. Set here, the
+            # sidecar never generates one of its own.
+            - name: LIDARR__AUTH__APIKEY
+              valueFrom:
+                secretKeyRef:
+                  name: cellarr-rehearsal
+                  key: sidecar-api-key
+            - name: TZ
+              value: UTC
+            # hotio's image sets the XDG dirs under /config; HOME is the one
+            # thing /init would otherwise have provided.
+            - name: HOME
+              value: /config
+          ports:
+            - name: sidecar
+              containerPort: 8687
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # An idle Lidarr with an empty library is about 300 MiB
+          # (cellarr docs/20-plugins.md). The limit leaves room for plugin
+          # loading and an import; production Lidarr's 3Gi is for a 41k-album
+          # library this sidecar never has.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+          # Generous, as for apps/lidarr: a first start runs every migration on
+          # an empty database, and installing Tubifarry restarts Lidarr.
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: sidecar
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 15
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: sidecar
+            initialDelaySeconds: 120
+            periodSeconds: 60
+            timeoutSeconds: 15
+            failureThreshold: 5
+          volumeMounts:
+            - name: sidecar-config
+              mountPath: /config
+            - name: torrents
+              mountPath: /data/torrents
+              subPath: torrents
+            # Lidarr's temp folder is Path.GetTempPath(): plugin downloads land
+            # here before they are unpacked into /config/plugins.
+            - name: sidecar-tmp
+              mountPath: /tmp
+      volumes:
+        - name: cellarr
+          persistentVolumeClaim:
+            claimName: cellarr-rehearsal-data
+        - name: sidecar-config
+          persistentVolumeClaim:
+            claimName: cellarr-rehearsal-sidecar-config
+        # The shared media volume, but only its torrents/ subdirectory is ever
+        # mounted (subPath above). /data/media is not reachable from this Pod.
+        - name: torrents
+          persistentVolumeClaim:
+            claimName: media-data-nas
+        - name: cellarr-tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: sidecar-tmp
+          emptyDir:
+            sizeLimit: 1Gi
