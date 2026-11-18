@@ -63,7 +63,6 @@ cannot reach at all.
 | ArgoCD | `on-sync-failed`, `on-health-degraded` | `homelab-alerts` |
 | Lidarr / Readarr | health **errors** only | `homelab-alerts` |
 | Octo | download completed, download failed, album completed | `homelab-media` |
-| `octo-artist-on-heart` | an artist was added to Lidarr | `homelab-media` |
 
 **Not wired, having considered it:**
 
