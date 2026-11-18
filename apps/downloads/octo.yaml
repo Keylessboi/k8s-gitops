@@ -353,7 +353,7 @@ spec:
             # Upstream publishes no image for its shim (`build: ./yt-dlp-shim`
             # in the compose file), so it is built from vendored source here -
             # see octo-yt-dlp-shim.yaml. Verified end to end: yt-dlp resolves a
-            # YouTube title through AirVPN and returns a stream.
+            # YouTube title and returns a stream. (It used to go through AirVPN; YouTube blocked that exit, so since 2026-11-18 the shim connects directly. See octo-yt-dlp-shim.yaml.)
             - name: YouTube__ShimUrl
               value: http://octo-yt-dlp-shim.downloads.svc.cluster.local:8080
 

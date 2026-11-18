@@ -52,22 +52,19 @@ spec:
           image: ghcr.io/winters27/octo-yt-dlp-shim:2026.11.15@sha256:1a7c445b50e3f7e30306026288f193bee93e3431de85f197e21077696bc695e1
           imagePullPolicy: IfNotPresent
           env:
-            # Same VPN path Octo itself uses. yt-dlp and requests both honour
-            # the lowercase and uppercase forms, so YouTube traffic exits
-            # AirVPN rather than the home WAN - which is the entire reason the
-            # downloads namespace has a killswitch.
-            - name: HTTP_PROXY
-              value: http://vpn-proxy.downloads.svc.cluster.local:8888
-            - name: HTTPS_PROXY
-              value: http://vpn-proxy.downloads.svc.cluster.local:8888
-            - name: http_proxy
-              value: http://vpn-proxy.downloads.svc.cluster.local:8888
-            - name: https_proxy
-              value: http://vpn-proxy.downloads.svc.cluster.local:8888
-            - name: NO_PROXY
-              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,.svc.cluster.local"
-            - name: no_proxy
-              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,.svc.cluster.local"
+            # NO PROXY, ON PURPOSE (owner decision 2026-11-18). This shim used to send
+            # everything through gluetun's HTTP proxy (vpn-proxy:8888) so that none of
+            # its traffic left via the home WAN. YouTube blocks that AirVPN exit: every
+            # yt-dlp client, even with a PO token (bgutil), got "Sign in to confirm
+            # you're not a bot", and 0 of 412 resolves in 2 hours succeeded. On the same
+            # 20 videos with the same yt-dlp, direct from the cluster resolved 20/20
+            # (100%). So YouTube resolves, and the stream bytes this shim relays, now
+            # leave directly, like Octo's own metadata calls (octo.yaml, 2026-09-14).
+            # Torrent and Soulseek traffic is unchanged and still goes through gluetun.
+            #
+            # To go back, restore HTTP_PROXY, HTTPS_PROXY, http_proxy and https_proxy
+            # to http://vpn-proxy.downloads.svc.cluster.local:8888, and NO_PROXY and
+            # no_proxy to "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,.svc.cluster.local".
             # Cap on simultaneous yt-dlp extractions inside the shim. Set
             # explicitly rather than left to the shim's built-in default, so the
             # concurrency is visible in git next to the CPU limit it has to fit.
