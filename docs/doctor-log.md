@@ -20,6 +20,7 @@ the literal string you are seeing, then read the entry.
 |---|---|
 | Octo admin panel shows Lidarr erroring; Lidarr pod `Running` but `0/1`, `OutOfMemoryException` in its log | Lidarr wedged by a .NET OOM, never OOMKilled — 2026-11-15 |
 | Octo admin panel shows octo-sonic not set up; or `/health` takes 3-5 s and Octo says "no answer in 5 s" | octo-sonic not deployed, then NFS directory listing too slow — 2026-11-15 |
+| Navidrome 500 `ambiguous column name: id` on `/api/song` with `_start` >= 50000 | Navidrome offset-optimisation bug — 2026-11-18 |
 | `Sign in to confirm you're not a bot` from the yt-dlp shim, Octo logs `shim /stream HTTP 502` | YouTube blocks the AirVPN exit — 2026-11-18 |
 | `connection refused` from a pod that just started, where the NetworkPolicy allows it | kube-router race — 2026-08-29 (lidarr), 2026-09-03 (pg_dump) |
 | `connection refused` between two namespaces, at any time | one-sided NetworkPolicy — 2026-09-03 (hermes → lidarr) |
@@ -170,6 +171,20 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-11-18 — Octo can't list ~64k of 115k songs: Navidrome `/api/song` returns 500 past offset 50,000
+
+**Symptom.** Navidrome logged HTTP 500 `ambiguous column name: id` for `GET /api/song?_start=51000&_end=52000&_sort=id&_order=ASC`,
+about 434 times in 6 h (every 50 s), from Octo's library listing. Songs past the first 50,000 by id were unreachable to it.
+
+**Root cause.** A Navidrome 0.64.2 bug, already reported upstream as navidrome/navidrome#6285: above a 50,000 offset its
+"skip earlier rows" optimisation selects only the rowid, so `id` becomes ambiguous in the joined query. Fixed in PR #6289, unreleased.
+
+**Fix.** `ND_DEVOFFSETOPTIMIZE=1073741824` on Navidrome (upstream's suggested workaround) disables the optimisation.
+
+**Prevention.** Remove the variable after upgrading to a release containing #6289. No Octo change: the defect is Navidrome's.
+
+**Confidence.** CONFIRMED for cause (matches upstream triage). PROVISIONAL for the fix until the 500s are seen to stop.
 
 ## 2026-11-18 — Octo's YouTube previews fail (`shim /stream HTTP 502`): YouTube blocks the AirVPN exit
 

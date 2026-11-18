@@ -70,6 +70,14 @@ spec:
           env:
             - name: ND_LOGLEVEL
               value: info
+            # Workaround for navidrome/navidrome#6285 (fixed in PR #6289, not
+            # yet released as of v0.64.2): /api/song pagination past offset
+            # 50,000 returns HTTP 500 "ambiguous column name: id" because of
+            # the large-offset optimisation. Setting the threshold to 1 GiB
+            # turns the optimisation off; pages are correct, just slower.
+            # Remove once Navidrome is upgraded to a release containing #6289.
+            - name: ND_DEVOFFSETOPTIMIZE
+              value: "1073741824"
             # Weekly, at the owner's request (was 1h). A full library scan
             # takes ~2h against 40k+ files on NFS, and Lidarr/beets already
             # trigger imports as they land - so an hourly scan was mostly the
