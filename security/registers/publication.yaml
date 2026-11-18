@@ -203,12 +203,3 @@ entries:
     approved_on: 2026-10-30
     approval_note: "Approved by the agent at the owner's request on 2026-10-30 (owner asked for OIDC-only after the exposure trade-off was explained); not individually reviewed."
     review_by: 2027-10-30
-  - id: P-22
-    ingress: nyc-transit/nyc-transit
-    routes: [transit.sandstorm.chat/]
-    basis: public
-    reason: Public live-transit map and an OsmAnd overlay tile source. OsmAnd fetches tiles by URL and cannot follow a login redirect. Content is public MTA GTFS-RT vehicle positions; the app has no accounts and no login.
-    criteria: {reason: met, data: met, login: unverified, accounts: met, function: unverified}
-    status: proposed
-    notes: "PROPOSED by an agent; the owner has not approved it. function is unverified because anonymous tile requests (/tiles/z/x/y.png) render on the server; the edge rate limit and CrowdSec apply."
-    review_by: 2027-10-01

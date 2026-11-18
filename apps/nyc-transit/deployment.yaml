@@ -48,4 +48,11 @@ kind: Service
 metadata: {name: nyc-transit, namespace: nyc-transit}
 spec:
   selector: {app.kubernetes.io/name: nyc-transit}
-  ports: [{name: http, port: 8080, targetPort: http}]
+  # Tailnet-only, on purpose (owner decision 2026-11-18): there is NO public
+  # Ingress. OsmAnd fetches tiles by URL, so the phone uses
+  # http://<nas tailscale ip>:30880/tiles/{z}/{x}/{y}.png over Tailscale. A
+  # NodePort is reachable on the NAS's tailnet address; nothing forwards it
+  # from the WAN. A lan-only Ingress would not work: sandstorm.chat hosts
+  # resolve to the public IP, so Traefik sees the public address and 403s.
+  type: NodePort
+  ports: [{name: http, port: 8080, targetPort: http, nodePort: 30880}]

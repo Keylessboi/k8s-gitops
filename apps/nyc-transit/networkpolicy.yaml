@@ -29,6 +29,14 @@ spec:
     ports:
     - protocol: TCP
       port: 8080
+  # NodePort traffic arrives from the tailnet (or, after node-to-node SNAT,
+  # from a node address on the LAN).
+  - from:
+    - ipBlock: {cidr: 100.64.0.0/10}
+    - ipBlock: {cidr: 192.168.1.0/24}
+    ports:
+    - protocol: TCP
+      port: 8080
   egress:
   # k3s apiserver. Reachable ONLY via ipBlock: a namespaceSelector for the
   # "default" namespace matches PODS in it, never the 10.43.0.1 service IP, so
