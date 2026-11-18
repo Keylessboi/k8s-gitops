@@ -29,7 +29,7 @@ spec:
     ports:
     - protocol: TCP
       port: 8080
-  # NodePort traffic arrives from the tailnet (or, after node-to-node SNAT,
+  # hostPort traffic arrives from the tailnet (or, after node-to-node SNAT,
   # from a node address on the LAN).
   - from:
     - ipBlock: {cidr: 100.64.0.0/10}
