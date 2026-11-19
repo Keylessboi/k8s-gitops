@@ -135,8 +135,9 @@ spec:
                   memory: 256Mi
                 limits:
                   cpu: 500m
-                  # The full run holds both album lists (41k albums each).
-                  memory: 1536Mi
+                  # The full run holds both album lists. The real library is 65k
+                  # albums / 1.5M tracks; 1536Mi OOMKilled it on 2026-11-19.
+                  memory: 4Gi
               volumeMounts:
                 - name: script
                   mountPath: /script
