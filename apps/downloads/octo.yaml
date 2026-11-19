@@ -409,7 +409,9 @@ spec:
             periodSeconds: 60
             timeoutSeconds: 5
             failureThreshold: 5
-          # Raised 768Mi -> 1Gi on 2026-11-05: 2026.10.28 sat at 684Mi and was OOMKilled once two
+          # Raised 1Gi -> 2Gi on 2026-11-18: OOMKilled at 1Gi (exit 137) 27 min after the
+          # Navidrome offset workaround let Octo's library listing reach all 115k songs
+          # instead of stopping at 50k; it ran at ~600Mi afterwards. Raised 768Mi -> 1Gi on 2026-11-05: 2026.10.28 sat at 684Mi and was OOMKilled once two
           # minutes after its first start. Raised 512Mi -> 768Mi on 2026-10-30 after the container was
           # OOMKilled at 512Mi on 2026-10-27. The node sits at ~93% memory, so
           # keep this as low as the OOM evidence allows. A .NET server's GC
@@ -423,7 +425,7 @@ spec:
               memory: 512Mi
             limits:
               cpu: "2"
-              memory: 1Gi
+              memory: 2Gi
           volumeMounts:
             # The library, narrowed to the music directory, exactly as
             # Navidrome mounts it - so a path Octo writes is a path Navidrome

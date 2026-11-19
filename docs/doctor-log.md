@@ -20,6 +20,7 @@ the literal string you are seeing, then read the entry.
 |---|---|
 | Octo admin panel shows Lidarr erroring; Lidarr pod `Running` but `0/1`, `OutOfMemoryException` in its log | Lidarr wedged by a .NET OOM, never OOMKilled — 2026-11-15 |
 | Octo admin panel shows octo-sonic not set up; or `/health` takes 3-5 s and Octo says "no answer in 5 s" | octo-sonic not deployed, then NFS directory listing too slow — 2026-11-15 |
+| Octo `OOMKilled` (exit 137) at 1Gi after Navidrome started paging past 50k | Octo OOM after the offset fix — 2026-11-18 |
 | Connection refused on a NodePort of the NAS, pod on another node | nyc-transit NodePort — 2026-11-18 |
 | Navidrome 500 `ambiguous column name: id` on `/api/song` with `_start` >= 50000 | Navidrome offset-optimisation bug — 2026-11-18 |
 | `Sign in to confirm you're not a bot` from the yt-dlp shim, Octo logs `shim /stream HTTP 502` | YouTube blocks the AirVPN exit — 2026-11-18 |
@@ -172,6 +173,20 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-11-18 — Octo OOMKilled at 1Gi right after the Navidrome offset fix
+
+**Symptom.** Octo restarted twice; the last termination was `OOMKilled`, exit 137, at 20:27 UTC, 27 minutes after its
+start. It sat at ~593Mi afterwards. Navidrome sign-in checks timed out at 20:26 just before.
+
+**Root cause.** PROBABLE: with `ND_DEVOFFSETOPTIMIZE` set, Octo's library listing now reaches all 115,488 songs instead of
+failing at offset 50,000, so it holds roughly twice the catalog it did. Not measured directly; the timing is the evidence.
+
+**Fix.** Memory limit 1Gi -> 2Gi (request stays 512Mi). k3s-server was at 78% memory, so the headroom exists.
+
+**Prevention.** Watch Octo's memory over a day. If it climbs past ~1.5Gi the listing needs paging or a cap, upstream.
+
+**Confidence.** PROVISIONAL until a full day passes without an OOMKill.
 
 ## 2026-11-18 — nyc-transit moved to Tailscale only: a NodePort on the NAS refused connections
 
