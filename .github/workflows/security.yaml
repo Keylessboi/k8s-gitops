@@ -49,7 +49,11 @@ jobs:
       - name: Check every register and owner signature
         run: python3 scripts/security/registers.py check
       - name: Secret rotation summary
-        run: python3 scripts/security/registers.py rotation | tee -a "$GITHUB_STEP_SUMMARY"
+        # pipefail: a step with no `shell:` runs as `bash -e {0}`, so without
+        # it a crash in registers.py is masked by tee's exit status.
+        run: |
+          set -o pipefail
+          python3 scripts/security/registers.py rotation | tee -a "$GITHUB_STEP_SUMMARY"
 
   policy:
     name: policy and quality
