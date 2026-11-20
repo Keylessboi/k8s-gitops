@@ -174,6 +174,25 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
+## 2026-11-20 — Octo degrades after ~7 h (timeouts, cancelled requests) as memory climbs toward its limit
+
+**Symptom.** Liked songs would not play. Octo answered `/rest` calls slowly or not at all (Traefik 499s on getCoverArt,
+getPlaylist, savePlayQueueByIndex; one 500 on getPlaylists) and logged `could not reach Navidrome to check a sign-in
+(TimeoutException)`. Navidrome itself answered pings in ~1 ms. Octo sat at 1795Mi of a 2Gi limit, 6 h 46 min after a
+restart, from 116Mi at start. An earlier instance had hung silently at 1.2Gi (2026-11-20 ~16:02) while the NFS volume was full.
+
+**Root cause.** PROBABLE: memory growth with the full 115k-song library listing (before the Navidrome offset workaround it sat
+near 600Mi). Not profiled; the correlation and the growth curve are the evidence. Slow NFS (all cluster NFS traffic shares one
+client connection, ~136 ms queueing per request) makes it worse.
+
+**Fix.** Restarted Octo to recover; memory limit 2Gi -> 3Gi to buy time (request stays 512Mi).
+
+**Prevention.** Not prevented: expect the same in ~10 h at this rate. Real fixes: an upstream Octo fix, `nconnect` on the
+nfs-csi mounts, or backing out `ND_DEVOFFSETOPTIMIZE`. A liveness probe that checks `/rest/ping` rather than the TCP port
+would have restarted the hung instance by itself.
+
+**Confidence.** PROVISIONAL.
+
 ## 2026-11-18 — Octo OOMKilled at 1Gi right after the Navidrome offset fix
 
 **Symptom.** Octo restarted twice; the last termination was `OOMKilled`, exit 137, at 20:27 UTC, 27 minutes after its

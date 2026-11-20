@@ -409,6 +409,9 @@ spec:
             periodSeconds: 60
             timeoutSeconds: 5
             failureThreshold: 5
+          # Raised 2Gi -> 3Gi on 2026-11-20: 2026.11.15 grew from 116Mi at start to 1.8Gi in
+          # ~7h once the library listing reached all 115k songs, and requests were being
+          # cancelled before it hit the 2Gi limit. This buys time, it is not a fix.
           # Raised 1Gi -> 2Gi on 2026-11-18: OOMKilled at 1Gi (exit 137) 27 min after the
           # Navidrome offset workaround let Octo's library listing reach all 115k songs
           # instead of stopping at 50k; it ran at ~600Mi afterwards. Raised 768Mi -> 1Gi on 2026-11-05: 2026.10.28 sat at 684Mi and was OOMKilled once two
@@ -425,7 +428,7 @@ spec:
               memory: 512Mi
             limits:
               cpu: "2"
-              memory: 2Gi
+              memory: 3Gi
           volumeMounts:
             # The library, narrowed to the music directory, exactly as
             # Navidrome mounts it - so a path Octo writes is a path Navidrome
