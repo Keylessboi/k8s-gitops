@@ -192,7 +192,9 @@ mount command carried `nconnect=8` but the connection count stayed 1), so the no
 **Prevention.** A StorageClass `mountOptions` is immutable; changing it means deleting and letting Argo recreate it. For a
 heavy local consumer, prefer a local PV on the NAS node (see octo-sonic) over NFS.
 
-**Confidence.** PROVISIONAL until connection count and file-create latency are re-measured after the restart.
+**Second cause (found on the restart).** The Proxmox host's `/etc/fstab` mounts `/mnt/nas-nfs` (bind-mounted into CT 200 as mp0) with `nfsvers=4.1,hard`; as the FIRST mount to the NAS it created the shared client without nconnect, and the CSI mounts then inherited it. Fix: `nconnect=8` added to the host fstab line (backup `/root/fstab.bak-nconnect`), CT 200 stopped, host remounted, CT started.
+
+**Confidence.** CONFIRMED: 8 established connections to NAS:2049 and file create 1-5 ms (was 3-9 s).
 
 ## 2026-11-20 — Octo degrades after ~7 h (timeouts, cancelled requests) as memory climbs toward its limit
 
