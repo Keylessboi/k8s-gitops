@@ -1,0 +1,120 @@
+---
+# Lidarr YouTube Downloader (github.com/Angrido/Lidarr-YouTube-Downloader, MIT).
+#
+# WHY. Lidarr's own YouTube client (the Tubifarry plugin) fetches audio through a C# library
+# that YouTube answers with "Sign in to confirm you're not a bot": 506 dead paused records on
+# 2026-11-21. The IP is not the problem - yt-dlp from the same public IP resolved 20/20 videos
+# (see docs/doctor-log.md, 2026-11-18). No Lidarr plugin uses yt-dlp in a form that fits this
+# Lidarr (3.1.3), so this runs yt-dlp as a separate app: it reads Lidarr's missing albums,
+# finds them on YouTube Music, verifies, tags, copies them into the library and has Lidarr
+# refresh the artist.
+#
+# NO COOKIES (owner decision). YT_POT_PROVIDER_URL is left empty: a PO token did not change the
+# outcome in the 2026-11-18 test, and one fewer moving part is worth more here.
+#
+# TAILNET ONLY, NO INGRESS. The app has no login. Like nyc-transit it is pinned to the NAS (the
+# cluster's only tailnet node) and published as a hostPort: http://100.69.240.8:30881. Do not
+# put an Ingress in front of it without adding authentication first.
+#
+# WRITES TO THE LIBRARY. /music is the real library (media/music, read-write) and /downloads is
+# torrents/youtube, the directory Lidarr's own YouTube client already used. Files are COPIED
+# into the library, not hardlinked. Run as uid/gid 1000, the same as Octo and Lidarr.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lidarr-downloader
+  namespace: downloads
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: lidarr-downloader}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: lidarr-downloader}
+    spec:
+      nodeSelector: {kubernetes.io/hostname: nas}
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        # kube-router programs this pod's NetworkPolicy 1-2s after start; until then allowed
+        # egress is REJECTed. Required by scripts/ci/check-invariants.py.
+        - name: wait-for-upstreams
+          image: busybox:1.38@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              for i in $(seq 1 60); do
+                if nc -z lidarr.lidarr.svc.cluster.local 8686; then exit 0; fi
+                sleep 2
+              done
+              echo "lidarr not reachable after 120s"; exit 1
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+      containers:
+        - name: app
+          # Pinned by digest (HS-WL-01). Tag: angrido/lidarr-downloader:latest, 2026-10-18.
+          image: angrido/lidarr-downloader@sha256:8cd0a8dda8d915383d05d1907700c66aca77e6f1fd70a8e1a08d1d4dcc4c0d6e
+          env:
+            # PUID/PGID are left unset on purpose: the entrypoint then skips its chown +
+            # gosu step (which needs root) and runs the app as the pod's own uid 1000.
+            - {name: UMASK, value: "002"}
+            - {name: LIDARR_URL, value: "http://lidarr.lidarr.svc.cluster.local:8686"}
+            - name: LIDARR_API_KEY
+              valueFrom: {secretKeyRef: {name: lidarr-api, key: api-key}}
+            - {name: DOWNLOAD_PATH, value: /downloads}
+            - {name: LIDARR_PATH, value: /music}
+            - {name: YT_POT_PROVIDER_URL, value: ""}
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+            - {name: HOME, value: /tmp}
+          ports: [{containerPort: 5000, hostPort: 30881, name: http}]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          readinessProbe: {tcpSocket: {port: http}, initialDelaySeconds: 20, periodSeconds: 20, failureThreshold: 6}
+          livenessProbe: {tcpSocket: {port: http}, initialDelaySeconds: 60, periodSeconds: 30, failureThreshold: 6}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "2", memory: 1Gi}
+          volumeMounts:
+            - {name: config, mountPath: /config}
+            - {name: media, mountPath: /music, subPath: media/music}
+            - {name: media, mountPath: /downloads, subPath: torrents/youtube}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: config
+          persistentVolumeClaim: {claimName: lidarr-downloader-config}
+        - name: media
+          persistentVolumeClaim: {claimName: media-data-nas}
+        - name: tmp
+          emptyDir: {sizeLimit: 2Gi}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: lidarr-downloader, namespace: downloads}
+spec:
+  selector: {app.kubernetes.io/name: lidarr-downloader}
+  ports: [{name: http, port: 5000, targetPort: http}]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lidarr-downloader-config
+  namespace: downloads
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi

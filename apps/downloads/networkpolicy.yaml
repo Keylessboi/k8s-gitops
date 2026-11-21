@@ -89,6 +89,13 @@ spec:
       ports:
         - port: 5274
           protocol: TCP
+    # lidarr-downloader web UI, tailnet and LAN only (hostPort on the NAS, no Ingress).
+    - from:
+        - ipBlock: {cidr: 100.64.0.0/10}
+        - ipBlock: {cidr: 192.168.1.0/24}
+      ports:
+        - port: 5000
+          protocol: TCP
   egress:
     # k3s apiserver, reachable only by ipBlock.
     - to:
