@@ -20,6 +20,7 @@ the literal string you are seeing, then read the entry.
 |---|---|
 | Octo admin panel shows Lidarr erroring; Lidarr pod `Running` but `0/1`, `OutOfMemoryException` in its log | Lidarr wedged by a .NET OOM, never OOMKilled — 2026-11-15 |
 | Octo admin panel shows octo-sonic not set up; or `/health` takes 3-5 s and Octo says "no answer in 5 s" | octo-sonic not deployed, then NFS directory listing too slow — 2026-11-15 |
+| Creating a file on any NFS volume takes seconds; Immich thumbnails slow | NFS single connection — 2026-11-21 |
 | Octo `OOMKilled` (exit 137) at 1Gi after Navidrome started paging past 50k | Octo OOM after the offset fix — 2026-11-18 |
 | Connection refused on a NodePort of the NAS, pod on another node | nyc-transit NodePort — 2026-11-18 |
 | Navidrome 500 `ambiguous column name: id` on `/api/song` with `_start` >= 50000 | Navidrome offset-optimisation bug — 2026-11-18 |
@@ -173,6 +174,25 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-11-21 — Everything on NFS is slow (3-9 s to create a file): all pods share one TCP connection to the NAS
+
+**Symptom.** Immich thumbnails would not load; creating a file on any NFS volume took 3-9 s (Octo config 5.9 s, Immich
+thumbs 3.1 s); Octo's config writes stalled. The ZFS pool was healthy (transaction syncs ~1 s, `sync=disabled`), the network
+RTT was 0.07 ms, and the NFS server threads were never saturated.
+
+**Root cause.** CONFIRMED by measurement: `ss` shows ONE established TCP connection from the k3s-server node to the NAS
+(`:2049`) for all ~21 NFS mounts. `/proc/self/mountstats` shows an average 136 ms *queue* time per GETATTR against ~3 ms on the
+wire. One bulk client (qBittorrent with ~2,000 torrents, Octo library sweeps) fills the slot table and every other pod waits.
+
+**Fix.** `nconnect=8` on the `nfs-csi` StorageClass, on the 7 static PVs in git, and live on the 77 existing nfs-csi PVs.
+The kernel honours `nconnect` only for the first mount to a server on a node (tested: patched one PV, restarted its pod, the
+mount command carried `nconnect=8` but the connection count stayed 1), so the node was restarted to drop every NFS mount.
+
+**Prevention.** A StorageClass `mountOptions` is immutable; changing it means deleting and letting Argo recreate it. For a
+heavy local consumer, prefer a local PV on the NAS node (see octo-sonic) over NFS.
+
+**Confidence.** PROVISIONAL until connection count and file-create latency are re-measured after the restart.
 
 ## 2026-11-20 — Octo degrades after ~7 h (timeouts, cancelled requests) as memory climbs toward its limit
 

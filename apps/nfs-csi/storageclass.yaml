@@ -18,6 +18,13 @@ parameters:
   onDelete: archive
 reclaimPolicy: Retain
 volumeBindingMode: Immediate
+# nconnect=8 (2026-11-21): every NFS mount on a node shares ONE TCP connection to the NAS, so a bulk
+# client (2,000 torrents on qBittorrent, library scans) queued every other pod's tiny requests behind
+# it: ~136 ms average queue wait per request, 3-9 s to create one file. NOTE the kernel honours
+# nconnect only for the FIRST mount to a server on a node; later mounts join that connection set.
+# So a change here needs every NFS mount on the node gone (a node restart) before it takes effect,
+# and mountOptions on a StorageClass is immutable: delete the object, Argo recreates it.
 mountOptions:
   - nfsvers=4.1
+  - nconnect=8
   - hard

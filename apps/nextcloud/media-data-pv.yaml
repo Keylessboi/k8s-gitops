@@ -32,6 +32,7 @@ spec:
   storageClassName: ""
   mountOptions:
     - nfsvers=4.1
+    - nconnect=8
     - hard
     - ro
   csi:
