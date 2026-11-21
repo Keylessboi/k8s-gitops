@@ -34,6 +34,12 @@
 # and held, not pruned: the alternative is deleting 40 torrents because NFS
 # hiccuped once.
 #
+# THIRD CLASS: metadata never arrived (owner decision 2026-11-21). A magnet link whose
+# metadata has not resolved is state metaDL / forcedMetaDL, or has no size yet. Measured
+# 2026-11-21: Lidarr showed "qBittorrent is downloading metadata" on records 41 and 55 days
+# old. With no metadata there are no files and nothing to lose, so after META_HOURS (24)
+# the torrent is removed like any other dead one.
+#
 # NEVER TOUCHED: private trackers (myanonamouse.net, iptorrents.com). Removing
 # one of those is a hit-and-run and costs the account. The tracker list is the
 # only reliable source - a dead torrent's info.tracker field is blank - and an
@@ -138,6 +144,9 @@ spec:
                   value: "6"
                 # Progress below which a parked download is dead. Deliberately
                 # low: a torrent that got partway has data worth keeping.
+                # A magnet with no metadata after this long is not going to get any.
+                - name: META_HOURS
+                  value: "24"
                 - name: DEAD_PCT
                   value: "10"
                 # Ceiling per run. A bug here must cost 25 torrents, not 1,000.
@@ -181,6 +190,7 @@ data:
     HOUR = 3600.0
     DEAD_HOURS = float(os.environ.get("DEAD_HOURS", "6"))
     DEAD_PCT = float(os.environ.get("DEAD_PCT", "10"))
+    META_HOURS = float(os.environ.get("META_HOURS", "24"))
     MAX_REMOVE = int(os.environ.get("MAX_REMOVE", "25"))
     PROTECTED = [d.strip().lower() for d in
                  os.environ.get("PROTECTED_TRACKERS",
@@ -287,9 +297,18 @@ data:
             paths[p][1] += 1
 
     cache = {}
-    dead, missing, held = [], [], 0
+    dead, missing, nometa, held = [], [], [], 0
     for t in torrents:
         state = t.get("state")
+        if state in ("metaDL", "forcedMetaDL"):
+            # Metadata never resolved: no files exist, so nothing can be lost.
+            if now - int(t.get("added_on") or now) < META_HOURS * HOUR:
+                continue
+            if protected_tracker(t, cache):
+                held += 1
+                continue
+            nometa.append(t)
+            continue
         if state == "missingFiles":
             total_here, missing_here = paths.get(t.get("save_path") or "", [1, 0])
             if total_here and missing_here >= total_here:
@@ -324,10 +343,13 @@ data:
           % (len(torrents), lidarr_total, DEAD_HOURS, DEAD_PCT, APPLY))
     print("  dead downloads:   %d" % len(dead))
     print("  missing files:    %d" % len(missing))
+    print("  no metadata >%gh: %d" % (META_HOURS, len(nometa)))
     print("  held (protected or mount?): %d" % held)
 
     dead.sort(key=lambda x: x[0])       # oldest-parked first
-    candidates = [(t, "dead") for _, t in dead] + [(t, "missing") for t in missing]
+    nometa.sort(key=lambda t: int(t.get("added_on") or 0))   # oldest first
+    candidates = ([(t, "dead") for _, t in dead] + [(t, "missing") for t in missing]
+                  + [(t, "nometa") for t in nometa])
     if len(candidates) > MAX_REMOVE:
         print("  capped at MAX_REMOVE=%d of %d candidates"
               % (MAX_REMOVE, len(candidates)))

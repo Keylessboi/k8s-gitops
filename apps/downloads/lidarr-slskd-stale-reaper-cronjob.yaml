@@ -1,0 +1,181 @@
+---
+# Remove Soulseek downloads that will never start, from Lidarr's queue.
+#
+# WHY. Measured 2026-11-21: Lidarr's queue held 422 Slskd2 "downloading" records, 420 of
+# them status=queued and 382 at zero progress. A Soulseek download that is queued sits in the
+# REMOTE user's queue until that user has a free slot or comes online, and the plugin never
+# gives up: 164 records were over a week old, the oldest 86 days. Each one is also polled
+# every cycle (5,887 `404 NotFound` on /api/v0/transfers/downloads/<user> in Lidarr's log for
+# users slskd no longer has), which is load on Lidarr and on the NFS mount behind it.
+#
+# RULE (owner decision 2026-11-21): a Slskd2 record that is still "queued", has made ZERO
+# progress and has been in the queue for STALE_DAYS (7) or more is removed.
+#   * status must be "queued" - an actively transferring record is never a candidate
+#   * sizeleft >= size - any bytes received at all protects it
+#   * age is Lidarr's own `added` timestamp
+#
+# HOW. DELETE /api/v1/queue/{id}?removeFromClient=true&blocklist=true&skipRedownload=true:
+#   * removeFromClient drops the slskd transfer too, so the two never disagree
+#   * blocklist stops Lidarr re-grabbing the same release from the same dead source
+#   * skipRedownload=true on purpose: an immediate re-search for ~400 albums at once would
+#     hammer the indexers (Prowlarr already returns 429s). The albums stay monitored and
+#     the regular search-sniper picks them up at its own pace.
+#
+# CEILING. MAX_REMOVE per run, so a bug costs a handful of records, not the queue. At 40 per
+# half hour the current backlog clears in about 5 hours.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: lidarr-slskd-stale-reaper
+  namespace: downloads
+spec:
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          initContainers:
+            # kube-router programs this pod's NetworkPolicy 1-2s after the pod starts; until
+            # then allowed egress is REJECTed as "connection refused". Required by
+            # scripts/ci/check-invariants.py.
+            - name: wait-for-upstreams
+              image: busybox:1.38@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  for i in $(seq 1 60); do
+                    if nc -z lidarr.lidarr.svc.cluster.local 8686; then
+                      echo "lidarr reachable after $i attempt(s)"
+                      exit 0
+                    fi
+                    sleep 2
+                  done
+                  echo "lidarr not reachable after 120s"
+                  exit 1
+              resources:
+                requests: {cpu: 10m, memory: 16Mi}
+                limits: {cpu: 100m, memory: 64Mi}
+          containers:
+            - name: stale-reaper
+              image: python:3.14-alpine3.24@sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec55f1866cac66b01
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              command: ["python3", "-u", "/scripts/stale-reaper.py"]
+              env:
+                - name: LIDARR_URL
+                  value: http://lidarr.lidarr.svc.cluster.local:8686
+                - name: LIDARR_API_KEY
+                  valueFrom: {secretKeyRef: {name: lidarr-api, key: api-key}}
+                - name: CLIENT_NAME
+                  value: Slskd2
+                - name: STALE_DAYS
+                  value: "7"
+                - name: MAX_REMOVE
+                  value: "40"
+                - name: APPLY
+                  value: "true"
+              resources:
+                requests: {cpu: 25m, memory: 64Mi}
+                limits: {cpu: 500m, memory: 192Mi}
+              volumeMounts:
+                - {name: script, mountPath: /scripts}
+          volumes:
+            - name: script
+              configMap: {name: lidarr-slskd-stale-reaper-script, defaultMode: 0755}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lidarr-slskd-stale-reaper-script
+  namespace: downloads
+data:
+  stale-reaper.py: |
+    #!/usr/bin/env python3
+    """Remove Soulseek queue records that are queued, at zero progress, for 7+ days."""
+    import datetime as dt, json, os, sys, urllib.request
+
+    LIDARR = os.environ["LIDARR_URL"].rstrip("/")
+    LKEY = os.environ["LIDARR_API_KEY"]
+    CLIENT = os.environ.get("CLIENT_NAME", "Slskd2")
+    STALE = float(os.environ.get("STALE_DAYS", "7")) * 86400
+    MAX_REMOVE = int(os.environ.get("MAX_REMOVE", "40"))
+    APPLY = os.environ.get("APPLY", "false").lower() in ("1", "true", "yes")
+
+    def lidarr(method, path, timeout=180):
+        req = urllib.request.Request(LIDARR + path, method=method,
+                                     headers={"X-Api-Key": LKEY})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read().decode()
+
+    def age_seconds(rec, now):
+        try:
+            added = dt.datetime.fromisoformat(rec["added"].replace("Z", "+00:00"))
+        except (KeyError, ValueError, AttributeError):
+            return -1                      # unknown age is never stale
+        return (now - added).total_seconds()
+
+    recs, page = [], 1
+    while True:
+        d = json.loads(lidarr("GET", "/api/v1/queue?page=%d&pageSize=250"
+                                     "&includeUnknownArtistItems=true" % page))
+        batch = d.get("records") or []
+        recs += batch
+        if not batch or len(recs) >= (d.get("totalRecords") or 0):
+            break
+        page += 1
+    if not recs:
+        sys.exit("lidarr returned an empty queue - refusing to act")
+
+    now = dt.datetime.now(dt.timezone.utc)
+    mine = [r for r in recs if r.get("downloadClient") == CLIENT]
+    stale = []
+    for r in mine:
+        if r.get("trackedDownloadState") != "downloading" or r.get("status") != "queued":
+            continue                       # transferring, failed or importing: not ours to remove
+        size, left = r.get("size") or 0, r.get("sizeleft") or 0
+        if size > 0 and left < size:
+            continue                       # some bytes arrived
+        if age_seconds(r, now) < STALE:
+            continue
+        stale.append(r)
+    stale.sort(key=lambda r: -age_seconds(r, now))
+
+    print("%d queue records | %d for %s | %d stale (queued, 0%%, >= %g days) | apply=%s"
+          % (len(recs), len(mine), CLIENT, len(stale), STALE / 86400, APPLY))
+    batch = stale[:MAX_REMOVE]
+    if len(stale) > MAX_REMOVE:
+        print("  capped at MAX_REMOVE=%d of %d" % (MAX_REMOVE, len(stale)))
+    removed = failed = 0
+    for r in batch:
+        label = "%.0fd %s" % (age_seconds(r, now) / 86400, (r.get("title") or "")[:60])
+        if not APPLY:
+            print("  WOULD REMOVE", label)
+            continue
+        try:
+            lidarr("DELETE", "/api/v1/queue/%d?removeFromClient=true&blocklist=true"
+                             "&skipRedownload=true&changeCategory=false" % r["id"])
+            removed += 1
+            print("  removed", label)
+        except Exception as e:
+            failed += 1
+            print("  FAILED %s: %s" % (label, e))
+    print("removed %d, failed %d, still stale %d" % (removed, failed, len(stale) - removed))
+    sys.exit(1 if failed else 0)
