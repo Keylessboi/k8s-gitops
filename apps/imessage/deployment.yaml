@@ -43,7 +43,7 @@ spec:
         # An nfs-csi volume is created root-owned and the kubelet does not apply fsGroup to
         # NFS, so hand /data to the app uid first (same pattern as notesnook's keys-perms).
         - name: data-perms
-          image: busybox:1.38.0@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+          image: busybox:1.38.0@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4
           # attachments/ is created here, not by the kubelet's subPath handling, which would make it
           # root-owned on NFS and unwritable for uid 10001.
           command: ["sh", "-c", "mkdir -p /data/attachments && chown -R 10001:10001 /data && chmod 0700 /data"]
