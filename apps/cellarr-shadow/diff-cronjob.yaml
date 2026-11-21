@@ -2,10 +2,12 @@
 # Daily: compare live Lidarr with the shadow cellarr, by id, GET requests only.
 # The report is the Job's log:
 #   kubectl -n lidarr logs job/<latest cellarr-shadow-diff job>
-# Exit 1 (Job failed) means a difference. Some churn in the queue and in the
-# newest albums is expected: the shadow is a snapshot, Lidarr keeps working.
-# Anything in config, artists or track files is not expected - that is the
-# signal the cutover runbook gates on.
+# --known: understood differences (queue, plugin implementation names and
+# category, stats None-vs-0, rootfolder/cutoff ids, pinned pressings) are listed
+# as EXPECTED and do not fail the Job. Exit 1 (Job failed) means a real
+# difference: config, artists, track files or wanted/missing. That is the
+# signal the cutover runbook gates on. Live drift (the shadow is a snapshot)
+# can still show a handful of wanted/missing lines.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -53,6 +55,7 @@ spec:
                 - --sample
                 - "100"
                 - --no-albums
+                - --known
               env:
                 # One key for both: the shadow is configured with Lidarr's.
                 - name: LIDARR_API_KEY
@@ -122,6 +125,8 @@ spec:
               args:
                 - http://lidarr.lidarr.svc.cluster.local:8686
                 - http://cellarr-shadow.lidarr.svc.cluster.local:8686
+                - --known
+                - --show-expected
               env:
                 # One key for both: the shadow is configured with Lidarr's.
                 - name: LIDARR_API_KEY

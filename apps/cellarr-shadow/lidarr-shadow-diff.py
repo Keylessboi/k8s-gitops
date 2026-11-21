@@ -3,6 +3,7 @@
 
     scripts/lidarr-shadow-diff LIDARR_URL CELLARR_URL [--lidarr-key K] [--cellarr-key K]
                                [--sample N] [--no-albums] [--max-shown N] [--report FILE]
+                               [--known] [--show-expected]
 
 Keys default to $LIDARR_API_KEY / $CELLARR_API_KEY. Only GET requests are made, to
 both: it is safe to run against production. Compares what a cutover has to preserve:
@@ -20,6 +21,16 @@ both: it is safe to run against production. Compares what a cutover has to prese
 The live library keeps changing while this runs (a grab, an import), so a handful
 of differences in the queue or the newest albums is expected; anything in the
 config, artists or track files is not. Exit status 1 when anything differs.
+
+--known classifies a fixed list of understood differences as EXPECTED: they are
+reported in a separate section and do not affect the exit status. Matched narrowly:
+the whole queue section; indexer/download client implementation and category;
+statistics.trackFileCount Lidarr None vs cellarr 0; the quality profile cutoff id;
+a root folder id differing for the same path; album pressings that differ only in
+which one is pinned. Anything else stays a DIFF. --known also compares the enabled
+flags of indexers and download clients. --show-expected lists the expected lines
+(default: only their counts). Without --known nothing is classified.
+Self-test: python3 -I scripts/test_lidarr_shadow_diff.py
 Standard library only.
 """
 import argparse
@@ -64,11 +75,18 @@ class Api:
 
 
 class Report:
-    def __init__(self, max_shown):
+    def __init__(self, max_shown, known=False, show_expected=False):
         self.max_shown = max_shown
+        self.known = known
+        self.show_expected = show_expected
         self.sections = {}
+        self.expected = {}
 
-    def diff(self, section, message):
+    def diff(self, section, message, expected=False):
+        if expected and self.known:
+            self.expected.setdefault(section, []).append(message)
+            self.sections.setdefault(section, [])
+            return
         self.sections.setdefault(section, []).append(message)
 
     def ok(self, section):
@@ -84,11 +102,43 @@ class Report:
             if len(items) > self.max_shown:
                 lines.append(f"       ... and {len(items) - self.max_shown} more")
             bad += len(items)
+        n_exp = sum(len(v) for v in self.expected.values())
+        if self.known:
+            lines.append(f"EXPECTED ({n_exp}) known differences, not counted")
+            for section, items in self.expected.items():
+                lines.append(f"       {section}: {len(items)}")
+                if self.show_expected:
+                    for m in items[: self.max_shown]:
+                        lines.append(f"         {m}")
+                    if len(items) > self.max_shown:
+                        lines.append(f"         ... and {len(items) - self.max_shown} more")
         return "\n".join(lines), bad
 
 
 def by_id(rows):
     return {r.get("id"): r for r in rows if isinstance(r, dict)}
+
+
+def expected_field(section, f, va, vb):
+    """Known, understood field differences (only honoured with --known)."""
+    if f.endswith("statistics.trackFileCount") and va is None and vb == 0:
+        return True
+    if section == "/qualityprofile" and f == "cutoff":
+        return True
+    return False
+
+
+def compare_rootfolders(report, live, shadow):
+    a = {norm(r.get("path")): r for r in live}
+    b = {norm(r.get("path")): r for r in shadow}
+    for p in sorted(set(a) - set(b), key=str):
+        report.diff("/rootfolder", f"path {p!r} only in Lidarr")
+    for p in sorted(set(b) - set(a), key=str):
+        report.diff("/rootfolder", f"path {p!r} only in cellarr")
+    for p in sorted(set(a) & set(b), key=str):
+        if a[p].get("id") != b[p].get("id"):
+            report.diff("/rootfolder", f"path {p!r} id: Lidarr {a[p].get('id')!r}, cellarr {b[p].get('id')!r}", expected=True)
+    report.ok("/rootfolder")
 
 
 def compare_rows(report, section, live, shadow, fields):
@@ -101,7 +151,8 @@ def compare_rows(report, section, live, shadow, fields):
         for f in fields:
             va, vb = pick(a[i], f), pick(b[i], f)
             if norm(va) != norm(vb):
-                report.diff(section, f"id {i} {f}: Lidarr {va!r}, cellarr {vb!r}")
+                report.diff(section, f"id {i} {f}: Lidarr {va!r}, cellarr {vb!r}",
+                            expected=expected_field(section, f, va, vb))
     report.ok(section)
 
 
@@ -136,10 +187,23 @@ def main():
                     help="skip the full album list (Lidarr's heaviest call) and the pressings")
     ap.add_argument("--max-shown", type=int, default=20)
     ap.add_argument("--report", help="also write the report here")
+    ap.add_argument("--known", action="store_true",
+                    help="classify known-expected differences as EXPECTED (exit status ignores them)")
+    ap.add_argument("--show-expected", action="store_true", help="list the expected lines, not just counts")
     a = ap.parse_args()
     live = Api(a.lidarr, a.lidarr_key, "Lidarr")
     shadow = Api(a.cellarr, a.cellarr_key or a.lidarr_key, "cellarr")
-    report = Report(a.max_shown)
+    text, bad = run(a, live, shadow)
+    print(text)
+    if a.report:
+        with open(a.report, "w") as fh:
+            fh.write(text + "\n")
+    sys.exit(1 if bad else 0)
+
+
+def run(a, live, shadow):
+    """Compare two Api-like objects; return (report text, number of DIFF lines)."""
+    report = Report(a.max_shown, a.known, a.show_expected)
     started = time.time()
 
     # --- config -----------------------------------------------------------------
@@ -148,7 +212,10 @@ def main():
         ("/metadataprofile", ["name"]),
         ("/rootfolder", ["path"]),
     ]:
-        compare_rows(report, path, live.get(path), shadow.get(path), fields)
+        if path == "/rootfolder" and a.known:
+            compare_rootfolders(report, live.get(path), shadow.get(path))
+        else:
+            compare_rows(report, path, live.get(path), shadow.get(path), fields)
     for path, key in [("/indexer", "implementation"), ("/downloadclient", "implementation")]:
         la = {i["name"]: i for i in live.get(path)}
         sh = {i["name"]: i for i in shadow.get(path)}
@@ -159,9 +226,15 @@ def main():
                 report.diff(path, f"{name!r} only in cellarr")
             else:
                 if la[name].get(key) != sh[name].get(key):
-                    report.diff(path, f"{name!r} implementation: {la[name].get(key)!r} vs {sh[name].get(key)!r}")
+                    report.diff(path, f"{name!r} implementation: {la[name].get(key)!r} vs {sh[name].get(key)!r}",
+                                  expected=True)
                 if path == "/downloadclient" and field(la[name], "musicCategory") != field(sh[name], "musicCategory"):
-                    report.diff(path, f"{name!r} category: {field(la[name], 'musicCategory')!r} vs {field(sh[name], 'musicCategory')!r}")
+                    report.diff(path, f"{name!r} category: {field(la[name], 'musicCategory')!r} vs {field(sh[name], 'musicCategory')!r}",
+                                  expected=True)
+                if a.known:
+                    for flag in ("enable", "enableRss", "enableAutomaticSearch", "enableInteractiveSearch"):
+                        if flag in la[name] and flag in sh[name] and la[name][flag] != sh[name][flag]:
+                            report.diff(path, f"{name!r} {flag}: {la[name][flag]!r} vs {sh[name][flag]!r}")
         report.ok(path)
 
     # --- artists ----------------------------------------------------------------
@@ -187,7 +260,9 @@ def main():
             if ra and rb and ra != rb:
                 pin_a = [k for k, v in ra.items() if v[1]]
                 pin_b = [k for k, v in rb.items() if v[1]]
-                report.diff("album pressings", f"album {i}: ids {sorted(ra)} pinned {pin_a} vs ids {sorted(rb)} pinned {pin_b}")
+                only_pin = ({k: v[0] for k, v in ra.items()} == {k: v[0] for k, v in rb.items()})
+                report.diff("album pressings", f"album {i}: ids {sorted(ra)} pinned {pin_a} vs ids {sorted(rb)} pinned {pin_b}",
+                            expected=only_pin)
         report.ok("album pressings")
 
     # --- track files ------------------------------------------------------------
@@ -218,18 +293,14 @@ def main():
     dl_l = {(r.get("downloadId") or "").lower() for r in ql} - {""}
     dl_s = {(r.get("downloadId") or "").lower() for r in qs} - {""}
     for d in sorted(dl_l - dl_s):
-        report.diff("queue", f"download {d} only in Lidarr's queue")
+        report.diff("queue", f"download {d} only in Lidarr's queue", expected=True)
     for d in sorted(dl_s - dl_l):
-        report.diff("queue", f"download {d} only in cellarr's queue")
+        report.diff("queue", f"download {d} only in cellarr's queue", expected=True)
     report.ok("queue")
 
     text, bad = report.render()
     text += f"\n\n{bad} difference(s); {time.time() - started:.0f}s"
-    print(text)
-    if a.report:
-        with open(a.report, "w") as fh:
-            fh.write(text + "\n")
-    sys.exit(1 if bad else 0)
+    return text, bad
 
 
 if __name__ == "__main__":
