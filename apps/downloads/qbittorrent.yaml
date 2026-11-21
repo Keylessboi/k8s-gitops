@@ -40,7 +40,7 @@ metadata:
   annotations:
     secrets.doppler.com/reload: 'true'
 spec:
-  replicas: 1
+  replicas: 0 # TEMP: cutover to the NAS volumes, restored to 1 in the next commit
   strategy:
     type: Recreate
   selector:
