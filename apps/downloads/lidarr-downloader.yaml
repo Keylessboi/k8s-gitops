@@ -24,6 +24,8 @@ kind: Deployment
 metadata:
   name: lidarr-downloader
   namespace: downloads
+  annotations:
+    secrets.doppler.com/reload: 'true'
 spec:
   replicas: 1
   strategy: {type: Recreate}
