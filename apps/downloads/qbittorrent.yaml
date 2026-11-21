@@ -51,6 +51,10 @@ spec:
       labels:
         app.kubernetes.io/name: qbittorrent
     spec:
+      # Pinned to the NAS (2026-11-21): config and data are local volumes there, off the shared NFS connection.
+      nodeSelector: {kubernetes.io/hostname: nas}
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
       # Pod-level, so it covers the init container and all three containers.
       # Without it the pod runs seccomp Unconfined: this node's kubelet has
       # seccompDefault=false, so nothing applies a profile unless a manifest
@@ -1031,7 +1035,7 @@ spec:
             # over ssh from the NAS (5,070 files in 61s) rather than copying
             # over NFS. See apps/downloads/pvc-qbittorrent-config-local.yaml.
             # The nfs-csi claim still holds the pre-migration copy.
-            claimName: qbittorrent-config-local
+            claimName: qbittorrent-config-nas
         - name: seedboxapi-config
           persistentVolumeClaim:
             claimName: seedboxapi-config
@@ -1050,10 +1054,11 @@ spec:
             # under a minute. Migrated 2026-09-12 by streaming tar over ssh
             # from the NAS; all five databases verified integrity_check ok with
             # byte-exact sizes before cutover. See pvc-slskd-config-local.yaml.
-            claimName: slskd-config-local
+            claimName: slskd-config-nas
         - name: data
           persistentVolumeClaim:
-            claimName: media-data
+            # media-data-nas: same /extra/nfs-csi/data directory as a local volume (see octo-sonic.yaml)
+            claimName: media-data-nas
         - name: qbit-upload-script
           configMap:
             name: qbit-upload-config

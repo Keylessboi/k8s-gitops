@@ -41,6 +41,10 @@ spec:
       template:
         spec:
           restartPolicy: Never
+          # The config volume is a local PV on the NAS now (qbittorrent-nas-volumes.yaml).
+          nodeSelector: {kubernetes.io/hostname: nas}
+          tolerations:
+            - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
           securityContext:
             seccompProfile:
               type: RuntimeDefault
@@ -81,10 +85,10 @@ spec:
                 - {name: script, mountPath: /scripts}
           volumes:
             - name: data
-              persistentVolumeClaim: {claimName: media-data}
+              persistentVolumeClaim: {claimName: media-data-nas}
             # RWX, so this shares one log with the in-pod AutoRun hook rather
             # than keeping a second history nobody thinks to read.
             - name: config
-              persistentVolumeClaim: {claimName: qbittorrent-config-local}
+              persistentVolumeClaim: {claimName: qbittorrent-config-nas}
             - name: script
               configMap: {name: qbit-upload-config, defaultMode: 0755}

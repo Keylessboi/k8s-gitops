@@ -1,0 +1,71 @@
+# qBittorrent + slskd config as node-local volumes on the NAS (2026-11-21).
+#
+# Why: every NFS mount on a node shares one TCP connection to the NAS, and the qBittorrent pod
+# (about 2,000 torrents, 5,000 small files of config, slskd SQLite) is the heaviest client of it.
+# Running the pod ON the NAS and reading the disks directly takes it, and its config I/O, off NFS.
+#
+# Encryption (policy 12.4, HS-REST-01/02): both directories live in the tank/extra dataset
+# (aes-256-gcm), the store recorded as D-10 (static-local). They replace local-path volumes on
+# k3s-server, which were D-04 (not encrypted), so at-rest protection improves. Do NOT point these
+# at a local-path directory on the nas root disk: that is not on the data-store register as encrypted.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: qbittorrent-config-nas
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  local:
+    path: /extra/nfs-csi/downloads/qbittorrent-config-nas
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - {key: kubernetes.io/hostname, operator: In, values: [nas]}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: qbittorrent-config-nas
+  namespace: downloads
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ""
+  volumeName: qbittorrent-config-nas
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: slskd-config-nas
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  local:
+    path: /extra/nfs-csi/downloads/slskd-config-nas
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - {key: kubernetes.io/hostname, operator: In, values: [nas]}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: slskd-config-nas
+  namespace: downloads
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ""
+  volumeName: slskd-config-nas
+  resources:
+    requests:
+      storage: 5Gi
