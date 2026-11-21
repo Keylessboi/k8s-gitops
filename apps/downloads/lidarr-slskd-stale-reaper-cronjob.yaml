@@ -110,7 +110,7 @@ data:
   stale-reaper.py: |
     #!/usr/bin/env python3
     """Remove Soulseek queue records that are queued, at zero progress, for 7+ days."""
-    import datetime as dt, json, os, sys, urllib.request
+    import datetime as dt, json, os, sys, urllib.error, urllib.request
 
     LIDARR = os.environ["LIDARR_URL"].rstrip("/")
     LKEY = os.environ["LIDARR_API_KEY"]
@@ -174,6 +174,12 @@ data:
                              "&skipRedownload=true&changeCategory=false" % r["id"])
             removed += 1
             print("  removed", label)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:              # already gone (Lidarr removed it first): fine
+                print("  already gone", label)
+                continue
+            failed += 1
+            print("  FAILED %s: %s" % (label, e))
         except Exception as e:
             failed += 1
             print("  FAILED %s: %s" % (label, e))
