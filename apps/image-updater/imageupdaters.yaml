@@ -140,19 +140,6 @@ spec:
             kustomize:
               name: ghcr.io/flaresolverr/flaresolverr
 
-    - namePattern: kiwix
-      writeBackConfig:
-        gitConfig:
-          writeBackTarget: kustomization:/apps/kiwix
-      images:
-        - alias: kiwix-serve
-          imageName: ghcr.io/kiwix/kiwix-serve:3.8.2
-          commonUpdateSettings:
-            allowTags: 'regexp:^3\.\d+\.\d+$'
-          manifestTargets:
-            kustomize:
-              name: ghcr.io/kiwix/kiwix-serve
-
     - namePattern: music
       writeBackConfig:
         gitConfig:

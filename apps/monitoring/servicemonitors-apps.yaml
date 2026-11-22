@@ -179,7 +179,6 @@ spec:
 #   nextcloud,   built with OpenTelemetry enabled; Nextcloud needs the
 #   navidrome,   serverinfo app plus an exporter; Vaultwarden and Kiwix expose
 #   vaultwarden, nothing.
-#   kiwix
 #   forgejo      Has a built-in /metrics endpoint but it is disabled by default
 #                and needs a token set in its config before it serves anything.
 #   flaresolverr,

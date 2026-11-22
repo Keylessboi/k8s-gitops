@@ -16,9 +16,6 @@ spec:
   - from:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: books
-    - namespaceSelector:
-        matchLabels:
           kubernetes.io/metadata.name: lidarr
     - namespaceSelector:
         matchLabels:
@@ -71,27 +68,9 @@ spec:
   - to:
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: books
-    ports:
-    - port: 8787
-      protocol: TCP
-  - to:
-    - namespaceSelector:
-        matchLabels:
           kubernetes.io/metadata.name: lidarr
     ports:
     - port: 8686
-      protocol: TCP
-  # bitmagnet: Prowlarr queries its Torznab endpoint directly, in-cluster
-  # (indexer test, RSS, searches). NetworkPolicy is enforced at both ends in
-  # this cluster, so this rule only works because bitmagnet's own policy
-  # allows ingress from this namespace on 3333 — keep the two in step.
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: bitmagnet
-    ports:
-    - port: 3333
       protocol: TCP
   # qBittorrent's WebUI, so Prowlarr can push a manual grab to a download
   # client. Lidarr and Readarr each drive qBittorrent directly and do not need

@@ -13,4 +13,3 @@ entries:
   - {id: A-07, app: vaultwarden, type: per-user-local, account: local login for each user, why: clients need it, disable: undefined}
   - {id: A-08, app: notesnook, type: per-user-local, account: own identity server, why: product design, disable: undefined}
   - {id: A-09, app: navidrome, type: per-user-local, account: Subsonic password for each user, why: Subsonic clients, disable: undefined}
-  - {id: A-10, app: books, type: per-user-local, account: OPDS Basic-auth user, why: OPDS clients, disable: undefined}

@@ -35,13 +35,7 @@ spec:
               kubernetes.io/metadata.name: prowlarr
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: books
-        - namespaceSelector:
-            matchLabels:
               kubernetes.io/metadata.name: lidarr
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: bitmagnet
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: databases

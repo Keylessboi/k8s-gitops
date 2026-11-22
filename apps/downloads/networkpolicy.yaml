@@ -62,15 +62,12 @@ spec:
       ports:
         - {port: 1080, protocol: TCP}
         - {port: 8888, protocol: TCP}
-    # Lidarr drives slskd through its API, and both Lidarr and Readarr drive
+    # Lidarr drives slskd through its API, and Lidarr drives
     # qBittorrent's WebUI.
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: lidarr
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: books
       ports:
         - port: 5030
           protocol: TCP

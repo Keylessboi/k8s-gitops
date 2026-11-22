@@ -55,7 +55,6 @@ spec:
         # Applications that serve their own login page or are public.
         - https://vaultwarden.sandstorm.chat/
         - https://immich.sandstorm.chat/
-        - https://kiwix.sandstorm.chat/
         - https://blog.sandstorm.chat/
         # argocd answers 200 from inside the cluster and 403 from the internet
         # - the IP allowlist runs ahead of everything else. This probe rides
@@ -105,15 +104,11 @@ spec:
         - https://nextcloud.sandstorm.chat/
         - https://navidrome.sandstorm.chat/
         - https://remux.sandstorm.chat/
-        - https://books.sandstorm.chat/
-        - https://bookdl.sandstorm.chat/
         - https://lidarr.sandstorm.chat/
         - https://prowlarr.sandstorm.chat/
-        - https://bitmagnet.sandstorm.chat/
         - https://qui.sandstorm.chat/
         - https://convertx.sandstorm.chat/
         - https://alertmanager.sandstorm.chat/
-        - https://pelican.sandstorm.chat/
       labels:
         probe_group: edge
 ---

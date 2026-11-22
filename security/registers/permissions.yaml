@@ -183,14 +183,6 @@ entries:
     approved_on: 2026-10-06
     approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
     review_by: 2027-10-01
-  - id: PM-23
-    subject: "Deployment/hermes/hermes"
-    grants: [capability:CHOWN, capability:DAC_OVERRIDE, capability:FOWNER, capability:SETGID, capability:SETUID]
-    reason: "Chart default or not recorded. Owner to confirm the need or narrow it."
-    status: approved
-    approved_on: 2026-10-06
-    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
-    review_by: 2027-10-01
   - id: PM-24
     subject: "Deployment/nfs-csi/csi-nfs-controller"
     grants: [capability:SYS_ADMIN, hostNetwork, hostPath, privileged]

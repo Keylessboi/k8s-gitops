@@ -48,12 +48,8 @@
 # the documented health endpoint is cluster-wide and costs a quorum read, which
 # is the exact shape that turns a transient into a restart loop. Each needs its
 # own verification, so each is its own small change.
-apps/books/book-downloader.yaml:book-downloader/downloader
-apps/books/calibre-web-automated.yaml:calibre-web-automated/cwa
 apps/downloads/qui.yaml:qui/qui
 apps/flaresolverr/deployment.yaml:flaresolverr/flaresolverr
-apps/hermes/deployment.yaml:hermes/hermes
-apps/kiwix/deployment.yaml:kiwix/kiwix
 apps/lidarr/deployment.yaml:lidarr/lidarr
 apps/lidarr/lucida-solver.yaml:lucida-solver/solver
 apps/music/beets.yaml:beets/beets

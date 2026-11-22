@@ -53,15 +53,11 @@ data:
         192.168.1.240 immich.sandstorm.chat
         192.168.1.240 nextcloud.sandstorm.chat
         192.168.1.240 navidrome.sandstorm.chat
-        192.168.1.240 kiwix.sandstorm.chat
         192.168.1.240 lidarr.sandstorm.chat
-        192.168.1.240 books.sandstorm.chat
         192.168.1.240 prowlarr.sandstorm.chat
-        192.168.1.240 bookdl.sandstorm.chat
         192.168.1.240 qui.sandstorm.chat
         192.168.1.240 grafana.sandstorm.chat
         # Added 2026-09-03: all published, none previously resolvable in-cluster.
-        192.168.1.240 bitmagnet.sandstorm.chat
         192.168.1.240 blog.sandstorm.chat
         192.168.1.240 obsidian.sandstorm.chat
         192.168.1.240 alertmanager.sandstorm.chat
