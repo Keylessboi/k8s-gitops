@@ -1,0 +1,38 @@
+# Octo's settings directory as a node-local volume on the NAS (2026-11-22), next to media-data-nas
+# (the library). The pod runs on the NAS now, so neither its config writes nor its library reads
+# go through the shared NFS connection.
+#
+# Encryption (policy 12.4, HS-REST-01/02): the directory is in tank/extra (aes-256-gcm), the store
+# recorded as D-10 (static-local). It is a COPY of the old nfs-csi directory
+# (/extra/nfs-csi/downloads/octo-config), which stays as the rollback; do not point this PV at that
+# directory, because deleting the old PVC archives (renames) it.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: octo-config-nas
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  local:
+    path: /extra/nfs-csi/downloads/octo-config-nas
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - {key: kubernetes.io/hostname, operator: In, values: [nas]}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: octo-config-nas
+  namespace: downloads
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ""
+  volumeName: octo-config-nas
+  resources:
+    requests:
+      storage: 1Gi

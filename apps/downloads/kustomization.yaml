@@ -28,6 +28,7 @@ resources:
   - pvc.yaml
   - pvc-qbittorrent-config-local.yaml
   - qbittorrent-nas-volumes.yaml
+  - octo-nas-volumes.yaml
   - pvc-slskd-config-local.yaml
   - qbit-upload-config.yaml
   - upload-sweep-cronjob.yaml

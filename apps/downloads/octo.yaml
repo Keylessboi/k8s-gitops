@@ -46,7 +46,7 @@ metadata:
   annotations:
     secrets.doppler.com/reload: 'true'
 spec:
-  replicas: 1
+  replicas: 0 # TEMP: config copy to the NAS volume; restored to 1 in the next commit
   # Recreate, not RollingUpdate: the single pod owns /app/config, where the
   # admin UI writes the settings file that ASP.NET hot-reloads. Two pods
   # writing it during a roll is a corrupt settings file, not a migration.
@@ -60,6 +60,11 @@ spec:
       labels:
         app.kubernetes.io/name: octo
     spec:
+      # Pinned to the NAS (2026-11-22): config and library are local volumes there, off the shared
+      # NFS connection. See octo-nas-volumes.yaml.
+      nodeSelector: {kubernetes.io/hostname: nas}
+      tolerations:
+        - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
       # Pod-level so it also covers the init container. Without it the pod
       # runs seccomp Unconfined: this node's kubelet has seccompDefault=false,
       # so nothing applies a profile unless a manifest asks. Octo is an
@@ -455,10 +460,10 @@ spec:
         # namespace over the shared NFS export. See media-data-pv.yaml.
         - name: data
           persistentVolumeClaim:
-            claimName: media-data
+            claimName: media-data-nas
         - name: config
           persistentVolumeClaim:
-            claimName: octo-config
+            claimName: octo-config-nas
 ---
 apiVersion: v1
 kind: Service
