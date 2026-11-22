@@ -46,7 +46,7 @@ metadata:
   annotations:
     secrets.doppler.com/reload: 'true'
 spec:
-  replicas: 0 # TEMP: config copy to the NAS volume; restored to 1 in the next commit
+  replicas: 1
   # Recreate, not RollingUpdate: the single pod owns /app/config, where the
   # admin UI writes the settings file that ASP.NET hot-reloads. Two pods
   # writing it during a roll is a corrupt settings file, not a migration.
