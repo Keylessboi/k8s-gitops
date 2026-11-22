@@ -175,6 +175,18 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
+## 2026-11-22 — Every host returns 404: Traefik's crowdsec plugin middleware went invalid
+
+**Symptom.** Every `*.sandstorm.chat` host answered `404 page not found` with no router name in the access log. Pods, ingresses and Services were all fine. Traefik logged, for every router: `invalid middleware "kube-system-crowdsec@kubernetescrd" configuration: invalid middleware type or middleware does not exist`.
+
+**Trigger.** Started at 01:03:11Z, as 11 apps were removed from git and their Ingresses, Services and Applications disappeared in a burst (Traefik reloaded its Kubernetes provider dozens of times).
+
+**Fix.** `kubectl rollout restart deploy/traefik -n kube-system`. All hosts answered again within seconds (200/302).
+
+**Root cause.** PROVISIONAL: the crowdsec bouncer plugin middleware failed to re-initialise during the reload burst and stayed invalid until the process restarted; every router uses that middleware, so all of them were dropped. Not proven (no plugin-level error was logged).
+
+**Prevention.** After removing several apps at once, check one host and restart Traefik if it 404s. If this recurs, the ticket is the plugin's behaviour on provider reload (Traefik 3.7.16).
+
 ## 2026-11-21 — Everything on NFS is slow (3-9 s to create a file): all pods share one TCP connection to the NAS
 
 **Symptom.** Immich thumbnails would not load; creating a file on any NFS volume took 3-9 s (Octo config 5.9 s, Immich
