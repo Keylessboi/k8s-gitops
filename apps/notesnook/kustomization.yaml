@@ -1,6 +1,6 @@
 ---
 # Notesnook: end-to-end encrypted notes, self-hosted sync. Replaces Memos
-# (apps/memos stays until its 309 notes are confirmed imported).
+# (apps/memos was removed from git 2026-11-21; its data is retained in the databases cluster).
 #
 # Chosen 2026-09-17 over TriliumNext and Joplin because it is the closest FOSS
 # match to Standard Notes: E2EE by default and polished native apps on every

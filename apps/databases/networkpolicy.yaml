@@ -41,16 +41,7 @@ spec:
               kubernetes.io/metadata.name: lidarr
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: pelican
-        - namespaceSelector:
-            matchLabels:
               kubernetes.io/metadata.name: bitmagnet
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: memos
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: peertube
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: databases

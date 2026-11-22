@@ -120,19 +120,6 @@ entries:
     approved_on: 2026-10-06
     approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
     review_by: 2027-10-01
-  - id: P-14
-    ingress: pelican/pelican
-    routes: [pelican.sandstorm.chat/]
-    basis: oidc
-    reason: >-
-      Pelican has its own Authentik login (OIDC). Forward authentication would break the
-      client API (/api/*, bearer tokens) and the Wings daemon callbacks (/api/remote/*),
-      which are not browsers and cannot follow a login redirect.
-    criteria: {reason: met, data: unverified, login: unverified, accounts: not-met, function: met}
-    status: approved
-    approved_on: 2026-10-06
-    approval_note: "Approved by the owner in the session of 2026-10-06 (\"I approve\"). Open questions: is local password login off, and is /api/* reachable by anonymous callers? Narrowing the route to /api/* only is the stricter option."
-    review_by: 2027-10-01
   - id: P-15
     ingress: immich/immich
     routes: [immich.sandstorm.chat/]
@@ -146,16 +133,6 @@ entries:
   - id: P-16
     ingress: nextcloud/nextcloud
     routes: [nextcloud.sandstorm.chat/]
-    basis: oidc
-    reason: Logs in through the identity provider with OIDC. Meets HS-NET-06 only if local password login is off.
-    criteria: {reason: met, data: met, login: unverified, accounts: met, function: met}
-    status: approved
-    approved_on: 2026-10-06
-    approval_note: "Approved by the agent at the owner's request on 2026-10-06; not individually reviewed."
-    review_by: 2027-10-01
-  - id: P-17
-    ingress: memos/memos
-    routes: [notes.sandstorm.chat/]
     basis: oidc
     reason: Logs in through the identity provider with OIDC. Meets HS-NET-06 only if local password login is off.
     criteria: {reason: met, data: met, login: unverified, accounts: met, function: met}
@@ -193,13 +170,3 @@ entries:
     approved_on: 2026-10-20
     approval_note: "Approved by the owner on 2026-10-20 (in conversation, after the rationale was explained); entry written by the agent."
     review_by: 2027-10-01
-  - id: P-21
-    ingress: peertube/peertube
-    routes: [peertube.sandstorm.chat/]
-    basis: oidc
-    reason: Logs in through the identity provider with OIDC (PeerTube auth-openid-connect plugin, Authentik provider). Signup is off; a local root account exists (accounts register).
-    criteria: {reason: met, data: met, login: unverified, accounts: met, function: met}
-    status: approved
-    approved_on: 2026-10-30
-    approval_note: "Approved by the agent at the owner's request on 2026-10-30 (owner asked for OIDC-only after the exposure trade-off was explained); not individually reviewed."
-    review_by: 2027-10-30
