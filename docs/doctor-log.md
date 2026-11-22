@@ -206,7 +206,7 @@ heavy local consumer, prefer a local PV on the NAS node (see octo-sonic) over NF
 
 **Second cause (found on the restart).** The Proxmox host's `/etc/fstab` mounts `/mnt/nas-nfs` (bind-mounted into CT 200 as mp0) with `nfsvers=4.1,hard`; as the FIRST mount to the NAS it created the shared client without nconnect, and the CSI mounts then inherited it. Fix: `nconnect=8` added to the host fstab line (backup `/root/fstab.bak-nconnect`), CT 200 stopped, host remounted, CT started.
 
-**Follow-up (same day).** qBittorrent + slskd moved onto the NAS node with static local PVs for config (`qbittorrent-config-nas`, `slskd-config-nas`) and data (`media-data-nas`), all in the encrypted tank/extra dataset (D-10); the old local-path copies on k3s-server stay as a rollback and can be pruned later. nfsd was already at 16 threads.
+**Follow-up (same day).** qBittorrent + slskd moved onto the NAS node with static local PVs for config (`qbittorrent-config-nas`, `slskd-config-nas`) and data (`media-data-nas`), all in the encrypted tank/extra dataset (D-10); the old local-path copies on k3s-server stay as a rollback and can be pruned later. On 2026-11-22 Octo followed: `octo-config-nas` (a copy, so the old nfs-csi directory stays as rollback) and `media-data-nas`, pod pinned to the NAS; it was Ready 45 s after the start. nfsd was already at 16 threads.
 
 **Confidence.** CONFIRMED: 8 established connections to NAS:2049 and file create 1-5 ms (was 3-9 s).
 
