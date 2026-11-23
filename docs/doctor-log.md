@@ -175,6 +175,18 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
+## 2026-11-22 — Octo says "Lidarr is not one of your download sources"
+
+**Symptom.** Octo (song lookups in the player) showed "Lidarr is not one of your download sources" although Lidarr was set up and reachable.
+
+**Root cause.** CONFIRMED from `song_finder.rs:1673-1712`: a song-level lookup treats a source as "used" only when its `SongEnabled` is true. `apps/downloads/octo.yaml` had Lidarr first with `SongEnabled=false` (Lidarr is album-level), so every song lookup reported it unused.
+
+**Fix.** Lidarr `SongEnabled=true`, moved behind YouTube (YouTube, Lidarr, Soulseek): a song heart tries the instant YouTube grab first, then Lidarr (which fetches the track's whole album, accepted by the owner), then Soulseek. Album hearts are unchanged (YouTube album off, Lidarr, Soulseek).
+
+**Prevention.** The message names the toggle, not a fault: look at `Subsonic__HeartDownloadSources__*` before looking at Lidarr.
+
+**Confidence.** PROVISIONAL until the message is confirmed gone in the player. If the error appears only on library-quality-upgrade lookups it comes from `UpgradeSources` (a different setting), not this one.
+
 ## 2026-11-22 — Every host returns 404: Traefik's crowdsec plugin middleware went invalid
 
 **Symptom.** Every `*.sandstorm.chat` host answered `404 page not found` with no router name in the access log. Pods, ingresses and Services were all fine. Traefik logged, for every router: `invalid middleware "kube-system-crowdsec@kubernetescrd" configuration: invalid middleware type or middleware does not exist`.

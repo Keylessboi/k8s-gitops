@@ -251,22 +251,27 @@ spec:
             # qbittorrent.yaml). Last means "still tried, never blocking".
             #
             #   album heart -> Lidarr, else Soulseek
-            #   song  heart -> YouTube, else Soulseek
+            #   song  heart -> YouTube, else Lidarr (the track's whole album), else Soulseek
             #
-            # Lidarr is album-level by construction, so it takes no song
-            # hearts. YouTube is the shim: instant, MP3, and always available.
+            # Lidarr is album-level by construction, so a song heart it takes
+            # acquires the track's full album. That is accepted (2026-11-22):
+            # with SongEnabled false Octo told every song lookup "Lidarr is not
+            # one of your download sources" (song_finder.rs). It sits AFTER
+            # YouTube so the instant MP3 still goes first and Lidarr only picks
+            # up what YouTube could not get. YouTube is the shim: instant,
+            # MP3, and always available.
             - name: Subsonic__HeartDownloadSources__0__Source
-              value: Lidarr
-            - name: Subsonic__HeartDownloadSources__0__SongEnabled
-              value: "false"
-            - name: Subsonic__HeartDownloadSources__0__AlbumEnabled
-              value: "true"
-            - name: Subsonic__HeartDownloadSources__1__Source
               value: YouTube
+            - name: Subsonic__HeartDownloadSources__0__SongEnabled
+              value: "true"
+            - name: Subsonic__HeartDownloadSources__0__AlbumEnabled
+              value: "false"
+            - name: Subsonic__HeartDownloadSources__1__Source
+              value: Lidarr
             - name: Subsonic__HeartDownloadSources__1__SongEnabled
               value: "true"
             - name: Subsonic__HeartDownloadSources__1__AlbumEnabled
-              value: "false"
+              value: "true"
             - name: Subsonic__HeartDownloadSources__2__Source
               value: Soulseek
             - name: Subsonic__HeartDownloadSources__2__SongEnabled
