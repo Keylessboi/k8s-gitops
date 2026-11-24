@@ -175,6 +175,18 @@ After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
 
+## 2026-11-24 — Immich "doubled": 252.6 GiB of untracked duplicate originals in upload/
+
+**Symptom.** `/extra/nfs-csi/immich` measured 602 GB against about 300 GB remembered: library 263 GB, upload/ 258 GB, encoded-video 71 GB, two thumbs trees 6 GB each.
+
+**Finding.** CONFIRMED by hashing every file in `upload/` (SHA-1) against `asset.checksum`: 9,690 files (252.6 GiB) were byte-identical to originals the database tracks under `library/admin/`, with the tracked copy present on disk for every one. 321 files (4.2 GiB) are tracked in upload/ (a second user's assets). 12 files matched nothing (the `.immich` marker, ten images from Feb-Mar 2026, one 22-byte stub). Nothing in the database pointed at the duplicates (asset_file 0 rows, `move_history` empty). All upload/ files are root:root; the library tree is uid 1000.
+
+**Cause.** UNPROVEN. Immich's storage-template move has a path that leaves exactly this (rename EXDEV, copy, verify, then a failed `unlink` is only a `logger.warn` and the move still completes, `storage.core.ts` `moveFile`), but our mtimes do not fit it (upload files are dated 2026-08-21, the restore day; library copies keep the photo date). The data came from the 2026-09-04 migration, so the older install is the likely origin.
+
+**Fix.** ZFS snapshot `tank/extra@immich-upload-dedupe-20261124`, then deleted the 9,690 verified duplicates and their `.xmp` sidecars by explicit list (nothing by pattern), and removed the empty hash folders. Verified afterwards: all 10,690 database assets exist on disk; 337 files remain in upload/ (321 tracked + 12 unmatched + 4 uploads that arrived during the run). The space returns to the pool only when the snapshot is destroyed.
+
+**Prevention.** Not filed upstream: Immich's CONTRIBUTING requires human-written reports and the cause is unproven. Immich 3.2.4's Integrity "untracked files" report would list these files but cannot say they duplicate a tracked asset; check checksums before deleting from it.
+
 ## 2026-11-22 — Octo says "Lidarr is not one of your download sources"
 
 **Symptom.** Octo (song lookups in the player) showed "Lidarr is not one of your download sources" although Lidarr was set up and reachable.
