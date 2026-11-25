@@ -27,7 +27,7 @@ env:
   # Keylessboi/cellarr branch ccr-28dccdf6-ysjbz9: the Lidarr face, shadow
   # mode, `cellarr snapshot`, streamed history, plugin sidecar.
   FORK_REPO: Keylessboi/cellarr
-  FORK_REF: 57eb61f0d992388ecab6768a03a8689373ef567a
+  FORK_REF: 488af8d7e83c6fec561b4ef724cacd9659e1f3bf
   IMAGE: ghcr.io/keylessboi/cellarr
 
 jobs:

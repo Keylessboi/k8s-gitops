@@ -55,7 +55,7 @@ configMapGenerator:
 images:
   - name: cellarr
     newName: ghcr.io/keylessboi/cellarr
-    digest: sha256:4f275abee25fffa067bb76dbeebcb5432a59c412dd4d95d03861282157bff748
+    digest: sha256:587c9d143ec0fea0aad31fcbb999317de5faa92d422b2bf1c3149287c45de0f9
 
 components:
   - ../../components/protect-state
