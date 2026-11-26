@@ -403,6 +403,58 @@ What is left on the media volume is yours to remove too:
 folders under `/data/torrents/soulseek` and `/data/torrents/apple`, the
 transfers in slskd's UI, and the `music-rehearsal` category in qBittorrent.
 
+### 4.8 YouTube through lidarr-downloader (optional rehearsal)
+
+Production's YouTube path is the yt-dlp app `lidarr-downloader`, not a Lidarr
+plugin. `apps/cellarr-shadow/rehearsal/lidarr-downloader.yaml` runs the same
+image digest and security posture against the **rehearsal** cellarr only:
+
+| Object | What it is |
+|---|---|
+| Deployment `lidarr-downloader-rehearsal` | `LIDARR_URL` is `cellarr-rehearsal.lidarr.svc:8686`, key from Secret `cellarr-rehearsal`/`cellarr-api-key`. `/music` is the media volume at `torrents/cellarr-rehearsal/library` (never `media/music`), `/downloads` is `torrents/cellarr-rehearsal/youtube`. No hostPort, no Ingress, no cookies, `YT_POT_PROVIDER_URL` empty. Labelled `homelab/rehearsal-part=workload` |
+| Service `cellarr-rehearsal` | ClusterIP 8686 to the rehearsal cellarr pod, for the downloader only (the rehearsal Deployment itself is not changed). Labelled `workload` |
+| PVC `lidarr-downloader-rehearsal-config` | 1Gi, the downloader's `/config` (settings, its SQLite). Labelled `homelab/rehearsal-part=state`, so the label-scoped teardown keeps it |
+
+`prepare-dirs` (an init container running as uid/gid 1000, like the cellarr one)
+creates `youtube/` owned by 1000; no fsGroup or chown is needed.
+
+Run it with a test artist that is NOT in production Lidarr (GET-only check of
+`/api/v1/artist` on production). To apply just these objects without touching
+the running `cellarr-rehearsal`, render and pick them by name:
+
+```sh
+kubectl kustomize apps/cellarr-shadow/rehearsal > /tmp/r.yaml   # then keep only the 3 objects above
+kubectl apply -f /tmp/r.yaml                                    # a full `apply -k` also works; it is a no-op for the rest
+```
+
+Then:
+
+1. Add the artist to the rehearsal cellarr (`POST /api/v1/artist`, root folder
+   `/data/torrents/cellarr-rehearsal/library`, `addOptions.monitor` `none`). Monitor
+   `none` leaves the artist **unmonitored**, and an unmonitored artist's albums never
+   appear in `wanted/missing`: `PUT /api/v1/artist/<id>` with `monitored: true`.
+   The `Standard` metadata profile only allows type `Album`; for an EP add it with
+   `POST /api/v1/album` (from `album/lookup`, `monitored: true`).
+2. Check `GET /api/v1/album/<id>` shows `releases[]` and `GET /api/v1/wanted/missing`
+   lists it. (The `POST album` response itself shows empty `releases`; the GET a moment
+   later has them. No RefreshArtist was needed in the 2026-11-26 run.)
+3. In the downloader (`kubectl -n lidarr port-forward deploy/lidarr-downloader-rehearsal 15000:5000`),
+   Settings: enable the scheduler with a 1 minute interval and auto-download.
+   `lidarr_sync_interval` is not settable through the API (default 15 min);
+   `POST /api/sync/refresh` forces a sync.
+4. Watch `kubectl -n lidarr logs deploy/lidarr-downloader-rehearsal -c app -f`.
+
+**Success looks like**: the album's `statistics.trackFileCount` equals `trackCount`;
+`GET /api/v1/trackfile?albumId=<id>` lists every file under
+`/data/torrents/cellarr-rehearsal/library/<Artist>/<Album (year)>/`; the tags are right;
+`/downloads` is empty again; nothing under `media/music`. Known harmless findings: the
+downloader also copies per-track `.xml` metadata, `cover.jpg`, `folder.jpg` and `artist.jpg`
+(no `.nfo`); track tags read `N/0` because the downloader reads a top-level `trackCount`
+that real Lidarr does not return either; and its history row fails to insert
+(`sqlite3 ... type 'dict'`, in the app, not in cellarr), which does not stop the import.
+
+The teardown in 4.7 removes the Deployment and the Service and keeps the PVC.
+
 ## 5. Cutover
 
 Do it in one commit, at a quiet time, with the queue empty or near it:

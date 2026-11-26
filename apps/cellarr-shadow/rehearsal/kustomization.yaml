@@ -67,6 +67,7 @@ labels:
 resources:
   - pvc.yaml
   - deployment.yaml
+  - lidarr-downloader.yaml
 
 # The same build as ../kustomization.yaml. Pin the same build there and here
 # (runbook step 0).
