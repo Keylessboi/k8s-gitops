@@ -29,7 +29,7 @@ env:
   # per-release download client, albums with no monitored release, and
   # RefreshArtist's disk scan of the artist folder.
   FORK_REPO: Keylessboi/cellarr
-  FORK_REF: 5f9db8a4f7d7ba221cddb3ee345f0926ff43df30
+  FORK_REF: 441f603a957d7a955befd66841b0052b0b6ece3f
   IMAGE: ghcr.io/keylessboi/cellarr
 
 jobs:
