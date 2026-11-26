@@ -24,10 +24,12 @@ permissions:
   packages: write
 
 env:
-  # Keylessboi/cellarr branch ccr-28dccdf6-ysjbz9: the Lidarr face, shadow
-  # mode, `cellarr snapshot`, streamed history, plugin sidecar.
+  # Keylessboi/cellarr branch cutover-fixes-2026-11-26: the Lidarr face,
+  # shadow mode, `cellarr snapshot`, streamed history, plugin sidecar, plus the
+  # per-release download client, albums with no monitored release, and
+  # RefreshArtist's disk scan of the artist folder.
   FORK_REPO: Keylessboi/cellarr
-  FORK_REF: 488af8d7e83c6fec561b4ef724cacd9659e1f3bf
+  FORK_REF: 5f9db8a4f7d7ba221cddb3ee345f0926ff43df30
   IMAGE: ghcr.io/keylessboi/cellarr
 
 jobs:
