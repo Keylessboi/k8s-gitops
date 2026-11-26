@@ -128,6 +128,10 @@ def expected_field(section, f, va, vb):
     return False
 
 
+ROOTFOLDER_DEFAULTS = ["defaultQualityProfileId", "defaultMetadataProfileId", "defaultMonitorOption",
+                       "defaultNewItemMonitorOption", "defaultTags"]
+
+
 def compare_rootfolders(report, live, shadow):
     a = {norm(r.get("path")): r for r in live}
     b = {norm(r.get("path")): r for r in shadow}
@@ -138,6 +142,9 @@ def compare_rootfolders(report, live, shadow):
     for p in sorted(set(a) & set(b), key=str):
         if a[p].get("id") != b[p].get("id"):
             report.diff("/rootfolder", f"path {p!r} id: Lidarr {a[p].get('id')!r}, cellarr {b[p].get('id')!r}", expected=True)
+        for f in ROOTFOLDER_DEFAULTS:
+            if a[p].get(f) != b[p].get(f):
+                report.diff("/rootfolder", f"path {p!r} {f}: Lidarr {a[p].get(f)!r}, cellarr {b[p].get(f)!r}")
     report.ok("/rootfolder")
 
 
@@ -210,7 +217,7 @@ def run(a, live, shadow):
     for path, fields in [
         ("/qualityprofile", ["name", "cutoff", "upgradeAllowed"]),
         ("/metadataprofile", ["name"]),
-        ("/rootfolder", ["path"]),
+        ("/rootfolder", ["path"] + ROOTFOLDER_DEFAULTS),
     ]:
         if path == "/rootfolder" and a.known:
             compare_rootfolders(report, live.get(path), shadow.get(path))
