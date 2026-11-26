@@ -101,7 +101,7 @@ helmCharts:
                 # breaking changes, required migrations or new Postgres/VectorChord
                 # minimums; v3.3.5 carries the eMudhra CA fix.
                 # renovate: datasource=docker depName=ghcr.io/immich-app/immich-server
-                tag: v3.3.6
+                tag: v3.4.2
               env:
                 # Central Postgres, not a per-app cluster.
                 DB_HOSTNAME: app-databases-rw.databases.svc.cluster.local
@@ -196,7 +196,7 @@ helmCharts:
                   # server and ML to run the exact same version. So is the
                   # remote ML container on the backup host (docker, immich-ml).
                   # renovate: datasource=docker depName=ghcr.io/immich-app/immich-machine-learning
-                  tag: v3.3.6
+                  tag: v3.4.2
                 resources:
                   requests:
                     cpu: 250m
