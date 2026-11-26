@@ -16,6 +16,8 @@ metadata:
 spec:
   # 04:41 UTC: clear of the search sniper (:17) and the maintenance window.
   schedule: "41 4 * * *"
+  # Cutover: Lidarr is stopped, so there is nothing to compare.
+  suspend: true
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 3600
   successfulJobsHistoryLimit: 3

@@ -91,9 +91,6 @@ spec:
           env:
             - name: CELLARR_DATA_DIR
               value: /cellarr
-            # Read-only: no scheduled jobs, every non-GET request refused.
-            - name: CELLARR_SHADOW
-              value: "true"
             - name: CELLARR_API__BIND
               value: 0.0.0.0
             - name: CELLARR_API__PORT
@@ -144,13 +141,13 @@ spec:
           volumeMounts:
             - name: cellarr
               mountPath: /cellarr
-            # The library and downloads at the same paths Lidarr sees, so the
-            # migrated root folders and track-file paths resolve. readOnly: the
-            # shadow never touches a file (and only Lidarr writes tags,
-            # ADR-0004).
+            # The library and downloads at the same paths Lidarr saw, so the
+            # migrated root folders and track-file paths resolve. Read-write
+            # since cutover: cellarr imports into the library in Lidarr's
+            # place. It never writes audio tags (see ADR-0004 and the
+            # cutover runbook).
             - name: data
               mountPath: /data
-              readOnly: true
             - name: tmp
               mountPath: /tmp
       volumes:
@@ -164,7 +161,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: media-data-nas
-            readOnly: true
         - name: tmp
           emptyDir:
             sizeLimit: 256Mi

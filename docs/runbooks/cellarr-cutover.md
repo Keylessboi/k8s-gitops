@@ -426,6 +426,10 @@ Two behaviours differ from Lidarr and are known:
   UI;
 - a stalled or failed download is still removed from the client when it is
   blocklisted (Lidarr's default too). Torrents that imported are never removed.
+- cellarr never writes audio tags. Lidarr ran with `writeAudioTags: sync`,
+  so after cutover nothing keeps file tags in step with MusicBrainz. That is
+  safe for seeding (ADR-0004's hazard is a tool rewriting hardlinked files),
+  but ADR-0004 names Lidarr as the tag writer and needs an update to match.
 
 ## 6. Rollback
 
