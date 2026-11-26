@@ -496,23 +496,68 @@ clients see errors in between either way.)
    s "$S/config/metadataprovider" | jq .writeAudioTags   # must be "no"
    ```
 
-4. **Install Tubifarry** in the sidecar through the same steps as 4.4
-   (`InstallPlugin` with the `githubUrl` production reports; Lidarr restarts to
-   load it; re-open the port-forward if it drops), then confirm
-   `s "$S/downloadclient/schema" | jq -r '.[].implementation'` lists Slskd and
-   AppleMusicarr.
-5. **Create the Slskd and AppleMusicarr indexer and download client in the
-   sidecar** (`POST $S/indexer`, `POST $S/downloadclient`, bodies from the
-   schemas), with production's values (slskd URL, the decryptor URL, names and
-   settings from production Lidarr's Settings, as in 4.1) **except the
-   secrets**. Production's `apiKey` fields come back **masked** from
-   `GET /api/v1/downloadclient`, so do not copy them from that output: take the
-   real slskd key from the Secret or secret store it comes from (as the
-   rehearsal had to) and splice it into the body server-side, in a shell
-   variable, without printing it. Download paths stay
+4. **Install Tubifarry and create the twins: run the setup script**
+   (`scripts/cellarr-sidecar-setup.py`, Python 3 standard library only). It
+   waits for the sidecar, installs Tubifarry through `InstallPlugin` (restarting
+   the sidecar and waiting for `/ping` if the plugin is not live yet), and
+   creates or updates **by name** the Slskd (`Slskd2`) and AppleMusicarr
+   download clients and the Slskd and AppleMusicarr indexers with production's
+   field values, then checks them in the sidecar's own `GET /downloadclient`
+   and `/indexer` and runs the sidecar's `/test` on each. Run it twice and the
+   second run changes nothing. It prints names, ids and ok/fail only.
+
+   It runs in a short-lived Pod in namespace `lidarr`, because that is the one
+   place that reaches production Lidarr's Service, the sidecar (on the
+   cellarr-shadow Pod's own network namespace, port 8687, no Service) and both
+   API keys. The keys come from `secretKeyRef`, so they are never in argv, a
+   file or your terminal. From the LXC (`kubectl` is there; the script goes in
+   on stdin):
+
+   ```sh
+   LXC='ssh -i /home/travis/.ssh/worker_key root@100.125.108.56'
+   $LXC "pct exec 200 -- kubectl apply -f -" < scripts/cellarr-sidecar-setup.runner.yaml
+   $LXC "pct exec 200 -- kubectl -n lidarr wait --for=condition=Ready pod/cellarr-sidecar-setup --timeout=180s"
+   IP=$($LXC "pct exec 200 -- kubectl -n lidarr get pod -l app.kubernetes.io/name=cellarr-shadow --field-selector=status.phase=Running -o jsonpath='{.items[0].status.podIP}'")
+   run() { $LXC "pct exec 200 -- kubectl -n lidarr exec -i cellarr-sidecar-setup -- env SIDECAR_URL=http://$IP:8687 python3 - $*" < scripts/cellarr-sidecar-setup.py; }
+   run --dry-run      # the plan: reads everything, writes nothing
+   run                # for real; add --no-test to skip the /test calls
+   ```
+
+   Then remove the runner (the Pod also ends itself after an hour):
+
+   ```sh
+   $LXC "pct exec 200 -- kubectl -n lidarr delete pod/cellarr-sidecar-setup networkpolicy/cellarr-sidecar-setup-egress"
+   ```
+
+   Production Lidarr is only ever sent GET. **Where the values come from:**
+   `--source auto` (the default) uses production Lidarr while it answers
+   `/ping`, and otherwise cellarr's migrated copy (`cellarr-shadow:8686`, same
+   key, GET only). Lidarr is already stopped at this point of the cutover
+   (step 1), so expect `source: cellarr`. cellarr stores plugin clients as
+   Blackhole and plugin indexers as Torznab, so the script matches them by name
+   there. **The masked-key workaround:** production's `apiKey` fields come
+   back masked (`********`) from `GET /api/v1/downloadclient` and `/indexer`.
+   The script takes the real value from cellarr's row of the same name (the
+   client `Slskd2` and the indexer `Slskd` carry one key), checks it against
+   slskd (`GET /api/v0/application`, status code only), and puts it into the
+   sidecar's request body in memory. It is never printed. AppleMusicarr's
+   `developerToken` and `musicUserToken` are plain fields in production and are
+   copied as they are. Top-level settings follow cellarr's own mirror rows:
+   indexers on-demand only (no RSS), clients enabled at priority 1.
+5. **Read the result.** `RESULT: ok` means the four rows exist and their tests
+   passed. One known warning: the production slskd key cannot read slskd's
+   `/api/v0/options`, which the Slskd plugin's validation and its `/test` ask
+   for (HTTP 403). The script then creates the client disabled and enables it
+   with `forceSave`, as cellarr's own mirror code does, and prints
+   `RESULT: ok (1 warning)`. Any other failure (an unwritable download path, a
+   bad URL, a missing row) exits non-zero and names the row. Download paths stay
    `/data/torrents/soulseek` and `/data/torrents/apple`. If the import cannot
-   find slskd's files because its `outputPath` is relative, use the per-album
-   remote path mapping workaround from the rehearsal.
+   find slskd's files because its `outputPath` is relative (the same 403 stops
+   Tubifarry reading slskd's download folder), use the per-album remote path
+   mapping workaround from the rehearsal. If cellarr's
+   `GET /api/v1/downloadclient/schema` does not list the plugins' clients
+   afterwards (older builds only look at boot), run
+   `kubectl -n lidarr rollout restart deploy/cellarr-shadow`.
 6. **Verify cellarr resolves them**: with cellarr's key,
    `GET http://127.0.0.1:18686/api/v1/downloadclient` and `/indexer` list the
    migrated Slskd and AppleMusicarr rows, and `POST .../downloadclient/test`

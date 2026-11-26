@@ -1,0 +1,87 @@
+# Short-lived runner for scripts/cellarr-sidecar-setup.py. NOT synced by ArgoCD
+# (scripts/ is not an app); apply and delete it by hand, see the runbook
+# section "Plugin sidecar". Nothing here is written to the cluster except these
+# two objects, and the script only GETs production Lidarr.
+#
+# Why a Pod: the sidecar is on the cellarr-shadow Pod's own network namespace
+# (port 8687, no Service) and production's API key lives in a Secret. A Pod can
+# take both keys from secretKeyRef, so no key is ever in argv, a file or a
+# terminal. The pinned image is the one the diff CronJobs already use.
+#
+# Why a NetworkPolicy: apps/lidarr's app-isolation policy allows egress to the
+# lidarr namespace on 8686 only, so the runner needs 8687 to the sidecar's Pod
+# (additive, this Pod only, TCP 8687 only).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cellarr-sidecar-setup
+  namespace: lidarr
+  labels:
+    app.kubernetes.io/name: cellarr-sidecar-setup
+spec:
+  restartPolicy: Never
+  # Gone by itself after an hour even if nobody deletes it.
+  activeDeadlineSeconds: 3600
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: run
+      image: python:3.14-alpine3.24@sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec55f1866cac66b01
+      command: ["sleep", "3600"]
+      env:
+        # Production Lidarr's key (GET only; the script never sends anything
+        # but GET to it).
+        - name: PROD_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: lidarr-api
+              key: api-key
+        # The sidecar's key: the Secret cellarr-shadow's sidecar already uses.
+        - name: SIDECAR_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: cellarr-sidecar
+              key: sidecar-api-key
+        - name: PROD_URL
+          value: http://lidarr.lidarr.svc.cluster.local:8686
+        # The cellarr-shadow Pod's IP is not known until it runs: the runbook
+        # sets SIDECAR_URL per run with `env` on the exec command.
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cellarr-sidecar-setup-egress
+  namespace: lidarr
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cellarr-sidecar-setup
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: [cellarr-shadow]
+      ports:
+        - port: 8687
+          protocol: TCP
