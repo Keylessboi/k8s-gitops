@@ -1,0 +1,12 @@
+# The encrypted session file, review queue and raw captures. Small; nfs-csi (encrypted at rest, C3, snapshotted). JSON files and an encrypted tar only, no SQLite (ADR-0009).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bite-sized-data
+  namespace: bite-sized
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 2Gi
