@@ -1,0 +1,193 @@
+---
+# Nightly diff against a FRESH snapshot, in its own pod. The long-lived shadow
+# is a snapshot that ages (the 2026-11-25 full diff: 27 differences, all but one
+# explained by imports after the snapshot). This Job takes today's snapshot of
+# Lidarr's database, migrates it into a scratch volume, runs a throwaway
+# shadow-mode cellarr on localhost, and diffs Lidarr against that, so the
+# remaining differences are real. It never touches cellarr-shadow.
+#
+# Needs no RBAC and no API-server access (so no NetworkPolicy change): the
+# Job's own pod does everything. Reach out: Lidarr's GET API only (the
+# app-isolation policy already allows lidarr:8686).
+#
+# Cannot touch production Lidarr or the media: lidarr-config is mounted
+# readOnly and read with SQLite's VACUUM INTO on a read-only connection (one
+# read transaction, no write lock, as for the shadow); /data is readOnly; the
+# throwaway cellarr runs with CELLARR_SHADOW=true (no jobs, non-GET refused).
+# The only volume written is cellarr-diff-scratch, wiped at the start of a run.
+#
+# 04:11 UTC: snapshot at ~04:12, migrate done ~04:20 (7 min in the 2026-11-25
+# resync), diff ~04:25-04:35. Clear of the search sniper's :17 for the
+# 20-second snapshot only. The older cellarr-shadow-diff at 04:41 is left
+# alone; suspend it once this one has proven itself.
+#
+# Cutover: suspend this CronJob (runbook, cutover step 5).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cellarr-shadow-diff-fresh
+  namespace: lidarr
+spec:
+  schedule: "11 4 * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 5400
+      template:
+        metadata:
+          annotations:
+            homelab/no-wait-init: "the script retries each GET 5x with backoff, so a kube-router race on the first call is ridden out"
+        spec:
+          restartPolicy: Never
+          # On the NAS, beside Lidarr: the config volume is local there.
+          nodeSelector:
+            kubernetes.io/hostname: nas
+          tolerations:
+            - {key: storage, operator: Equal, value: "true", effect: NoSchedule}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            # Snapshot + migrate into the scratch volume (same steps as the
+            # shadow's migrate init container, after wiping the volume).
+            - name: migrate
+              image: cellarr
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  find /scratch -mindepth 1 -delete
+                  cellarr snapshot /lidarr-config/lidarr.db /scratch/lidarr-snapshot.db
+                  cellarr migrate /scratch/lidarr-snapshot.db
+                  rm -f /scratch/lidarr-snapshot.db
+                  date -u +%Y-%m-%dT%H:%M:%SZ > /scratch/.migrated-from-lidarr
+              env:
+                - name: CELLARR_DATA_DIR
+                  value: /scratch
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 768Mi
+              volumeMounts:
+                - name: scratch
+                  mountPath: /scratch
+                - name: lidarr-config
+                  mountPath: /lidarr-config
+                  readOnly: true
+            # Native sidecar (restartPolicy: Always on an init container): the
+            # throwaway shadow, up for the diff and stopped when it ends. The
+            # startupProbe holds the diff container back until it answers.
+            - name: cellarr
+              image: cellarr
+              restartPolicy: Always
+              args: ["run"]
+              env:
+                - name: CELLARR_DATA_DIR
+                  value: /scratch
+                - name: CELLARR_SHADOW
+                  value: "true"
+                - name: CELLARR_API__BIND
+                  value: 127.0.0.1
+                - name: CELLARR_API__PORT
+                  value: "9494"
+                - name: CELLARR_MUSIC__LIDARR_PORT
+                  value: "8686"
+                - name: CELLARR_API__API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: lidarr-api
+                      key: api-key
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+              startupProbe:
+                httpGet:
+                  path: /ping
+                  port: 8686
+                periodSeconds: 10
+                failureThreshold: 60
+              volumeMounts:
+                - name: scratch
+                  mountPath: /scratch
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          containers:
+            - name: diff
+              image: python:3.14-alpine3.24@sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec55f1866cac66b01
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              command: ["python3", "-u", "/script/lidarr-shadow-diff.py"]
+              # Same load on Lidarr as the nightly diff: 100 artists' track
+              # files, no full album list. (The album list is Lidarr's heaviest
+              # call; the cutover gate runs it on demand.)
+              args:
+                - http://lidarr.lidarr.svc.cluster.local:8686
+                - http://127.0.0.1:8686
+                - --sample
+                - "100"
+                - --no-albums
+                - --known
+              env:
+                - name: LIDARR_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: lidarr-api
+                      key: api-key
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 1536Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /script
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: cellarr-shadow-diff
+            - name: scratch
+              persistentVolumeClaim:
+                claimName: cellarr-diff-scratch
+            - name: lidarr-config
+              persistentVolumeClaim:
+                claimName: lidarr-config-nas
+                readOnly: true
+            - name: data
+              persistentVolumeClaim:
+                claimName: media-data-nas
+                readOnly: true
+            - name: tmp
+              emptyDir:
+                sizeLimit: 256Mi
