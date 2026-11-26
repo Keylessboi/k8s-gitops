@@ -1,0 +1,40 @@
+# The authentik outpost's endpoints, routed under this app's hostname. Same reasoning as
+# apps/books/authentik-outpost.yaml: after login authentik redirects the browser to
+# https://homework.sandstorm.chat/outpost.goauthentik.io/callback, which must reach the
+# OUTPOST and not the app, and must NOT pass through forward auth itself (redirect loop),
+# hence a separate Ingress. Rate limiting and CrowdSec still apply.
+apiVersion: v1
+kind: Service
+metadata:
+  name: authentik-outpost
+spec:
+  type: ExternalName
+  externalName: ak-outpost-authentik-embedded-outpost.authentik.svc.cluster.local
+  ports:
+    - name: http
+      port: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bite-sized-outpost
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - homework.sandstorm.chat
+      secretName: bite-sized-tls
+  rules:
+    - host: homework.sandstorm.chat
+      http:
+        paths:
+          - path: /outpost.goauthentik.io
+            pathType: Prefix
+            backend:
+              service:
+                name: authentik-outpost
+                port:
+                  number: 9000

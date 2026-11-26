@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bite-sized
+  labels:
+    # Student education records (assignments, a school Google session). Highest class in use.
+    homelab/data-class: c3
+    homelab/criticality: tier-3
+    app.kubernetes.io/name: bite-sized
+    app.kubernetes.io/part-of: homelab
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

@@ -1,0 +1,30 @@
+# homework.sandstorm.chat, behind crowdsec + rate-limit + authentik forward-auth, like
+# books. The app itself has NO login: it drives a signed-in school Google session, so
+# forward-auth is load-bearing. If it is ever removed from this file the whole thing is
+# open to the internet - do not remove it.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bite-sized
+  namespace: bite-sized
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec@kubernetescrd,kube-system-rate-limit@kubernetescrd,kube-system-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - homework.sandstorm.chat
+      secretName: bite-sized-tls
+  rules:
+    - host: homework.sandstorm.chat
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: bite-sized
+                port:
+                  number: 80
