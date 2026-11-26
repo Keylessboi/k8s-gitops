@@ -29,3 +29,21 @@ spec:
   resources:
     requests:
       storage: 12Gi
+---
+# The plugin sidecar's /config (cutover interim): lidarr.db, config.xml and
+# /config/plugins (AppleMusicarr, Tubifarry). NEW and empty, never a copy of
+# production Lidarr's lidarr-config-nas. local-path on the NAS because it holds
+# SQLite (ADR-0009: never on nfs-csi). An empty Lidarr is tens of MB; 1Gi leaves
+# room for Tubifarry's caches. protect-state keeps ArgoCD from pruning it, which
+# is also what keeps it across a rollback.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cellarr-sidecar-config
+  namespace: lidarr
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi

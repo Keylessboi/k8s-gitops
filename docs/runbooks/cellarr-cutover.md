@@ -414,13 +414,117 @@ Do it in one commit, at a quiet time, with the queue empty or near it:
 3. In `apps/cellarr-shadow/deployment.yaml`:
    - remove `CELLARR_SHADOW`;
    - mount `/data` read-write (drop both `readOnly: true` on `data`);
-   - add the sidecar settings from step 4, if it passed.
+   - the plugin sidecar (`lidarr-sidecar`, its init containers, PVC
+     `cellarr-sidecar-config` and the `CELLARR_PLUGINS__DOTNET_SIDECAR_*`
+     variables) is already in this file in the cutover PR: set it up as in
+     "Plugin sidecar" below, **before** step 4.
 4. Point the `lidarr` Service at cellarr. In `apps/lidarr/deployment.yaml`,
    set the Service's selector to `app.kubernetes.io/name: cellarr-shadow`.
    Octo, Prowlarr, the maintenance, sniper and mass-search jobs, Hermes and the
    Ingress keep using `lidarr:8686` unchanged.
 5. Suspend the `cellarr-shadow-diff` and `cellarr-shadow-diff-fresh` CronJobs (`suspend: true`). With Lidarr
    stopped it has nothing to compare.
+
+### Plugin sidecar (interim, before the Service flips)
+
+Soulseek and Apple Music are plugin-protocol download clients. After cutover
+cellarr drives them through a stock-Lidarr sidecar in its own Pod, exactly as
+in the step 4 rehearsal, until native Rust clients replace it. The cutover PR
+adds to `apps/cellarr-shadow`: container `lidarr-sidecar` (the rehearsal's
+digest-pinned hotio `testing-3.1.3.4987`, port 8687 on the Pod's loopback),
+init containers `install-plugin` (AppleMusicarr 0.1.2, as `apps/lidarr`) and
+`prepare-sidecar-dirs` (`mkdir -p /data/torrents/cellarr-sidecar-staging`),
+PVC `cellarr-sidecar-config` (1Gi local-path on nas, new and empty, never
+Lidarr's config) and a `NetworkPolicy` `cellarr-sidecar-egress`.
+
+**The migrated cellarr download-client and indexer rows for Slskd and
+AppleMusicarr only work once the sidecar has its twins.** Until step 5 below is
+done, searches and grabs through those two sources fail; qBittorrent is
+cellarr-native and unaffected.
+
+Isolation, as in the rehearsal: the sidecar mounts `/data/torrents` only
+(subPath `torrents`), so `/data/media/music` and Lidarr's config are not in its
+filesystem. slskd writes `/data/torrents/soulseek` and the Apple decryptor
+`/data/torrents/apple`; both are the same paths in the sidecar and in cellarr
+(which mounts all of `/data`), on one volume. Its root folder,
+`CELLARR_PLUGINS__DOTNET_SIDECAR_ROOT=/data/torrents/cellarr-sidecar-staging`,
+is the same path in both containers. Ports: cellarr owns 8686 and 9494, the
+sidecar 8687; no clash in the shared network namespace.
+
+Memory: the sidecar adds about 224 MiB idle (observed in the rehearsal, empty
+library); request 256Mi, limit 1Gi. Lidarr's own 3Gi is for the 41k-album
+library, which the sidecar never holds, and Lidarr is at `replicas: 0`.
+
+Network: `apps/lidarr`'s `app-isolation` policy selects every Pod in the
+namespace (`podSelector: {}`), so the cellarr-shadow Pod already has what
+Lidarr's Pod had: slskd (`downloads:5030`), qBittorrent, Prowlarr,
+FlareSolverr, the Apple wrapper and 443 out. slskd's ingress already admits the
+`lidarr` namespace on 5030. The one gap is the in-namespace egress to
+`applemusic-decryptor:8080` (see the table in step 4; production Lidarr has the
+same gap on paper). `apps/cellarr-shadow/networkpolicy.yaml` adds exactly that,
+from the cellarr-shadow Pod to the decryptor Pod on TCP 8080, and nothing
+broader. It is additive, so it cannot narrow anything.
+
+Because the Service flip is in the same commit as the sidecar, land the cutover
+in two pushes: the PR **without** the `lidarr` Service selector hunk in
+`apps/lidarr/deployment.yaml`, then this section, then the selector hunk as a
+second commit. (Lidarr is already at `replicas: 0` after the first push, so
+clients see errors in between either way.)
+
+1. **Create the Secret** (not in git; the command never prints the value):
+
+   ```sh
+   kubectl -n lidarr create secret generic cellarr-sidecar \
+     --from-literal=sidecar-api-key="$(openssl rand -hex 16)"
+   ```
+
+   Load it into your shell for the steps below without printing it (assign it,
+   never echo it): `SIDECAR_KEY` is the Secret's `sidecar-api-key` value.
+2. **Sync** (push the first part) and wait for the Pod:
+   `kubectl -n lidarr rollout status deploy/cellarr-shadow --timeout=10m`.
+   Check `kubectl -n lidarr logs deploy/cellarr-shadow -c prepare-sidecar-dirs`
+   and that `lidarr-sidecar` is Ready. The sidecar does not start until the
+   Secret exists.
+3. **Port-forward and helper**, as in 4.3 but for this Pod:
+
+   ```sh
+   kubectl -n lidarr port-forward deploy/cellarr-shadow 18686:8686 18687:8687
+   S=http://127.0.0.1:18687/api/v1
+   s() { curl -fsS -H "X-Api-Key: $SIDECAR_KEY" -H 'Content-Type: application/json' "$@"; }
+   s "$S/system/status" | jq '{version, appData}'        # 3.1.3.4987
+   s "$S/system/plugins" | jq '.[].name'                 # AppleMusicarr
+   s "$S/config/metadataprovider" | jq .writeAudioTags   # must be "no"
+   ```
+
+4. **Install Tubifarry** in the sidecar through the same steps as 4.4
+   (`InstallPlugin` with the `githubUrl` production reports; Lidarr restarts to
+   load it; re-open the port-forward if it drops), then confirm
+   `s "$S/downloadclient/schema" | jq -r '.[].implementation'` lists Slskd and
+   AppleMusicarr.
+5. **Create the Slskd and AppleMusicarr indexer and download client in the
+   sidecar** (`POST $S/indexer`, `POST $S/downloadclient`, bodies from the
+   schemas), with production's values (slskd URL, the decryptor URL, names and
+   settings from production Lidarr's Settings, as in 4.1) **except the
+   secrets**. Production's `apiKey` fields come back **masked** from
+   `GET /api/v1/downloadclient`, so do not copy them from that output: take the
+   real slskd key from the Secret or secret store it comes from (as the
+   rehearsal had to) and splice it into the body server-side, in a shell
+   variable, without printing it. Download paths stay
+   `/data/torrents/soulseek` and `/data/torrents/apple`. If the import cannot
+   find slskd's files because its `outputPath` is relative, use the per-album
+   remote path mapping workaround from the rehearsal.
+6. **Verify cellarr resolves them**: with cellarr's key,
+   `GET http://127.0.0.1:18686/api/v1/downloadclient` and `/indexer` list the
+   migrated Slskd and AppleMusicarr rows, and `POST .../downloadclient/test`
+   and `.../indexer/test` on each pass (they reach the sidecar's twins over
+   loopback). Only then push the Service selector hunk.
+
+Rollback: revert the cutover commit. Lidarr comes back (it never knew the
+sidecar) and the sidecar goes with the Deployment. The PVC
+`cellarr-sidecar-config` and the Secret `cellarr-sidecar` are kept
+(protect-state, and a hand-made Secret), so a re-cutover finds Tubifarry and
+the twins already configured. Delete them by hand only when you are done:
+`kubectl -n lidarr delete pvc cellarr-sidecar-config secret/cellarr-sidecar`.
 
 Watch: `kubectl -n lidarr logs -f deploy/cellarr-shadow`, then the next
 search-sniper and maintenance runs, and Octo's next hand-off.
