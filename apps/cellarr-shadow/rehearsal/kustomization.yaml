@@ -68,12 +68,12 @@ resources:
   - pvc.yaml
   - deployment.yaml
 
-# The same placeholder as ../kustomization.yaml: an all-zero digest that cannot
-# pull. Pin the same build there and here (runbook step 0).
+# The same build as ../kustomization.yaml. Pin the same build there and here
+# (runbook step 0).
 images:
   - name: cellarr
     newName: ghcr.io/keylessboi/cellarr
-    digest: sha256:587c9d143ec0fea0aad31fcbb999317de5faa92d422b2bf1c3149287c45de0f9
+    digest: sha256:651720f1b1a9d36b8ebc3be0e896c7aa0685be71ae7594eea9c95a17b8489c1b
 
 components:
   - ../../../components/protect-state
