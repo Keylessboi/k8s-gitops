@@ -29,6 +29,8 @@ metadata:
   namespace: lidarr
 spec:
   schedule: "11 4 * * *"
+  # Cutover: Lidarr is stopped, so there is nothing to compare.
+  suspend: true
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 3600
   successfulJobsHistoryLimit: 3
