@@ -521,6 +521,60 @@ def check_liveness_probe(findings: list[str], passes: list[str]) -> None:
         )
 
 
+def check_probe_reaches_listener(findings: list[str], passes: list[str]) -> None:
+    """A kubelet HTTP/TCP probe is made against the POD IP, never loopback.
+
+    A container whose listener is bound to 127.0.0.1 can therefore never pass an
+    httpGet or tcpSocket probe: the kubelet gets "connection refused" until the
+    probe's deadline. On a native-sidecar init container that stalls the whole pod
+    in Init:N/M with the main containers never started.
+
+    That is exactly what the cellarr-shadow-diff-fresh CronJob did (the bind was
+    127.0.0.1 so the diff container could reach it over the pod's shared loopback,
+    and the startupProbe that gates the diff could not). It only showed when the job
+    was run by hand. See docs/doctor-log.md 2026-11-26.
+
+    The check keys on the variable that names the bind address, because the checker
+    cannot know every app's flag: any name containing BIND or LISTEN whose value is
+    a loopback address, on a container that has an httpGet/tcpSocket probe. Use
+    0.0.0.0, or an exec probe, or drop the probe.
+    """
+    loopback = {"127.0.0.1", "localhost", "::1", "[::1]"}
+    probe_keys = ("startupProbe", "readinessProbe", "livenessProbe")
+    checked = 0
+    for path in sorted(APPS.rglob("*.yaml")):
+        if "/charts/" in str(path):
+            continue
+        rel = path.relative_to(REPO)
+        for doc in load_docs(path):
+            name = (doc.get("metadata") or {}).get("name", "<unnamed>")
+            for pod in _all_pod_specs(doc):
+                for c in (pod.get("initContainers") or []) + (pod.get("containers") or []):
+                    probes = [
+                        k for k in probe_keys
+                        if (c.get(k) or {}).get("httpGet") is not None
+                        or (c.get(k) or {}).get("tcpSocket") is not None
+                    ]
+                    if not probes:
+                        continue
+                    checked += 1
+                    for var in c.get("env") or []:
+                        vname = str(var.get("name", "")).upper()
+                        vval = str(var.get("value", "")).strip()
+                        if ("BIND" in vname or "LISTEN" in vname) and vval in loopback:
+                            findings.append(
+                                f"{rel}: {doc['kind']}/{name} container {c.get('name')!r} sets "
+                                f"{var['name']}={vval} but has an httpGet/tcpSocket "
+                                f"{'/'.join(probes)}.\n"
+                                f"    The kubelet probes the pod IP, so a loopback-only listener is\n"
+                                f"    refused until the probe's deadline (an init container then\n"
+                                f"    never finishes and the pod stays in Init:N/M).\n"
+                                f"    Bind 0.0.0.0, or use an exec probe, or drop the probe. See\n"
+                                f"    docs/doctor-log.md 2026-11-26 (cellarr-shadow-diff-fresh)."
+                            )
+    passes.append(f"{checked} probed containers: none bound to loopback")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--list", action="store_true", help="also print what passed")
@@ -535,6 +589,7 @@ def main() -> int:
     check_intra_namespace(findings, passes)
     check_fsgroup_policy(findings, passes)
     check_liveness_probe(findings, passes)
+    check_probe_reaches_listener(findings, passes)
 
     if args.list:
         print(f"--- {len(passes)} checks passed ---")
