@@ -74,7 +74,7 @@ resources:
 images:
   - name: cellarr
     newName: ghcr.io/keylessboi/cellarr
-    digest: sha256:651720f1b1a9d36b8ebc3be0e896c7aa0685be71ae7594eea9c95a17b8489c1b
+    digest: sha256:bb2241884137f214a89545ada7e9ea0011c152f1046b70721c868dcf5509cc76
 
 components:
   - ../../../components/protect-state
