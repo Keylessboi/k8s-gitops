@@ -48,14 +48,13 @@ configMapGenerator:
     files:
       - lidarr-shadow-diff.py
 
-# THE IMAGE IS NOT PUBLISHED YET. The digest below is a deliberate placeholder
-# (all zeros): it cannot pull, so the pod sits in ImagePullBackOff and does
-# nothing until a real build is pinned here. Build and pin it with the steps in
-# docs/runbooks/cellarr-cutover.md ("Build the image"), then replace `digest`.
+# Built by .github/workflows/cellarr.yaml from cellarr 5f9db8a (cutover fixes).
+# To move to a new build, follow docs/runbooks/cellarr-cutover.md ("Build the
+# image") and replace `digest` with the one the workflow prints.
 images:
   - name: cellarr
     newName: ghcr.io/keylessboi/cellarr
-    digest: sha256:587c9d143ec0fea0aad31fcbb999317de5faa92d422b2bf1c3149287c45de0f9
+    digest: sha256:651720f1b1a9d36b8ebc3be0e896c7aa0685be71ae7594eea9c95a17b8489c1b
 
 components:
   - ../../components/protect-state
