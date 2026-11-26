@@ -14,9 +14,11 @@
 # keep talking to Lidarr. Cutover and rollback: docs/runbooks/cellarr-cutover.md.
 #
 # It lives in the lidarr namespace because it reads Lidarr's PVCs, which are
-# namespaced. It ships no Namespace or NetworkPolicy of its own: apps/lidarr's
-# app-isolation policy (podSelector: {}) already covers these pods - in-namespace
-# ingress on any port, egress to lidarr:8686 and to 443 for metadata.
+# namespaced. It ships no Namespace of its own: apps/lidarr's app-isolation
+# policy (podSelector: {}) already covers these pods - in-namespace ingress on
+# any port, egress to lidarr:8686 and to 443 for metadata. The one addition is
+# networkpolicy.yaml: egress from this Pod to applemusic-decryptor:8080 for the
+# plugin sidecar (cutover interim).
 #
 # Removing this directory removes the shadow; its PVC stays (protect-state).
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -39,6 +41,7 @@ labels:
 resources:
   - pvc.yaml
   - deployment.yaml
+  - networkpolicy.yaml
   - diff-cronjob.yaml
   - diff-fresh-cronjob.yaml
 

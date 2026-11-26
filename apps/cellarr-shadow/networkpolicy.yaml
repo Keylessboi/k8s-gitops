@@ -1,0 +1,31 @@
+---
+# Cutover interim, for the plugin sidecar in the cellarr-shadow Pod.
+#
+# apps/lidarr's app-isolation policy (podSelector: {}) already covers this Pod
+# exactly as it covered Lidarr: slskd (downloads:5030), qBittorrent
+# (downloads:8080), Prowlarr, FlareSolverr, the Apple wrapper and 443 to the
+# internet are all allowed, because that policy selects by namespace, not by
+# Pod label. The one flow the sidecar needs that it does not allow is
+# in-namespace egress beyond 8686: AppleMusicarr talks to
+# applemusic-decryptor:8080 in this same namespace. Policies are additive, so
+# this adds exactly that, for this Pod only, to that Service's Pod only. The
+# decryptor's ingress already admits the lidarr namespace on any port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cellarr-sidecar-egress
+  namespace: lidarr
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cellarr-shadow
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: applemusic-decryptor
+      ports:
+        - port: 8080
+          protocol: TCP

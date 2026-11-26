@@ -7,10 +7,11 @@ metadata:
   name: lidarr
   namespace: lidarr
 spec:
-  # Stays 1, permanently. /config/lidarr.db is SQLite and single-writer, so a
-  # second replica would not share the load, it would contend on the write
-  # lock. The one-off trackFile purge that briefly took this to 0 has finished.
-  replicas: 1
+  # 0 since the cellarr cutover (docs/runbooks/cellarr-cutover.md): cellarr
+  # serves Lidarr's API behind the Service below. Lidarr's config, database and
+  # plugins are untouched, so reverting the cutover commit brings it back as it
+  # was. Never more than 1: /config/lidarr.db is SQLite and single-writer.
+  replicas: 0
   strategy:
     type: Recreate
   selector:
@@ -212,8 +213,11 @@ metadata:
   namespace: lidarr
 spec:
   type: ClusterIP
+  # Cutover: Lidarr's Service now sends every client (Octo, Prowlarr, the
+  # CronJobs, the Ingress) to cellarr on the same port. Revert this commit to
+  # send them back to Lidarr (docs/runbooks/cellarr-cutover.md, Rollback).
   selector:
-    app.kubernetes.io/name: lidarr
+    app.kubernetes.io/name: cellarr-shadow
   ports:
     - name: http
       port: 8686

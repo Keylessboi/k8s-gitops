@@ -84,6 +84,66 @@ spec:
             - name: lidarr-config
               mountPath: /lidarr-config
               readOnly: true
+        # The plugin sidecar's pieces (cutover interim; see the cutover runbook,
+        # "Plugin sidecar"). Same as apps/cellarr-shadow/rehearsal.
+        #
+        # AppleMusicarr, exactly as apps/lidarr installs it, into the SIDECAR's
+        # own /config. applemusicarr-plugin:0.1.2 is built on the NAS and
+        # imported into its containerd; there is no registry and so no digest
+        # to pin (docs/security/ssp/sa.md, SA-10). IfNotPresent, never pull;
+        # it only works because this Pod is pinned to the NAS. Conftest warns
+        # HS-WL-01 for it here as it does for apps/lidarr.
+        - name: install-plugin
+          image: applemusicarr-plugin:0.1.2
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - mkdir -p /config/plugins/travis/AppleMusicarr &&
+              cp -f /plugin/Lidarr.Plugin.AppleMusicarr.dll /plugin/plugin.json
+              /config/plugins/travis/AppleMusicarr/
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: sidecar-config
+              mountPath: /config
+        # The sidecar's root folder (staging), on the media volume, owned by
+        # uid 1000. Only mkdir -p: it never removes or changes anything that
+        # exists. Same mount as /data/torrents/soulseek and /data/torrents/apple
+        # so a staged download is a hardlink, not a copy.
+        - name: prepare-sidecar-dirs
+          image: cellarr
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              mkdir -p /data/torrents/cellarr-sidecar-staging
+              ls -ld /data/torrents/cellarr-sidecar-staging
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
       containers:
         - name: cellarr
           image: cellarr
@@ -91,9 +151,6 @@ spec:
           env:
             - name: CELLARR_DATA_DIR
               value: /cellarr
-            # Read-only: no scheduled jobs, every non-GET request refused.
-            - name: CELLARR_SHADOW
-              value: "true"
             - name: CELLARR_API__BIND
               value: 0.0.0.0
             - name: CELLARR_API__PORT
@@ -107,6 +164,20 @@ spec:
                 secretKeyRef:
                   name: lidarr-api
                   key: api-key
+            # The plugin sidecar (stock Lidarr hosting Soulseek and Apple Music
+            # plugins), over the Pod's loopback. 8687, because this container
+            # owns 8686 and 9494 in the shared network namespace.
+            - name: CELLARR_PLUGINS__DOTNET_SIDECAR_URL
+              value: http://127.0.0.1:8687
+            - name: CELLARR_PLUGINS__DOTNET_SIDECAR_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: cellarr-sidecar
+                  key: sidecar-api-key
+            # The sidecar's root folder, at the same path in both containers and
+            # on the same mount as the downloads.
+            - name: CELLARR_PLUGINS__DOTNET_SIDECAR_ROOT
+              value: /data/torrents/cellarr-sidecar-staging
           ports:
             - name: http
               containerPort: 8686
@@ -144,14 +215,85 @@ spec:
           volumeMounts:
             - name: cellarr
               mountPath: /cellarr
-            # The library and downloads at the same paths Lidarr sees, so the
-            # migrated root folders and track-file paths resolve. readOnly: the
-            # shadow never touches a file (and only Lidarr writes tags,
-            # ADR-0004).
+            # The library and downloads at the same paths Lidarr saw, so the
+            # migrated root folders and track-file paths resolve. Read-write
+            # since cutover: cellarr imports into the library in Lidarr's
+            # place. It never writes audio tags (see ADR-0004 and the
+            # cutover runbook).
             - name: data
               mountPath: /data
-              readOnly: true
             - name: tmp
+              mountPath: /tmp
+        # The plugin sidecar. INTERIM: it goes when native Rust clients replace
+        # the .NET plugins. Mirrors apps/cellarr-shadow/rehearsal.
+        - name: lidarr-sidecar
+          # The same build as apps/lidarr (hotio testing-3.1.3.4987, Lidarr's
+          # develop branch, which has System -> Plugins), pinned by the digest
+          # of its multi-arch index as in the rehearsal.
+          image: ghcr.io/hotio/lidarr:testing-3.1.3.4987@sha256:6b63373eb6578f176b20dde875a4359b5852c93868071684731ab02bf3cdffd8
+          # Lidarr itself, not hotio's s6 /init (which needs root to apply
+          # PUID/PGID).
+          command: ["/app/bin/Lidarr"]
+          args: ["--nobrowser", "--data=/config"]
+          env:
+            - name: LIDARR__SERVER__PORT
+              value: "8687"
+            # The key cellarr uses, from the hand-made Secret (not in git).
+            - name: LIDARR__AUTH__APIKEY
+              valueFrom:
+                secretKeyRef:
+                  name: cellarr-sidecar
+                  key: sidecar-api-key
+            - name: TZ
+              value: UTC
+            - name: HOME
+              value: /config
+          ports:
+            - name: sidecar
+              containerPort: 8687
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # ~224 MiB observed idle in the rehearsal (empty library). Production
+          # Lidarr's 3Gi is for a 41k-album library this sidecar never holds.
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          # Generous: a first start runs every migration on an empty database,
+          # and installing Tubifarry restarts Lidarr.
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: sidecar
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 15
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: sidecar
+            initialDelaySeconds: 120
+            periodSeconds: 60
+            timeoutSeconds: 15
+            failureThreshold: 5
+          volumeMounts:
+            - name: sidecar-config
+              mountPath: /config
+            # /data/torrents ONLY (subPath of the media volume): never
+            # /data/media/music, never production Lidarr's config.
+            - name: data
+              mountPath: /data/torrents
+              subPath: torrents
+            # Lidarr's temp folder: plugin downloads land here before they are
+            # unpacked into /config/plugins.
+            - name: sidecar-tmp
               mountPath: /tmp
       volumes:
         - name: cellarr
@@ -161,13 +303,18 @@ spec:
           persistentVolumeClaim:
             claimName: lidarr-config-nas
             readOnly: true
+        - name: sidecar-config
+          persistentVolumeClaim:
+            claimName: cellarr-sidecar-config
         - name: data
           persistentVolumeClaim:
             claimName: media-data-nas
-            readOnly: true
         - name: tmp
           emptyDir:
             sizeLimit: 256Mi
+        - name: sidecar-tmp
+          emptyDir:
+            sizeLimit: 1Gi
 ---
 apiVersion: v1
 kind: Service
