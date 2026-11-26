@@ -118,6 +118,12 @@ kubectl -n lidarr rollout restart deploy/cellarr-shadow
 (`/cellarr` holds `cellarr.sqlite` and its `-wal`/`-shm`, `MediaCover/` and
 `logs/`. Only the database goes.)
 
+The nightly `cellarr-shadow-diff-fresh` CronJob (04:11 UTC) does not need a
+re-sync: it snapshots Lidarr itself into its own scratch volume
+(`cellarr-diff-scratch`), runs a throwaway shadow cellarr in the same pod and
+diffs against that, so its log shows only differences that are not live drift.
+It needs no RBAC and never touches `cellarr-shadow`.
+
 ## 3. Verify: the gate for cutover
 
 1. Run the diff once in full, right after a re-sync. `cellarr-shadow-diff-full`
@@ -413,7 +419,7 @@ Do it in one commit, at a quiet time, with the queue empty or near it:
    set the Service's selector to `app.kubernetes.io/name: cellarr-shadow`.
    Octo, Prowlarr, the maintenance, sniper and mass-search jobs, Hermes and the
    Ingress keep using `lidarr:8686` unchanged.
-5. Suspend the `cellarr-shadow-diff` CronJob (`suspend: true`). With Lidarr
+5. Suspend the `cellarr-shadow-diff` and `cellarr-shadow-diff-fresh` CronJobs (`suspend: true`). With Lidarr
    stopped it has nothing to compare.
 
 Watch: `kubectl -n lidarr logs -f deploy/cellarr-shadow`, then the next
