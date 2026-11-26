@@ -18,6 +18,7 @@ the literal string you are seeing, then read the entry.
 
 | If you are seeing… | Start at |
 |---|---|
+| `validate` red on every push and every Renovate PR: yamllint `[new-line-at-end-of-file] no new line character at the end of file` | trailing newline lost when the last entry was cut — 2026-11-26 |
 | Octo admin panel shows Lidarr erroring; Lidarr pod `Running` but `0/1`, `OutOfMemoryException` in its log | Lidarr wedged by a .NET OOM, never OOMKilled — 2026-11-15 |
 | Octo admin panel shows octo-sonic not set up; or `/health` takes 3-5 s and Octo says "no answer in 5 s" | octo-sonic not deployed, then NFS directory listing too slow — 2026-11-15 |
 | Creating a file on any NFS volume takes seconds; Immich thumbnails slow | NFS single connection — 2026-11-21 |
@@ -174,6 +175,18 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-11-26 — validate red since Nov 21: yamllint "no new line character at the end of file"
+
+**Symptom.** The `validate` workflow failed on every push to main from ff37d4e (2026-11-21) on, and on every Renovate PR. Only the `yamllint` job was red, with `[new-line-at-end-of-file] no new line character at the end of file` in `apps/doppler/dopplersecrets.yaml`, `security/registers/publication.yaml` and `security/registers/secrets.yaml`.
+
+**Root cause.** ff37d4e and 670ecbd removed the last entries of those files, and the edit took the final newline with them (`\ No newline at end of file` in the diff). `.yamllint.yaml` keeps `new-line-at-end-of-file` as an error, so the lint job exits 1. Every other validate job passed.
+
+**Fix.** Added the missing newline to the three files. Register signatures cover each entry's parsed content (`registers.py` `payload()`), not the file bytes, so no signature changes.
+
+**Prevention.** The check already exists: yamllint caught it on the first push. What failed is that main kept taking commits while validate was red. Making `validate` a required status check on main (a repo setting) would stop that.
+
+**Confidence.** CONFIRMED. `yamllint -c .yamllint.yaml` over `git ls-files '*.yaml' '*.yml'` reports the same three errors before the fix and none after; `registers.py check` reports 0 errors.
 
 ## 2026-11-24 — Immich "doubled": 252.6 GiB of untracked duplicate originals in upload/
 
