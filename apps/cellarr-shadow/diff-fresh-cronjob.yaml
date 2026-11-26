@@ -100,8 +100,10 @@ spec:
                   value: /scratch
                 - name: CELLARR_SHADOW
                   value: "true"
+                # 0.0.0.0, not 127.0.0.1: the startupProbe below is made by the kubelet
+                # against the pod IP, so a loopback-only listener never passes it.
                 - name: CELLARR_API__BIND
-                  value: 127.0.0.1
+                  value: 0.0.0.0
                 - name: CELLARR_API__PORT
                   value: "9494"
                 - name: CELLARR_MUSIC__LIDARR_PORT

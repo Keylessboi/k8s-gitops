@@ -18,6 +18,7 @@ the literal string you are seeing, then read the entry.
 
 | If you are seeing… | Start at |
 |---|---|
+| A Job pod stuck in `Init:1/2` for the whole deadline; `Startup probe failed: Get "http://<pod-ip>:8686/ping": … connection refused` while the container's own log says it is ready on `127.0.0.1` | listener bound to loopback, probed by the kubelet on the pod IP — cellarr-shadow-diff-fresh, 2026-11-26 |
 | `validate` red on every push and every Renovate PR: yamllint `[new-line-at-end-of-file] no new line character at the end of file` | trailing newline lost when the last entry was cut — 2026-11-26 |
 | Octo admin panel shows Lidarr erroring; Lidarr pod `Running` but `0/1`, `OutOfMemoryException` in its log | Lidarr wedged by a .NET OOM, never OOMKilled — 2026-11-15 |
 | Octo admin panel shows octo-sonic not set up; or `/health` takes 3-5 s and Octo says "no answer in 5 s" | octo-sonic not deployed, then NFS directory listing too slow — 2026-11-15 |
@@ -175,6 +176,18 @@ hand (`POST /command {"name":"SearchSniper"}`, the command class in the DLL):
 After any plugin restore, POST every client and indexer to its `/test` endpoint
 and then run one real search; the test button alone would not have caught an
 empty cookie file being fine.
+
+## 2026-11-26 — cellarr-shadow-diff-fresh pod stuck in Init:1/2: startup probe "connection refused"
+
+**Symptom.** The first manual run of the new nightly diff (`kubectl create job --from=cronjob/cellarr-shadow-diff-fresh`) sat in `Init:1/2` for 11 minutes. `migrate` had finished and imported the snapshot; the `cellarr` native sidecar logged `cellarr daemon ready` on `127.0.0.1:9494` and `Lidarr-compatible listener bound addr=127.0.0.1:8686`; the pod events showed `Startup probe failed: Get "http://10.42.1.226:8686/ping": dial tcp 10.42.1.226:8686: connect: connection refused` (x22). The `diff` container never started.
+
+**Root cause.** The sidecar set `CELLARR_API__BIND=127.0.0.1`, chosen so the diff container could reach it over the pod's shared loopback. The `startupProbe` that gates the diff is made by the kubelet against the pod IP, not loopback, so a listener bound to 127.0.0.1 can never answer it. The probe is the only thing that ends the sidecar's start, so the pod would have waited out `failureThreshold: 60` x `periodSeconds: 10` and then failed. It only showed because the job was run by hand before its first 04:11 UTC run; PR #275's dry-run could not see it.
+
+**Fix.** `CELLARR_API__BIND=0.0.0.0` on the sidecar, as the always-on `cellarr-shadow` Deployment already has. The diff container still reaches it on `127.0.0.1:8686`. Pod exposure: the namespace NetworkPolicy still governs who can reach it, and the throwaway shadow is read-only, same as the Deployment.
+
+**Prevention.** `scripts/ci/check-invariants.py` `check_probe_reaches_listener`: a container with an httpGet/tcpSocket probe whose BIND/LISTEN env var is a loopback address is a finding. Verified that it fails on the original manifest and passes on the fixed tree. It keys on the variable's name, so an app that takes its bind address from a flag or a config file is not covered.
+
+**Confidence.** CONFIRMED. The one-off Job rendered from the patched manifest (`fresh-test-2`) went through `migrate`, the sidecar (probe passed) and `diff` in 226 s, where the original stalled. The Job still reports `Failed`: the diff exits non-zero on any difference and found 3, all from one track file Lidarr imported at 14:32:24Z, three minutes after the 14:29:29Z snapshot.
 
 ## 2026-11-26 — validate red since Nov 21: yamllint "no new line character at the end of file"
 
