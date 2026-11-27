@@ -118,7 +118,7 @@ kubectl -n lidarr rollout restart deploy/cellarr-shadow
 (`/cellarr` holds `cellarr.sqlite` and its `-wal`/`-shm`, `MediaCover/` and
 `logs/`. Only the database goes.)
 
-The nightly `cellarr-shadow-diff-fresh` CronJob (04:11 UTC) does not need a
+The `cellarr-shadow-diff-fresh` CronJob (04:11, 12:11 and 20:11 UTC) does not need a
 re-sync: it snapshots Lidarr itself into its own scratch volume
 (`cellarr-diff-scratch`), runs a throwaway shadow cellarr in the same pod and
 diffs against that, so its log shows only differences that are not live drift.
@@ -138,7 +138,7 @@ It needs no RBAC and never touches `cellarr-shadow`.
    root folders, indexers, download clients with their categories), artists
    and track files. The queue and the newest albums may differ by what Lidarr
    did since the snapshot, and nothing else.
-2. Let the nightly diff run for a week. Each night should look like step 1.
+2. Let the fresh diff run for a week (three runs a day). Each run should look like step 1.
    It skips the album list to spare Lidarr, so re-run the full diff once more
    just before cutover. The full album list is Lidarr's heaviest call, so run
    it when nothing else is hammering Lidarr.
