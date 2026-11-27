@@ -39,7 +39,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: bite-sized
-          image: ghcr.io/keylessboi/bite-sized@sha256:c9bd7dec7369aa7da34738386cef1d1cc64c33f812baed6a23ef2d2eec2fa1b0
+          image: ghcr.io/keylessboi/bite-sized@sha256:13f9972c9ec3117c6b3d22eab33eae41c02aba384b3ac71c77fbc215d2117ebd
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
