@@ -1,5 +1,5 @@
 ---
-# Nightly diff against a FRESH snapshot, in its own pod. The long-lived shadow
+# Diff (three times a day) against a FRESH snapshot, in its own pod. The long-lived shadow
 # is a snapshot that ages (the 2026-11-25 full diff: 27 differences, all but one
 # explained by imports after the snapshot). This Job takes today's snapshot of
 # Lidarr's database, migrates it into a scratch volume, runs a throwaway
@@ -16,10 +16,13 @@
 # throwaway cellarr runs with CELLARR_SHADOW=true (no jobs, non-GET refused).
 # The only volume written is cellarr-diff-scratch, wiped at the start of a run.
 #
-# 04:11 UTC: snapshot at ~04:12, migrate done ~04:20 (7 min in the 2026-11-25
-# resync), diff ~04:25-04:35. Clear of the search sniper's :17 for the
-# 20-second snapshot only. The older cellarr-shadow-diff at 04:41 is left
-# alone; suspend it once this one has proven itself.
+# Three runs a day, 04:11, 12:11 and 20:11 UTC, to speed up the 3-clean-run
+# cutover gate. Each run takes ~9 min (snapshot at :12, migrate ~7 min in the
+# 2026-11-25 resync, then the diff). The snapshot of Lidarr's database is ~20 s
+# of read I/O on production, which is the only load on Lidarr besides the
+# diff's GETs. Clear of the search sniper's :17 for that snapshot only. The
+# older cellarr-shadow-diff at 04:41 is untouched; suspend it once this one
+# has proven itself.
 #
 # Cutover: suspend this CronJob (runbook, cutover step 5).
 apiVersion: batch/v1
@@ -28,10 +31,10 @@ metadata:
   name: cellarr-shadow-diff-fresh
   namespace: lidarr
 spec:
-  schedule: "11 4 * * *"
+  schedule: "11 4,12,20 * * *"
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 3600
-  successfulJobsHistoryLimit: 3
+  successfulJobsHistoryLimit: 6
   failedJobsHistoryLimit: 5
   jobTemplate:
     spec:

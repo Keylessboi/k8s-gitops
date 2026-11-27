@@ -87,7 +87,7 @@ What cellarr does on this branch:
 
 5. **Gate for cutover:**
    - the full diff is clean (config, artists, track files);
-   - a week of clean nightly diffs;
+   - a week of clean fresh diffs (three runs a day);
    - the rehearsal passes.
 
    Then follow runbook steps 5 (cutover) and 6 (rollback).
