@@ -39,7 +39,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: bite-sized
-          image: ghcr.io/keylessboi/bite-sized@sha256:279fd003b07b3262806ba50eba92a1d200dfa4c570767a4199587b64cacf25af
+          image: ghcr.io/keylessboi/bite-sized@sha256:c9bd7dec7369aa7da34738386cef1d1cc64c33f812baed6a23ef2d2eec2fa1b0
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -49,6 +49,18 @@ spec:
             - name: BITES_PROFILE_KEY
               valueFrom:
                 secretKeyRef: {name: bite-sized, key: profile-encryption}
+            # Accounts: OpenID Connect against Authentik. With BITES_REQUIRE_AUTH the server refuses
+            # to start if any of this is missing, so it can never come up without a login.
+            - {name: BITES_REQUIRE_AUTH, value: "1"}
+            - {name: OIDC_ISSUER, value: "https://authentik.sandstorm.chat/application/o/homework/"}
+            - {name: OIDC_REDIRECT_URL, value: "https://homework.sandstorm.chat/auth/callback"}
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef: {name: bite-sized, key: oidc-client-id}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: bite-sized, key: oidc-client-secret}
+            - {name: BITES_MAX_WORKERS, value: "2"}
             - name: HOME
               value: /tmp
             - name: TZ
@@ -57,12 +69,12 @@ spec:
             - name: http
               containerPort: 8787
           readinessProbe:
-            httpGet: {path: /api/session, port: http}
+            httpGet: {path: /healthz, port: http}
             initialDelaySeconds: 5
             periodSeconds: 15
             timeoutSeconds: 5
           livenessProbe:
-            httpGet: {path: /api/session, port: http}
+            httpGet: {path: /healthz, port: http}
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 5
@@ -74,14 +86,14 @@ spec:
           # Chromium plus its profile in RAM; the rest of the node is already tight.
           resources:
             requests: {cpu: 100m, memory: 512Mi}
-            limits: {cpu: "2", memory: 2Gi}
+            limits: {cpu: "2", memory: 3Gi}
       volumes:
         - name: data
           persistentVolumeClaim: {claimName: bite-sized-data}
         # RAM-backed: the unpacked Chromium profile never touches disk. Counts against the
-        # memory limit, hence 2Gi above.
+        # memory limit, hence 3Gi above (two browsers at most).
         - name: run
-          emptyDir: {medium: Memory, sizeLimit: 512Mi}
+          emptyDir: {medium: Memory, sizeLimit: 768Mi}
         - name: tmp
           emptyDir: {sizeLimit: 512Mi}
         - name: shm
