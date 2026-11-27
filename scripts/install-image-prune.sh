@@ -34,7 +34,13 @@ if [ "$free" -ge "$FLOOR_GB" ]; then
   echo "free ${free}G >= floor ${FLOOR_GB}G - nothing to do"
   exit 0
 fi
-pending=$(/usr/local/bin/k3s kubectl get pods -A --field-selector=status.phase=Pending --no-headers 2>/dev/null | wc -l)
+# Listed into a variable first: piped straight into wc, a failed kubectl (the
+# API down, likely under disk pressure) counted as 0 Pending and the prune ran.
+if ! pods=$(/usr/local/bin/k3s kubectl get pods -A --field-selector=status.phase=Pending --no-headers 2>/dev/null); then
+  echo "cannot list pods - skipping prune (guard 1 cannot be checked)"
+  exit 0
+fi
+pending=$(printf "%s" "$pods" | grep -c . || true)
 if [ "$pending" -gt 0 ]; then
   echo "${pending} pod(s) Pending - skipping prune (prune-then-repull trap)"
   exit 0
