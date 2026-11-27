@@ -16,6 +16,8 @@ spec:
               kubernetes.io/metadata.name: kube-system
       ports:
         - {port: 8787, protocol: TCP}
+        # cert-manager's HTTP-01 solver pod listens here; without it no certificate is issued.
+        - {port: 8089, protocol: TCP}
   egress:
     - to:
         - namespaceSelector:
@@ -24,6 +26,15 @@ spec:
       ports:
         - {port: 53, protocol: UDP}
         - {port: 53, protocol: TCP}
+    # OIDC login: authentik.sandstorm.chat resolves to the load balancer inside the cluster, so the
+    # app reaches Authentik through Traefik (443 on the Service, 8443 on the pod). Traefik only.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 443, protocol: TCP}
+        - {port: 8443, protocol: TCP}
     # The remote browser reaches Google, school and College Board sites, and later the AI
     # API: public HTTPS only. Private ranges are excluded so a page the student visits
     # cannot be used to probe the LAN, the Tailnet or the cluster.
