@@ -96,8 +96,12 @@ helmCharts:
                 # reassigned to `immich` first (doctor-log 2026-09-30). No other
                 # breaking changes from 3.1; VectorChord range unchanged
                 # (>=0.3 <2). Renovate tracks this tag; majors are not automerged.
+                # v3.3.6 (2026-11-26): next step from 3.2.4, which the weekly Trivy
+                # scan flagged with fixable criticals. 3.3 release notes list no
+                # breaking changes, required migrations or new Postgres/VectorChord
+                # minimums; v3.3.5 carries the eMudhra CA fix.
                 # renovate: datasource=docker depName=ghcr.io/immich-app/immich-server
-                tag: v3.2.4
+                tag: v3.3.6
               env:
                 # Central Postgres, not a per-app cluster.
                 DB_HOSTNAME: app-databases-rw.databases.svc.cluster.local
@@ -192,7 +196,7 @@ helmCharts:
                   # server and ML to run the exact same version. So is the
                   # remote ML container on the backup host (docker, immich-ml).
                   # renovate: datasource=docker depName=ghcr.io/immich-app/immich-machine-learning
-                  tag: v3.2.4
+                  tag: v3.3.6
                 resources:
                   requests:
                     cpu: 250m
