@@ -47,7 +47,7 @@ jobs:
       # The web UI is embedded into the binary at compile time.
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 26
       - name: Build the web UI
         working-directory: cellarr/web
         run: |
